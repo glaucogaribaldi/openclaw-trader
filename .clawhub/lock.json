@@ -1,0 +1,1760 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-zero-bridge": {
+      "version": "1.0.0",
+      "installedAt": 1788884695567,
+      "registry": "https://clawhub.ai",
+      "ownerHandle": "dowingard",
+      "artifact": {
+        "kind": "archive",
+        "sha256": "e454ad16397af4a73c1dd9b56b5f7bcaeeb262f5111c8033902a39550a9e50f9",
+        "integrity": "sha256-5FStFjl69Kc8Hdm1a197yu6yYvURHIAzkCo5VQqeUPk="
+      },
+      "skillFile": {
+        "path": "SKILL.md",
+        "sha256": "e8a13dba2fe9e7708e940666314e9c7cd333b633792e82872c74166869f93574"
+      },
+      "verification": {
+        "schema": "clawhub.skill.verify.v1",
+        "ok": false,
+        "decision": "fail",
+        "reasons": [
+          "security.status_not_clean"
+        ],
+        "card": {
+          "available": true,
+          "path": "skill-card.md",
+          "url": "https://wry-manatee-359.convex.site/api/v1/skills/agent-zero-bridge/card?ownerHandle=dowingard&version=1.0.0",
+          "sha256": "dcaf4d77d3b4886566de48186250679a8fb032e0c2cde24720e5650ba65795b0",
+          "size": 2416,
+          "contentType": "text/markdown; charset=utf-8"
+        },
+        "artifact": {
+          "sourceFingerprint": "72e9d7cd085bd5a255100d0666d91baeff3ad1090b088c84b3be5f9f0022bbe1",
+          "bundleFingerprints": [
+            "07888063e1f9aa00237b22542add50a24b0bda680f11148996668b21f482e2e5",
+            "87cc8b7f4ca64f6e507be488d57fe456b212465474014802406678865ae10708"
+          ],
+          "files": [
+            {
+              "path": "README.md",
+              "size": 2775,
+              "sha256": "c83b0d45e98b53a5635709d21ac37f6827518009d210c6813c819d958f2dae43",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "SKILL.md",
+              "size": 3764,
+              "sha256": "e8a13dba2fe9e7708e940666314e9c7cd333b633792e82872c74166869f93574",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "scripts/a0_client.js",
+              "size": 3547,
+              "sha256": "383b512032759467d70ba36e10b9b82e1ebd22158796f69d9eda8e209afa54a2",
+              "contentType": "text/javascript"
+            },
+            {
+              "path": "scripts/clawdbot_client.js",
+              "size": 3421,
+              "sha256": "aeb5da99414beec4e36f7e12b9c27332cc7cd0a3be40548c578ddbb778982cfb",
+              "contentType": "text/javascript"
+            },
+            {
+              "path": "scripts/lib/a0_api.js",
+              "size": 4872,
+              "sha256": "32208cb96a9d05ba65d533adf215e3b92f2b8b075620cb0d9c62577bb92d033b",
+              "contentType": "text/javascript"
+            },
+            {
+              "path": "scripts/lib/clawdbot_api.js",
+              "size": 3283,
+              "sha256": "f9ea9cfb066a2b47071813fc5e104330ec4dfcc28f8f48958eb32c27b46ad8b7",
+              "contentType": "text/javascript"
+            },
+            {
+              "path": "scripts/lib/cli.js",
+              "size": 1231,
+              "sha256": "1f849b7c84c68d88292753c50d4ccb71d75f000584ea8a9f952f2a9606274bc7",
+              "contentType": "text/javascript"
+            },
+            {
+              "path": "scripts/lib/config.js",
+              "size": 1847,
+              "sha256": "9f04517672709a8dbfb001eb8c5a33631300cf4cdebbc041c86b04321d009522",
+              "contentType": "text/javascript"
+            },
+            {
+              "path": "scripts/task_breakdown.js",
+              "size": 4733,
+              "sha256": "887ecbec98cd0a940ed9c7dd8bbcfb4367593f6a89f815b77175e0e65a81a3f9",
+              "contentType": "text/javascript"
+            }
+          ]
+        },
+        "provenance": {
+          "source": "unavailable",
+          "reason": "No server-resolved GitHub import provenance is stored for this version."
+        },
+        "security": {
+          "status": "suspicious",
+          "passed": false,
+          "rawStatus": "suspicious",
+          "verdict": "suspicious",
+          "confidence": "high",
+          "summary": "The skill is a real Agent Zero bridge, but it exposes broad Clawdbot control and file-sharing paths with weak scoping and safety warnings.",
+          "model": "gpt-5.5",
+          "checkedAt": 1783649766256,
+          "signals": {
+            "staticScan": {
+              "status": "suspicious",
+              "rawStatus": "suspicious",
+              "reasonCodes": [
+                "suspicious.env_credential_access",
+                "suspicious.exposed_secret_literal"
+              ],
+              "summary": "Detected: suspicious.env_credential_access, suspicious.exposed_secret_literal",
+              "engineVersion": "v2.4.23",
+              "checkedAt": 1778395833122
+            },
+            "virusTotal": {
+              "status": "suspicious",
+              "rawStatus": "suspicious",
+              "verdict": "suspicious",
+              "analysis": "Type: OpenClaw Skill\nName: agent-zero-bridge\nVersion: 1.0.0\n\nThis skill is classified as suspicious due to its broad capabilities that significantly expand the attack surface. It allows Agent Zero to invoke *any* Clawdbot tool via the `/tools/invoke` endpoint (`scripts/clawdbot_client.js`, `scripts/lib/clawdbot_api.js`), which could lead to arbitrary command execution or file system manipulation if Clawdbot exposes such tools. Additionally, the skill can read arbitrary local files (e.g., `--attach ./file.py` in `scripts/a0_client.js`, implemented in `scripts/lib/a0_api.js`) and send their base64-encoded content to Agent Zero, posing a risk of sensitive data exfiltration if misused. While these capabilities are presented as part of the legitimate function of a powerful AI bridge, they represent high-risk behaviors without explicit malicious intent.",
+              "source": "palm",
+              "scanner": "code_insight",
+              "engineStats": {
+                "harmless": 0,
+                "malicious": 0,
+                "suspicious": 0,
+                "undetected": 65
+              },
+              "checkedAt": 1779159987071
+            },
+            "skillSpector": {
+              "status": "suspicious",
+              "rawStatus": "suspicious",
+              "score": 30,
+              "severity": "MEDIUM",
+              "recommendation": "CAUTION",
+              "issueCount": 4,
+              "scannerVersion": "2.3.5",
+              "summary": null,
+              "error": null,
+              "checkedAt": 1783649726624
+            },
+            "dependencyRegistry": null
+          }
+        },
+        "signature": {
+          "status": "unsigned"
+        }
+      }
+    },
+    "playwright": {
+      "version": "1.0.4",
+      "installedAt": 1788885646085,
+      "registry": "https://clawhub.ai",
+      "ownerHandle": "ivangdavila",
+      "artifact": {
+        "kind": "archive",
+        "sha256": "4d5c96c554c326272fce6aa8eed5f603c1f74079cb28720e09f2cfe692f75865",
+        "integrity": "sha256-TVyWxVTDJicvzmqo7tX2A8H3QHnLKHIOCfLP5pL3WGU="
+      },
+      "skillFile": {
+        "path": "SKILL.md",
+        "sha256": "7fc651f770d1ab18e1b48dac66ac58d456896d455846bb649fc635182aaac6a4"
+      },
+      "verification": {
+        "schema": "clawhub.skill.verify.v1",
+        "ok": true,
+        "decision": "pass",
+        "reasons": [],
+        "card": {
+          "available": true,
+          "path": "skill-card.md",
+          "url": "https://wry-manatee-359.convex.site/api/v1/skills/playwright/card?ownerHandle=ivangdavila&version=1.0.4",
+          "sha256": "19f554270c7418007c58911bfb93995ff7c82508e5ef769485d9c53f4aa09eae",
+          "size": 2516,
+          "contentType": "text/markdown; charset=utf-8"
+        },
+        "artifact": {
+          "sourceFingerprint": "56daf0e3a2086cb29e6b256cb9e89ad3effdd0f2a3b2fdada9b6bb02383bebf5",
+          "bundleFingerprints": [
+            "5e5d54e64cb69f02133fbffb9c16c635b3150ffd07b5d458d7fbe69d4271d7de"
+          ],
+          "files": [
+            {
+              "path": "SKILL.md",
+              "size": 21439,
+              "sha256": "7fc651f770d1ab18e1b48dac66ac58d456896d455846bb649fc635182aaac6a4",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "_meta.json",
+              "size": 425,
+              "sha256": "04f2ab2b748c0370709489d2a421efb0cdc27bb22cc0a56e46c13d2eb7e0c638",
+              "contentType": "application/json"
+            },
+            {
+              "path": "accessibility.md",
+              "size": 5304,
+              "sha256": "dec333192ba06b28f5f190c2f0bc9f9b939d30d2121f181d783d360a5b8eceaf",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "auth.md",
+              "size": 6234,
+              "sha256": "2d2e82eabe7a712045cc81f205f20e9049974f27a5ef4b342fc1c2abdd929f86",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "browsers.md",
+              "size": 5374,
+              "sha256": "d0eec11c6868894adf97f23b672cac70c5081dbc051afccbf9b67c65e9fbb2f1",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "ci-cd.md",
+              "size": 6961,
+              "sha256": "353bfb0150199f4204d18c724e984f75fbbe913c548d28fcbd86baeba0182698",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "commands.md",
+              "size": 3592,
+              "sha256": "2e33f0654716126e49fa86cf8236955858b8964afd177bedb94039f78959af9b",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "config.md",
+              "size": 4878,
+              "sha256": "f66d7202a4399d052db9dfbfe5351ca78d8e6185cb5ea55c0e831869e4cf31f8",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "contexts.md",
+              "size": 6140,
+              "sha256": "4d62f9993e7d7000ad37e684b550d378b063dbf06a91b6cdd15a4f9801eec1f3",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "debugging.md",
+              "size": 6999,
+              "sha256": "c5468b84cffac75ae9a6e2a0a2e0e1ab1b015fbbdcd188b90222603ddd7d9488",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "files.md",
+              "size": 4948,
+              "sha256": "2b927576168f682f01d11767a84cb264b60749eecc4449fb62c37bf1a7128980",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "fixtures.md",
+              "size": 3296,
+              "sha256": "0e3341960a479e359aff6ee3d11cb6228f905f2f331ed0a5450b4e08cd91aa8e",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "flake.md",
+              "size": 5570,
+              "sha256": "b66e3dbfbe78b22ad4c2ecf0617b4f1db9a7570296c17f109511792bfd8bc468",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "mcp.md",
+              "size": 5118,
+              "sha256": "4d09b3957ddee40ce513745d5d61c3639996c0eacfb699b1e6c37ef73a350e02",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "migration.md",
+              "size": 4731,
+              "sha256": "068b997f3beb3b45fa8232ef96b3cbe01c35065f539fe7aaad0dda00555c425d",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "network.md",
+              "size": 6854,
+              "sha256": "245b4447d9ca4f66ac337364f5bc146bb450811400aba1c4b20b397ebfb7f68f",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "performance.md",
+              "size": 4815,
+              "sha256": "324bece78ebf37de6d2bfd09cab3d95f67319eba98813054cebee973a71e240d",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "scraping.md",
+              "size": 5790,
+              "sha256": "22959500f803ccdbb24a060acd5ec45aaa5bdc8ac43ca1e018e509e7c5e92d99",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "selectors.md",
+              "size": 6683,
+              "sha256": "ff9ce4a3e2f46be073e68b0cbc0d8dddcc1ddeb7a2ed1332e863acab35c561e9",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "setup.md",
+              "size": 2843,
+              "sha256": "c827d9e6c5de5003456020528fff368017f1dd8f5ba2e1f685a253296cf7a412",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "testing.md",
+              "size": 5170,
+              "sha256": "43881fbcb41601556d396ab1accc0217036c5d09d5770d9b4140852d72ce88d2",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "visual.md",
+              "size": 5184,
+              "sha256": "3c2770a72c2a22fb08c4a01afc73847e127eced227a782c867067d42d2dc7ce1",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "waiting.md",
+              "size": 6886,
+              "sha256": "31c46870d6aa11d1cdc6a462d753950692ad979fca98273e96c4ade03f50df1d",
+              "contentType": "text/markdown"
+            }
+          ]
+        },
+        "provenance": {
+          "source": "unavailable",
+          "reason": "No server-resolved GitHub import provenance is stored for this version."
+        },
+        "security": {
+          "status": "clean",
+          "passed": true,
+          "rawStatus": "clean",
+          "verdict": "benign",
+          "confidence": "high",
+          "summary": "This Playwright skill is a coherent browser automation guide with disclosed installs, local preference storage, and explicit safety guardrails for credentials, production use, destructive flows, and scraping.",
+          "model": null,
+          "checkedAt": 1785067210036,
+          "signals": {
+            "staticScan": {
+              "status": "suspicious",
+              "rawStatus": "suspicious",
+              "reasonCodes": [
+                "suspicious.prompt_injection_instructions"
+              ],
+              "summary": "Detected: suspicious.prompt_injection_instructions",
+              "engineVersion": "v2.4.26",
+              "checkedAt": 1785066226323
+            },
+            "virusTotal": {
+              "status": "clean",
+              "rawStatus": "clean",
+              "verdict": null,
+              "analysis": null,
+              "source": "engines",
+              "scanner": null,
+              "engineStats": {
+                "harmless": 0,
+                "malicious": 0,
+                "suspicious": 0,
+                "undetected": 64
+              },
+              "checkedAt": 1785067021514
+            },
+            "skillSpector": {
+              "status": "clean",
+              "rawStatus": "clean",
+              "score": 0,
+              "severity": "LOW",
+              "recommendation": "SAFE",
+              "issueCount": 0,
+              "scannerVersion": "2.3.5",
+              "summary": null,
+              "error": null,
+              "checkedAt": 1785067210036
+            },
+            "dependencyRegistry": null
+          }
+        },
+        "signature": {
+          "status": "unsigned"
+        }
+      }
+    },
+    "okx-trade": {
+      "version": "1.0.1",
+      "registry": "https://clawhub.ai",
+      "ownerHandle": "chingchiu169",
+      "installedAt": 1789311536902,
+      "artifact": {
+        "kind": "archive",
+        "sha256": "b59c447e617cefa9f7e87ee5b949b81eaac49d5b7cf1eb054a61f3714ff5efd4",
+        "integrity": "sha256-tZxEfmF876n36H7luUm4HqrEnVt88esFSmHzcU/179Q="
+      },
+      "skillFile": {
+        "path": "SKILL.md",
+        "sha256": "07fb3885c5d2f017fee9e230ad1a8d7faebb016315437c8f94a3c734c2b91bc9"
+      },
+      "fileTreeSha256": "sha256:43c6b210f3fe9f5011e1f75b322ab2ca6505454faa661f51ef3f7474520d3e92",
+      "verification": {
+        "schema": "clawhub.skill.verify.v1",
+        "ok": false,
+        "decision": "fail",
+        "reasons": [
+          "security.status_not_clean"
+        ],
+        "card": {
+          "available": true,
+          "path": "skill-card.md",
+          "url": "https://wry-manatee-359.convex.site/api/v1/skills/okx-trade/card?ownerHandle=chingchiu169&version=1.0.1",
+          "sha256": "ecad29de26a81a247331966c0bc15c583d017236059283d34a912e109a535e2c",
+          "size": 2345,
+          "contentType": "text/markdown; charset=utf-8"
+        },
+        "artifact": {
+          "sourceFingerprint": "481839edbb3b4638296d37af87162b05da65a37527e68a52338eb50016499dba",
+          "bundleFingerprints": [
+            "1b9999aaed5c2e6e06dad36c0e978749963b197cd4a5168849219b6c909ac798",
+            "0acb1de02bd994117ec1d0f33f2e0f937e847891c79a31d104e360467ecfa896"
+          ],
+          "files": [
+            {
+              "path": "SKILL.md",
+              "size": 5374,
+              "sha256": "07fb3885c5d2f017fee9e230ad1a8d7faebb016315437c8f94a3c734c2b91bc9",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "references/tools-reference.md",
+              "size": 2878,
+              "sha256": "1b9a5181b8089515e971ed5c1f4b35264a72776aa1785314199e740d871f1b80",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "references/mcp-setup.md",
+              "size": 1855,
+              "sha256": "c6be0bc398810198af299decaab115c37b474c0a5cd5bc76137e46b7c0f23e33",
+              "contentType": "text/markdown"
+            }
+          ]
+        },
+        "provenance": {
+          "source": "unavailable",
+          "reason": "No server-resolved GitHub import provenance is stored for this version."
+        },
+        "security": {
+          "status": "suspicious",
+          "passed": false,
+          "rawStatus": "suspicious",
+          "verdict": "suspicious",
+          "confidence": "high",
+          "summary": "This OKX trading skill fits its stated purpose, but it asks users to install mutable packages and store exchange credentials for live trading without enough hardening.",
+          "model": null,
+          "checkedAt": 1789192602747,
+          "scannerReports": {
+            "aig": {
+              "version": "2.1.0",
+              "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/Schemata/sarif-schema-2.1.0.json",
+              "runs": [
+                {
+                  "tool": {
+                    "driver": {
+                      "name": "aig-skill-scan",
+                      "version": "0.2.1",
+                      "informationUri": "https://github.com/Tencent/AI-Infra-Guard",
+                      "rules": [
+                        {
+                          "id": "T01",
+                          "name": "Skill Instruction Hijacking",
+                          "shortDescription": {
+                            "text": "Alters the agent's current session goals or safety constraints when the skill is loaded"
+                          }
+                        },
+                        {
+                          "id": "T02",
+                          "name": "Agent Memory Poisoning",
+                          "shortDescription": {
+                            "text": "Writes attacker-controlled rules into persistent memory so they continue to affect future sessions"
+                          }
+                        },
+                        {
+                          "id": "T03",
+                          "name": "Remote Payload Retrieval and Execution",
+                          "shortDescription": {
+                            "text": "Fetches code from an external URL, allowing the effective payload to change after skill review"
+                          }
+                        },
+                        {
+                          "id": "T04",
+                          "name": "Embedded Malicious Code",
+                          "shortDescription": {
+                            "text": "Ships malicious scripts inside the skill package and executes them locally when invoked"
+                          }
+                        },
+                        {
+                          "id": "T05",
+                          "name": "Unauthorized Access and Privilege Escalation",
+                          "shortDescription": {
+                            "text": "Breaks least-privilege boundaries by obtaining permissions beyond the task's legitimate needs"
+                          }
+                        },
+                        {
+                          "id": "T06",
+                          "name": "System Persistence",
+                          "shortDescription": {
+                            "text": "Installs cross-session backdoors, hooks, services, or scheduled tasks that survive the skill run"
+                          }
+                        },
+                        {
+                          "id": "T07",
+                          "name": "Tool Hijacking and Spoofing",
+                          "shortDescription": {
+                            "text": "Modifies, wraps, spoofs, or replaces tools so legitimate-looking calls execute attacker logic"
+                          }
+                        },
+                        {
+                          "id": "T08",
+                          "name": "Insecure Dependencies",
+                          "shortDescription": {
+                            "text": "Introduces malicious packages or components through dependency confusion, typosquatting, or unsafe sources"
+                          }
+                        },
+                        {
+                          "id": "T09",
+                          "name": "Insecure Skill Coding Practices",
+                          "shortDescription": {
+                            "text": "Exposes exploitable flaws such as hardcoded secrets, command injection, plaintext sensitive data, or unsafe temp files"
+                          }
+                        },
+                        {
+                          "id": "other",
+                          "name": "Other Risk",
+                          "shortDescription": {
+                            "text": "Security issues not covered by the T01-T09 classification"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "results": [
+                    {
+                      "ruleId": "T08",
+                      "level": "warning",
+                      "message": {
+                        "text": "Unpinned Third-Party Package Installation and Execution"
+                      },
+                      "locations": [
+                        {
+                          "physicalLocation": {
+                            "artifactLocation": {
+                              "uri": "SKILL.md"
+                            },
+                            "region": {
+                              "startLine": 20,
+                              "endLine": 48
+                            }
+                          }
+                        }
+                      ],
+                      "partialFingerprints": {
+                        "primaryLocationLineHash": "0f0ce171e2149f9c"
+                      },
+                      "properties": {
+                        "description": "## Vulnerability Details\n  **File Location**: `SKILL.md:20,48`  \n  **Vulnerability Type**: Unpinned npm/npx supply-chain dependency  \n  **Risk Level**: Medium\n\n  **Vulnerable Code**:\n\n  ```text\n  1. **Skills（OpenClaw 用戶首選）** — `npx skills add okx/agent-skills`，一行搞掂\n  ```\n\n  ```text\n  Run `npx skills add okx/agent-skills`, resolve any issues you encounter, then check the BTC price.\n  ```\n\n  ### Technical Analysis\n\n  The Skill directs the agent to retrieve and execute the current registry-resolved version of `okx/agent-skills` through `npx`. It does not pin a reviewed version, verify a package digest or signature, or require inspection of the resolved package. Consequently, the code that executes can differ from the code present when this Skill was audited.\n\n  The broad instruction to “resolve any issues you encounter” also gives the agent discretion while installing external code. Although this is not itself evidence of malicious behavior, it increases the consequences of unsafe package output or installation instructions.\n\n  ### Attack Path\n\n  1. An attacker compromises the referenced package, its publisher account, or a transitive dependency.\n  2. The attacker publishes a malicious release under the package reference used by the Skill.\n  3. A user or agent follows the documented `npx skills add okx/agent-skills` instruction.\n  4. `npx` resolves and downloads the mutable package content.\n  5. Package or lifecycle code executes with the invoking user's privileges.\n  6. The malicious code may read local files, modify the agent environment, or target subsequently configured OKX credentials.\n\n  ### Impact Assessment\n\n  Successful exploitation could provide arbitrary code execution under the invoking user's account. The accessible scope may include user-readable files, agent configuration, installed skills, and any OKX credentials stored in `~/.okx/config.toml`. If exposed credentials have live trading permission, an attacker could submit or manipulate trades within the API key's authorized scope. The Skill explicitly advises disabling withdrawal permission, which can reduce—but does not eliminate—the potential financial impact.",
+                        "severity": "Medium"
+                      },
+                      "fixes": [
+                        {
+                          "description": {
+                            "text": "## Remediation Suggestions\n\n  - Pin the dependency to a specific, reviewed release rather than resolving the latest available version.\n  - Verify package provenance, signatures, and integrity hashes before execution.\n  - Document the expected publisher, registry, version, and checksum.\n  - Review package lifecycle scripts and transitive dependencies before recommending installation.\n  - Prefer installation in a restricted or isolated environment without access to trading credentials.\n  - Configure credentials only after package validation is complete.\n  - Replace the open-ended instruction to resolve arbitrary installation issues with narrowly scoped, documented troubleshooting steps."
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "ruleId": "T08",
+                      "level": "warning",
+                      "message": {
+                        "text": "Unpinned Global Installation of Trading Packages"
+                      },
+                      "locations": [
+                        {
+                          "physicalLocation": {
+                            "artifactLocation": {
+                              "uri": "references/mcp-setup.md"
+                            },
+                            "region": {
+                              "startLine": 4,
+                              "endLine": 7
+                            }
+                          }
+                        }
+                      ],
+                      "partialFingerprints": {
+                        "primaryLocationLineHash": "97437644029804f3"
+                      },
+                      "properties": {
+                        "description": "## Vulnerability Details\n  **File Location**: `references/mcp-setup.md:4-7`  \n  **Vulnerability Type**: Unpinned global npm dependencies  \n  **Risk Level**: Medium\n\n  **Vulnerable Code**:\n\n  ```bash\n  npm install -g @okx_ai/okx-trade-mcp @okx_ai/okx-trade-cli\n  ```\n\n  ### Technical Analysis\n\n  The setup guide globally installs two mutable npm packages without exact version constraints, a lockfile, integrity hashes, or signature verification. npm installation can execute package lifecycle scripts, and global installation places commands into shared executable locations associated with the user's npm environment.\n\n  The audited project contains no local implementation of these packages, so their effective behavior is outside the reviewed artifact and may change independently after this audit.\n\n  ### Attack Path\n\n  1. An attacker compromises either npm package, a maintainer account, or a transitive dependency.\n  2. A malicious version is published to the package registry.\n  3. A user follows the documented global installation command.\n  4. npm downloads the malicious current release and may execute its lifecycle scripts.\n  5. The installed binaries persist in the user's global npm command path.\n  6. Malicious code can access files available to the invoking user, including OKX configuration created during later setup.\n\n  ### Impact Assessment\n\n  Exploitation could result in arbitrary code execution with the privileges of the account running npm. The attacker could access user files, alter globally installed command-line tools, or steal plaintext OKX API credentials. Compromised trading credentials may permit account inspection and unauthorized trading according to the permissions assigned to the key. System-wide impact would be greater if the command were run with elevated privileges, although the documentation does not instruct users to use `sudo` or another privilege-escalation mechanism.",
+                        "severity": "Medium"
+                      },
+                      "fixes": [
+                        {
+                          "description": {
+                            "text": "## Remediation Suggestions\n\n  - Specify exact reviewed versions for both packages.\n  - Publish and verify cryptographic integrity values or trusted signatures.\n  - Use a lockfile or equivalent reproducible dependency manifest where possible.\n  - Avoid global installation; prefer a project-local or isolated installation with restricted filesystem access.\n  - Audit lifecycle scripts and transitive dependencies before deployment.\n  - Ensure installation occurs before sensitive credentials are created or made available.\n  - Explicitly warn users not to run the installation with elevated privileges."
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "ruleId": "T09",
+                      "level": "warning",
+                      "message": {
+                        "text": "Plaintext API Credential File Created Without Enforced Restrictive Permissions"
+                      },
+                      "locations": [
+                        {
+                          "physicalLocation": {
+                            "artifactLocation": {
+                              "uri": "SKILL.md"
+                            },
+                            "region": {
+                              "startLine": 64,
+                              "endLine": 77
+                            }
+                          }
+                        }
+                      ],
+                      "partialFingerprints": {
+                        "primaryLocationLineHash": "75b7c0741faf1720"
+                      },
+                      "properties": {
+                        "description": "## Vulnerability Details\n  **File Location**: `SKILL.md:64-77`  \n  **Vulnerability Type**: Insecure storage permissions for plaintext secrets  \n  **Risk Level**: Medium\n\n  **Vulnerable Code**:\n\n  ```bash\n  mkdir -p ~/.okx &amp;&amp; cat &gt; ~/.okx/config.toml &lt;&lt; 'EOF'\n  default_profile = \"demo\"\n\n  [profiles.live]\n  api_key    = \"your-live-api-key\"\n  secret_key = \"your-live-secret-key\"\n  passphrase = \"your-live-passphrase\"\n\n  [profiles.demo]\n  api_key    = \"your-demo-api-key\"\n  secret_key = \"your-demo-secret-key\"\n  passphrase = \"your-demo-passphrase\"\n  demo       = true\n  EOF\n  ```\n\n  ### Technical Analysis\n\n  The documented command stores live and demo API credentials in a plaintext TOML file. It does not explicitly set the `~/.okx` directory to mode `0700` or the credential file to mode `0600`. The resulting permissions therefore depend on the user's current umask and any pre-existing directory or file permissions.\n\n  On a multi-user host or an environment with permissive defaults, another local account or process may be able to read the file. The command also overwrites an existing file without first validating its ownership, type, or permissions, creating additional risk if the path has been manipulated.\n\n  ### Attack Path\n\n  1. A user runs the documented command under a permissive umask or with an inadequately protected pre-existing `~/.okx` directory.\n  2. The user replaces the placeholders with real live or demo credentials.\n  3. The resulting `config.toml` is readable by another local user or compromised process.\n  4. The attacker copies the API key, secret key, and passphrase.\n  5. The attacker authenticates to OKX and performs actions allowed by the key.\n  6. If live trading permission is enabled, the attacker can inspect account data or submit unauthorized trades.\n\n  ### Impact Assessment\n\n  Exposure grants the attacker the capabilities assigned to the compromised API key. This may include reading balances and positions, viewing account activity, changing leverage, or placing and canceling spot, futures, swap, options, DCA, or grid-bot orders. Direct withdrawal risk is reduced if users follow the Skill's recommendation not to grant withdrawal permission, but unauthorized trading can still cause substantial financial loss.",
+                        "severity": "Medium"
+                      },
+                      "fixes": [
+                        {
+                          "description": {
+                            "text": "## Remediation Suggestions\n\n  - Create the directory with an explicit restrictive mode:\n    ```bash\n    install -d -m 700 \"$HOME/.okx\"\n    ```\n  - Create and maintain the configuration file with mode `0600`, and verify that it is a regular file owned by the current user.\n  - Set a restrictive umask such as `umask 077` before creating the file.\n  - Avoid overwriting an existing path until ownership, permissions, and symbolic-link status have been validated.\n  - Prefer an operating-system credential manager or secret store when supported.\n  - Continue requiring subaccount keys, least-privilege API permissions, demo-first testing, and no withdrawal permission.\n  - Add periodic key rotation and immediate revocation procedures for suspected exposure."
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "ruleId": "T09",
+                      "level": "warning",
+                      "message": {
+                        "text": "Manual MCP Credential Configuration Does Not Enforce File Permissions"
+                      },
+                      "locations": [
+                        {
+                          "physicalLocation": {
+                            "artifactLocation": {
+                              "uri": "references/mcp-setup.md"
+                            },
+                            "region": {
+                              "startLine": 23,
+                              "endLine": 38
+                            }
+                          }
+                        }
+                      ],
+                      "partialFingerprints": {
+                        "primaryLocationLineHash": "557cc0f78c647ced"
+                      },
+                      "properties": {
+                        "description": "## Vulnerability Details\n  **File Location**: `references/mcp-setup.md:23-38`  \n  **Vulnerability Type**: Plaintext secret storage without permission-hardening guidance  \n  **Risk Level**: Medium\n\n  **Vulnerable Code**:\n\n  ```toml\n  default_profile = \"demo\"\n\n  [profiles.demo]\n  api_key    = \"your-demo-api-key\"\n  secret_key = \"your-demo-secret-key\"\n  passphrase = \"your-demo-passphrase\"\n  demo       = true\n\n  [profiles.live]\n  api_key    = \"your-live-api-key\"\n  secret_key = \"your-live-secret-key\"\n  passphrase = \"your-live-passphrase\"\n  # 歐洲用戶加: site = \"eea\"\n  # 美國用戶加: site = \"us\"\n  ```\n\n  ### Technical Analysis\n\n  The MCP setup guide instructs users to place complete API authentication material in `~/.okx/config.toml`, but it does not require verification or enforcement of restrictive ownership and permissions. The preceding interactive wizard may create secure permissions, but the audited documentation does not establish that behavior, and the explicitly offered manual method provides no hardening steps.\n\n  Because both demo and live credentials are held in one plaintext file, compromise of that file exposes every configured profile simultaneously.\n\n  ### Attack Path\n\n  1. A user manually creates `~/.okx/config.toml` with editor defaults or a permissive umask.\n  2. The user enters valid API credentials for demo and live profiles.\n  3. Another local user or compromised application reads the insufficiently protected file.\n  4. The attacker extracts all configured credentials.\n  5. The attacker invokes account or trading APIs within each key's granted permissions.\n\n  ### Impact Assessment\n\n  The attacker may gain read access to account balances, positions, bills, and fees, as well as trading functions if those permissions are enabled. Live keys may enable unauthorized orders, leverage changes, position closure, or automated trading strategies. The maximum scope remains bounded by the API permissions and account isolation selected by the user.",
+                        "severity": "Medium"
+                      },
+                      "fixes": [
+                        {
+                          "description": {
+                            "text": "## Remediation Suggestions\n\n  - Add mandatory instructions to set `~/.okx` to `0700` and `config.toml` to `0600`.\n  - Require the setup wizard to enforce and validate ownership and permissions.\n  - Warn users when the configuration file is a symbolic link, is owned by another account, or is readable by group/other users.\n  - Store secrets in a platform credential manager where integration permits.\n  - Separate live and demo credentials if operationally practical to reduce the blast radius of one file disclosure.\n  - Use dedicated subaccount keys with only necessary read/trade permissions and no withdrawal permission.\n  - Document credential rotation, revocation, and local compromise response procedures."
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "securityScore": 0,
+                    "primaryLanguage": "Markdown",
+                    "llm": "gpt-5.6",
+                    "startTime": 1789192508.3598723,
+                    "endTime": 1789192571.5399032
+                  }
+                }
+              ]
+            },
+            "skillspector": {
+              "skill": {
+                "name": "okx-agent-tradekit",
+                "source": "/tmp/clawhub-codex-scan-v57bet4xg64c7q8abjenq1nrad8e9bs0-PjmW6C/clawscan-skillspector-794177694/artifact",
+                "scanned_at": "2026-09-12T05:55:07.600991+00:00"
+              },
+              "risk_assessment": {
+                "score": 58,
+                "severity": "HIGH",
+                "recommendation": "DO_NOT_INSTALL",
+                "max_issue_severity": "MEDIUM"
+              },
+              "components": [
+                {
+                  "path": "SKILL.md",
+                  "type": "markdown",
+                  "lines": 157,
+                  "executable": false,
+                  "size_bytes": 5374,
+                  "source_url": null,
+                  "source_identity": null,
+                  "source_digest": null
+                },
+                {
+                  "path": "references/mcp-setup.md",
+                  "type": "markdown",
+                  "lines": 72,
+                  "executable": false,
+                  "size_bytes": 1855,
+                  "source_url": null,
+                  "source_identity": null,
+                  "source_digest": null
+                },
+                {
+                  "path": "references/tools-reference.md",
+                  "type": "markdown",
+                  "lines": 90,
+                  "executable": false,
+                  "size_bytes": 2878,
+                  "source_url": null,
+                  "source_identity": null,
+                  "source_digest": null
+                }
+              ],
+              "structured_summaries": [],
+              "issues": [
+                {
+                  "id": "SQP-3",
+                  "finding_id": "finding-55902735eb41482094ed6e76b63dcbaf",
+                  "category": null,
+                  "pattern": null,
+                  "severity": "MEDIUM",
+                  "confidence": 0.95,
+                  "location": {
+                    "file": "SKILL.md",
+                    "start_line": 13,
+                    "end_line": 157
+                  },
+                  "finding": null,
+                  "explanation": "The skill body is written almost entirely in Cantonese/Traditional Chinese and does not indicate that users may request another language. This can violate a language/locale policy when the skill imposes a specific language without opt-in or an explicit justified regional constraint.",
+                  "remediation": "State that the skill can respond in the user's preferred language, or add an explicit language-choice/opt-in note near the top of the document. If the skill is intentionally region-specific, document that constraint and justification clearly.",
+                  "code_snippet": null,
+                  "intent": null,
+                  "tags": [
+                    "llm-unconfirmed"
+                  ],
+                  "evidence": {},
+                  "match_fingerprint": null,
+                  "occurrences": [
+                    {
+                      "file": "SKILL.md",
+                      "start_line": 13,
+                      "end_line": 157
+                    }
+                  ]
+                },
+                {
+                  "id": "RP1",
+                  "finding_id": "finding-ab6afecdb2b944c281c233b5b3c4a1fd",
+                  "category": "MCP Rug Pull",
+                  "pattern": null,
+                  "severity": "MEDIUM",
+                  "confidence": 0.81,
+                  "location": {
+                    "file": "SKILL.md",
+                    "start_line": 20,
+                    "end_line": null
+                  },
+                  "finding": null,
+                  "explanation": "The skill tells users to run `npx skills add okx/agent-skills` without pinning a specific package version or integrity-verified source. Because `npx` resolves and executes the latest package at install time, a compromised upstream package or breaking update could cause users to run unexpected code in a high-trust installation flow.",
+                  "remediation": "Pin an exact package version (for example, `npx skills@<exact-version> add okx/agent-skills@<exact-version>` if supported), or provide a lockfile/verified installation method. Document how to verify package publisher/source and prefer reproducible installs over floating latest-version execution.",
+                  "code_snippet": null,
+                  "intent": null,
+                  "tags": [
+                    "ASI16"
+                  ],
+                  "evidence": {},
+                  "match_fingerprint": "2b5664f2a936abba4141331e7b3e83205cce617d2cea9af83aa306db07500782",
+                  "occurrences": [
+                    {
+                      "file": "SKILL.md",
+                      "start_line": 20,
+                      "end_line": null
+                    }
+                  ]
+                },
+                {
+                  "id": "RP1",
+                  "finding_id": "finding-59455a822831412a99d25df902470919",
+                  "category": "MCP Rug Pull",
+                  "pattern": null,
+                  "severity": "MEDIUM",
+                  "confidence": 0.96,
+                  "location": {
+                    "file": "SKILL.md",
+                    "start_line": 48,
+                    "end_line": null
+                  },
+                  "finding": null,
+                  "explanation": "This instruction directly tells the user to execute `npx skills add okx/agent-skills` in chat, again without pinning a version. That creates a real supply-chain risk because the command fetches and runs remote code dynamically, and the conversational setting may reduce scrutiny before execution.",
+                  "remediation": "Replace the floating `npx` command with a version-pinned install command and link to a trusted release page. Add verification guidance such as expected package name, publisher, checksum/signature if available, and warn users to review requested permissions before running it.",
+                  "code_snippet": null,
+                  "intent": null,
+                  "tags": [
+                    "ASI16"
+                  ],
+                  "evidence": {},
+                  "match_fingerprint": "2b5664f2a936abba4141331e7b3e83205cce617d2cea9af83aa306db07500782",
+                  "occurrences": [
+                    {
+                      "file": "SKILL.md",
+                      "start_line": 48,
+                      "end_line": null
+                    }
+                  ]
+                },
+                {
+                  "id": "RA2",
+                  "finding_id": "finding-bd487c79632b41d9863fe6a6737b99e4",
+                  "category": "Rogue Agent",
+                  "pattern": "Session Persistence",
+                  "severity": "MEDIUM",
+                  "confidence": 0.93,
+                  "location": {
+                    "file": "SKILL.md",
+                    "start_line": 64,
+                    "end_line": null
+                  },
+                  "finding": "mkdir -p ~/.okx && cat > ~/.okx/config.toml << 'EOF'\ndefault_profile = \"demo\"\n\n[profiles.live]\napi_key    = \"your-live-api-key\"\nsecret_key = \"your-live-secret-key\"\npassphrase = \"your-live-passphrase\"\n",
+                  "explanation": "The skill instructs users to create a persistent plaintext config file in `~/.okx/config.toml` containing live and demo API credentials. Storing exchange secrets unencrypted on disk increases the chance of credential theft through local compromise, backups, shell-history leakage during setup, or accidental file exposure, and these credentials can enable trading actions on a financial account.",
+                  "remediation": "Do not instruct users to paste secrets into a heredoc that writes plaintext credentials to disk. Prefer OS keychain/secret manager storage, environment variables loaded from a secure vault, or an interactive setup command that stores secrets encrypted with restricted permissions; at minimum, create the file with `chmod 600`, separate demo/live profiles, and avoid embedding example secret fields in shell commands.",
+                  "code_snippet": "打開 **Terminal**，執行：\n\n```bash\nmkdir -p ~/.okx && cat > ~/.okx/config.toml << 'EOF'\ndefault_profile = \"demo\"\n\n[profiles.live]",
+                  "intent": null,
+                  "tags": [
+                    "Rogue Agent"
+                  ],
+                  "evidence": {},
+                  "match_fingerprint": "843e1e6ab96f59109f4963ae9cf863ac1e949f84b3aacca6c5178830fcacf4db",
+                  "occurrences": [
+                    {
+                      "file": "SKILL.md",
+                      "start_line": 64,
+                      "end_line": null
+                    }
+                  ]
+                },
+                {
+                  "id": "SQP-2",
+                  "finding_id": "finding-1012afea63e74709b944f1b661fa3059",
+                  "category": null,
+                  "pattern": null,
+                  "severity": "MEDIUM",
+                  "confidence": 0.95,
+                  "location": {
+                    "file": "references/mcp-setup.md",
+                    "start_line": 14,
+                    "end_line": 39
+                  },
+                  "finding": null,
+                  "explanation": "The setup instructs users to store live and demo API credentials in ~/.okx/config.toml without warning that the file contains highly sensitive trading secrets in local plaintext. In this skill's context, exposed credentials can enable unauthorized account access, data theft, or real-money trading, making the omission materially dangerous.",
+                  "remediation": "Add explicit warnings that the config file contains sensitive secrets and must be protected with strict filesystem permissions. Recommend OS keychain/secret manager integration if supported, avoid embedding live examples with plaintext secrets, document permission hardening (for example chmod 600), and advise using least-privilege API keys with withdrawal disabled.",
+                  "code_snippet": null,
+                  "intent": null,
+                  "tags": [],
+                  "evidence": {},
+                  "match_fingerprint": null,
+                  "occurrences": [
+                    {
+                      "file": "references/mcp-setup.md",
+                      "start_line": 14,
+                      "end_line": 39
+                    }
+                  ]
+                },
+                {
+                  "id": "SDI-4",
+                  "finding_id": "finding-61ffa4c4c8c945b9befe1d3bc82c8b25",
+                  "category": null,
+                  "pattern": null,
+                  "severity": "MEDIUM",
+                  "confidence": 0.92,
+                  "location": {
+                    "file": "references/mcp-setup.md",
+                    "start_line": 63,
+                    "end_line": 72
+                  },
+                  "finding": null,
+                  "explanation": "The document claims a safety layer where money-related tools are labeled and the AI will confirm first, but it also provides live trading launch commands that do not visibly enforce confirmation or read-only restrictions. In an AI-driven trading context, this mismatch can create dangerous overtrust and may lead users to enable live trading under the false assumption that destructive actions are always gated.",
+                  "remediation": "Remove or qualify any claim that the AI will always confirm before money-related actions unless that behavior is technically enforced. Document the exact enforcement conditions, default to demo or read-only examples, and require explicit opt-in plus clear warnings before showing live trading commands.",
+                  "code_snippet": null,
+                  "intent": null,
+                  "tags": [],
+                  "evidence": {},
+                  "match_fingerprint": null,
+                  "occurrences": [
+                    {
+                      "file": "references/mcp-setup.md",
+                      "start_line": 63,
+                      "end_line": 72
+                    }
+                  ]
+                },
+                {
+                  "id": "SQP-2",
+                  "finding_id": "finding-e6426c15db914a0a8eaba128c85206fb",
+                  "category": null,
+                  "pattern": null,
+                  "severity": "MEDIUM",
+                  "confidence": 0.92,
+                  "location": {
+                    "file": "references/tools-reference.md",
+                    "start_line": 20,
+                    "end_line": 86
+                  },
+                  "finding": null,
+                  "explanation": "The document enumerates numerous account- and market-affecting tools such as order placement, leverage changes, position closing, and bot creation without any adjacent warning about real-money consequences, liquidation risk, or the need for explicit user confirmation before execution. In the context of an AI trading skill, this omission increases the chance that an agent or user treats these tools as routine informational functions and triggers irreversible financial actions without sufficient caution.",
+                  "remediation": "Add prominent warnings before all trading/account modules stating that these tools can place live orders, modify leverage, close positions, and create automated strategies with real financial risk. Require explicit confirmation flows for destructive actions, clearly distinguish read-only vs trading tools, and recommend demo/sandbox mode by default until the user intentionally opts into live trading.",
+                  "code_snippet": null,
+                  "intent": null,
+                  "tags": [],
+                  "evidence": {},
+                  "match_fingerprint": null,
+                  "occurrences": [
+                    {
+                      "file": "references/tools-reference.md",
+                      "start_line": 20,
+                      "end_line": 86
+                    }
+                  ]
+                },
+                {
+                  "id": "SQP-3",
+                  "finding_id": "finding-ab9fd95d78654ca2bb4a5bf10a1446f9",
+                  "category": null,
+                  "pattern": null,
+                  "severity": "LOW",
+                  "confidence": 0.9,
+                  "location": {
+                    "file": "references/mcp-setup.md",
+                    "start_line": 1,
+                    "end_line": 72
+                  },
+                  "finding": null,
+                  "explanation": "The setup guide is written entirely in Cantonese/Traditional Chinese, with no indication that other language options are available. Under the stated policy, forcing a specific language without user opt-in is a natural-language policy concern unless the locale restriction is explicitly documented and justified.",
+                  "remediation": "Offer a language choice or link to alternative language versions, or explicitly document that this guide is intended for a specific locale/audience and provide justification.",
+                  "code_snippet": null,
+                  "intent": null,
+                  "tags": [
+                    "llm-unconfirmed"
+                  ],
+                  "evidence": {},
+                  "match_fingerprint": null,
+                  "occurrences": [
+                    {
+                      "file": "references/mcp-setup.md",
+                      "start_line": 1,
+                      "end_line": 72
+                    }
+                  ]
+                },
+                {
+                  "id": "SQP-3",
+                  "finding_id": "finding-98ac62db35b74e13b1067557ee24e1ee",
+                  "category": null,
+                  "pattern": null,
+                  "severity": "LOW",
+                  "confidence": 0.84,
+                  "location": {
+                    "file": "references/tools-reference.md",
+                    "start_line": 1,
+                    "end_line": 90
+                  },
+                  "finding": null,
+                  "explanation": "The file is written entirely in Traditional Chinese/Cantonese phrasing and does not indicate any language choice or opt-in. Under the policy, forcing a specific language without user opt-in can be a natural-language policy violation unless the locale constraint is documented and justified, which is not present here.",
+                  "remediation": "State that the documentation is available in this locale by default but offer alternative language options where possible, or add a brief justification if the skill is intentionally region- or audience-specific.",
+                  "code_snippet": null,
+                  "intent": null,
+                  "tags": [
+                    "llm-unconfirmed"
+                  ],
+                  "evidence": {},
+                  "match_fingerprint": null,
+                  "occurrences": [
+                    {
+                      "file": "references/tools-reference.md",
+                      "start_line": 1,
+                      "end_line": 90
+                    }
+                  ]
+                }
+              ],
+              "suppressed_count": 0,
+              "suppressed": [],
+              "metadata": {
+                "has_executable_scripts": false,
+                "skillspector_version": "2.11.2",
+                "llm_requested": true,
+                "llm_available": true,
+                "meta_analysis_applied": true,
+                "inference_usage": [
+                  {
+                    "node": "semantic_developer_intent",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 3615,
+                    "completion_tokens": 14,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 3629
+                  },
+                  {
+                    "node": "semantic_developer_intent",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 2675,
+                    "completion_tokens": 14,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 2689
+                  },
+                  {
+                    "node": "semantic_developer_intent",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 2268,
+                    "completion_tokens": 218,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 2486
+                  },
+                  {
+                    "node": "semantic_quality_policy",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 3540,
+                    "completion_tokens": 160,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 3700
+                  },
+                  {
+                    "node": "semantic_quality_policy",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 2193,
+                    "completion_tokens": 324,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 2517
+                  },
+                  {
+                    "node": "semantic_quality_policy",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 2600,
+                    "completion_tokens": 352,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 2952
+                  },
+                  {
+                    "node": "semantic_security_discovery",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 3072,
+                    "completion_tokens": 14,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 3086
+                  },
+                  {
+                    "node": "semantic_security_discovery",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 1725,
+                    "completion_tokens": 14,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 1739
+                  },
+                  {
+                    "node": "semantic_security_discovery",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 2132,
+                    "completion_tokens": 14,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 2146
+                  },
+                  {
+                    "node": "meta_analyzer",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 2088,
+                    "completion_tokens": 389,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 2477
+                  },
+                  {
+                    "node": "meta_analyzer",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 1839,
+                    "completion_tokens": 540,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 2379
+                  },
+                  {
+                    "node": "meta_analyzer",
+                    "request_kind": "structured_output",
+                    "provider": "openai",
+                    "model": "gpt-5.4-2026-03-05",
+                    "model_source": "provider_response",
+                    "usage_source": "provider_response",
+                    "prompt_tokens": 2943,
+                    "completion_tokens": 736,
+                    "cached_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 3679
+                  }
+                ],
+                "llm_calls_attempted": 4,
+                "llm_calls_succeeded": 4
+              },
+              "execution_successful": true,
+              "analysis_completeness": {
+                "total_components": 3,
+                "scanned_components": 3,
+                "coverage_percent": 100,
+                "is_complete": false,
+                "status": "partial",
+                "execution_successful": true,
+                "fully_inspected_files": 3,
+                "partially_inspected_files": 0,
+                "entirely_uninspected_files": 0,
+                "ledger_exceptions": [
+                  {
+                    "outcome": "partial",
+                    "phase": "reference_resolution",
+                    "reason_code": "reference_unresolved",
+                    "message": "A local path-like reference could not be resolved unambiguously.",
+                    "path": "SKILL.md",
+                    "start_line": 6,
+                    "end_line": 6,
+                    "fatal": false
+                  },
+                  {
+                    "outcome": "partial",
+                    "phase": "reference_resolution",
+                    "reason_code": "reference_unresolved",
+                    "message": "A local path-like reference could not be resolved unambiguously.",
+                    "path": "SKILL.md",
+                    "start_line": 7,
+                    "end_line": 7,
+                    "fatal": false
+                  },
+                  {
+                    "outcome": "partial",
+                    "phase": "reference_resolution",
+                    "reason_code": "reference_unresolved",
+                    "message": "A local path-like reference could not be resolved unambiguously.",
+                    "path": "SKILL.md",
+                    "start_line": 20,
+                    "end_line": 20,
+                    "fatal": false
+                  },
+                  {
+                    "outcome": "partial",
+                    "phase": "reference_resolution",
+                    "reason_code": "reference_unresolved",
+                    "message": "A local path-like reference could not be resolved unambiguously.",
+                    "path": "SKILL.md",
+                    "start_line": 48,
+                    "end_line": 48,
+                    "fatal": false
+                  }
+                ],
+                "scope_exclusions": [],
+                "analyzer_statuses": [
+                  {
+                    "analyzer_id": "artifact_integrity",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "behavioral_ast",
+                    "status": "not_applicable",
+                    "planned_work": 0,
+                    "completed": 0,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0,
+                    "reason_code": "no_applicable_files",
+                    "message": "No files matched this analyzer's applicability contract."
+                  },
+                  {
+                    "analyzer_id": "behavioral_taint_tracking",
+                    "status": "not_applicable",
+                    "planned_work": 0,
+                    "completed": 0,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0,
+                    "reason_code": "no_applicable_files",
+                    "message": "No files matched this analyzer's applicability contract."
+                  },
+                  {
+                    "analyzer_id": "bundled_execution_surface",
+                    "status": "not_applicable",
+                    "planned_work": 0,
+                    "completed": 0,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0,
+                    "reason_code": "no_applicable_files",
+                    "message": "No files matched this analyzer's applicability contract."
+                  },
+                  {
+                    "analyzer_id": "mcp_least_privilege",
+                    "status": "not_applicable",
+                    "planned_work": 0,
+                    "completed": 0,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0,
+                    "reason_code": "no_applicable_files",
+                    "message": "No files matched this analyzer's applicability contract."
+                  },
+                  {
+                    "analyzer_id": "mcp_rug_pull",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "mcp_tool_poisoning",
+                    "status": "completed",
+                    "planned_work": 1,
+                    "completed": 1,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "meta_analyzer",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "semantic_developer_intent",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "semantic_quality_policy",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "semantic_security_discovery",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_agent_snooping",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_anti_refusal",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_data_exfiltration",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_deserialization",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_excessive_agency",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_harmful_content",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_memory_poisoning",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_output_handling",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_privilege_escalation",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_prompt_injection",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_rogue_agent",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_ssrf",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_supply_chain",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_system_prompt_leakage",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_patterns_tool_misuse",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  },
+                  {
+                    "analyzer_id": "static_yara",
+                    "status": "completed",
+                    "planned_work": 3,
+                    "completed": 3,
+                    "partial": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "unaccounted": 0
+                  }
+                ],
+                "references": [
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 6,
+                    "column": 65,
+                    "evidence": "installing OKX on OpenClaw, configuring OKX API keys, trading BTC/ETH/crypto with natural language,",
+                    "target_path": null,
+                    "status": "missing",
+                    "disposition": "partial"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 7,
+                    "column": 3,
+                    "evidence": "spot/futures/options/grid bots on OKX, or wants to connect an AI agent to OKX exchange.",
+                    "target_path": null,
+                    "status": "missing",
+                    "disposition": "partial"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 20,
+                    "column": 48,
+                    "evidence": "1. **Skills（OpenClaw 用戶首選）** — `npx skills add okx/agent-skills`，一行搞掂",
+                    "target_path": null,
+                    "status": "missing",
+                    "disposition": "partial"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 48,
+                    "column": 21,
+                    "evidence": "Run `npx skills add okx/agent-skills`, resolve any issues you encounter, then check the BTC price.",
+                    "target_path": null,
+                    "status": "missing",
+                    "disposition": "partial"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 91,
+                    "column": 10,
+                    "evidence": "詳細步驟見 → [references/mcp-setup.md](references/mcp-setup.md)",
+                    "target_path": "references/mcp-setup.md",
+                    "status": "resolved",
+                    "disposition": "analyzed"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 91,
+                    "column": 35,
+                    "evidence": "詳細步驟見 → [references/mcp-setup.md](references/mcp-setup.md)",
+                    "target_path": "references/mcp-setup.md",
+                    "status": "resolved",
+                    "disposition": "analyzed"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 156,
+                    "column": 17,
+                    "evidence": "- 完整 tool 列表：見 [references/tools-reference.md](references/tools-reference.md)",
+                    "target_path": "references/tools-reference.md",
+                    "status": "resolved",
+                    "disposition": "analyzed"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 156,
+                    "column": 48,
+                    "evidence": "- 完整 tool 列表：見 [references/tools-reference.md](references/tools-reference.md)",
+                    "target_path": "references/tools-reference.md",
+                    "status": "resolved",
+                    "disposition": "analyzed"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 157,
+                    "column": 17,
+                    "evidence": "- MCP 安裝詳細步驟：見 [references/mcp-setup.md](references/mcp-setup.md)",
+                    "target_path": "references/mcp-setup.md",
+                    "status": "resolved",
+                    "disposition": "analyzed"
+                  },
+                  {
+                    "source_path": "SKILL.md",
+                    "line": 157,
+                    "column": 42,
+                    "evidence": "- MCP 安裝詳細步驟：見 [references/mcp-setup.md](references/mcp-setup.md)",
+                    "target_path": "references/mcp-setup.md",
+                    "status": "resolved",
+                    "disposition": "analyzed"
+                  }
+                ],
+                "limitations": [],
+                "findings_before_filtering": 9,
+                "findings_after_filtering": 9
+              }
+            }
+          }
+        },
+        "signature": {
+          "status": "unsigned"
+        }
+      }
+    },
+    "kraken": {
+      "version": "1.1.2",
+      "registry": "https://clawhub.ai",
+      "installedAt": 1789380396221,
+      "artifact": {
+        "kind": "archive",
+        "sha256": "f3d59d59863d5732f64929a50480ae00293499b13203b02a860fe28b7c1e0692",
+        "integrity": "sha256-89WdWYY9VzL2SSmlBICuACk0mbEyA7Aqhg/ii3weBpI="
+      },
+      "skillFile": {
+        "path": "SKILL.md",
+        "sha256": "33ec3467ee7cd6abe20d7af8cc5d32a7eec97167ff5880c4e5ff2869cfdc8720"
+      },
+      "fileTreeSha256": "sha256:7050403c291bdca483e01b21f37bdf84f84c08a14435fc4ce2e4b0ffa439bd92",
+      "verification": {
+        "schema": "clawhub.skill.verify.v1",
+        "ok": true,
+        "decision": "pass",
+        "reasons": [],
+        "card": {
+          "available": true,
+          "path": "skill-card.md",
+          "url": "https://wry-manatee-359.convex.site/api/v1/skills/kraken/card?ownerHandle=thesethrose&version=1.1.2",
+          "sha256": "915ab174eb76bc8b1958f534480ec5b8ef12c4f11ae632c68612b9fe1546d528",
+          "size": 1930,
+          "contentType": "text/markdown; charset=utf-8"
+        },
+        "artifact": {
+          "sourceFingerprint": "7b0f57b457bfe41ac5781434774fdfb4de09f92fa051ffc2f6b087c2329555b5",
+          "bundleFingerprints": [
+            "5fcfba44b5e527de0b1e51e39e06cbd509007e30c329a3690c2c3ec097bf1dda",
+            "3aeba43b86b1db353a0f5b2a753621395436315980e832889a072a9418c2b4fe",
+            "223d9e8a2f0b237441868f864031aba4068ba4cb879f15d538cedfaab5a16cc6"
+          ],
+          "files": [
+            {
+              "path": "SKILL.md",
+              "size": 4608,
+              "sha256": "33ec3467ee7cd6abe20d7af8cc5d32a7eec97167ff5880c4e5ff2869cfdc8720",
+              "contentType": "text/markdown"
+            },
+            {
+              "path": "kraken_api.py",
+              "size": 31641,
+              "sha256": "db6a7327e8655d17357f9e4f1039001913ca25ef42699ac4acda805bcb7adef0",
+              "contentType": "text/plain"
+            },
+            {
+              "path": "kraken_cli.py",
+              "size": 15882,
+              "sha256": "69d72a68b13b15b82343d46dc9b745ceefa3262278e48929a315d7c9c67865cd",
+              "contentType": "text/plain"
+            },
+            {
+              "path": "requirements.txt",
+              "size": 46,
+              "sha256": "6b7cfe69a19e3b59731897830c3e488694ec0b27a5425418dcafa20e7115ac97",
+              "contentType": "text/plain"
+            }
+          ]
+        },
+        "provenance": {
+          "source": "unavailable",
+          "reason": "No server-resolved GitHub import provenance is stored for this version."
+        },
+        "security": {
+          "status": "clean",
+          "passed": true,
+          "rawStatus": "clean",
+          "verdict": "benign",
+          "confidence": "high",
+          "summary": "This skill accesses sensitive Kraken account data, but its behavior is disclosed, purpose-aligned, and mostly read-only.",
+          "model": null,
+          "checkedAt": 1789015235375,
+          "scannerReports": {
+            "aig": null,
+            "skillspector": null
+          }
+        },
+        "signature": {
+          "status": "unsigned"
+        }
+      }
+    },
+    "agentapi": {
+      "version": "1.0.8",
+      "registry": "https://clawhub.ai",
+      "ownerHandle": "gizmo-dev",
+      "installedAt": 1789832400857,
+      "artifact": {
+        "kind": "archive",
+        "sha256": "c32eb58c1271e1f086c502eb0528329f48009a41f744d6e9c75438fe75f221dd",
+        "integrity": "sha256-wy61jBJx4fCGxQLrBSgyn0gAmkH3RNbpx1Q4/nXyId0="
+      },
+      "skillFile": {
+        "path": "SKILL.md",
+        "sha256": "03cac69f4438bd0b9deae69515ccb970ff258856ba0e88df66e7c1e6ea9bb406"
+      },
+      "fileTreeSha256": "sha256:a1054de0816cd69aa10a07087a9fa17ee53bcafe92ac2edb767159f94ea29c85",
+      "verification": {
+        "schema": "clawhub.skill.verify.v1",
+        "ok": true,
+        "decision": "pass",
+        "reasons": [],
+        "card": {
+          "available": true,
+          "path": "skill-card.md",
+          "url": "https://wry-manatee-359.convex.site/api/v1/skills/agentapi/card?ownerHandle=gizmo-dev&version=1.0.8",
+          "sha256": "8be88515d8d706d0de4e6f1ff45481f6deb2244400143b567fbcd6e1b2bdf99c",
+          "size": 2276,
+          "contentType": "text/markdown; charset=utf-8"
+        },
+        "artifact": {
+          "sourceFingerprint": "e1cb5b711404bca960c4365d2e6fba03568a851a7f678d36029774d96f14e230",
+          "bundleFingerprints": [
+            "252e20a56c2eb979d97ca4b96766f4013ffae61e2aa70aa5cb45417d22092b13",
+            "890268598b3167c48e60ae27adc610c993769f1bdcab2ce613addafe1f0d66aa"
+          ],
+          "files": [
+            {
+              "path": "SKILL.md",
+              "size": 4571,
+              "sha256": "03cac69f4438bd0b9deae69515ccb970ff258856ba0e88df66e7c1e6ea9bb406",
+              "contentType": "text/markdown"
+            }
+          ]
+        },
+        "provenance": {
+          "source": "unavailable",
+          "reason": "No server-resolved GitHub import provenance is stored for this version."
+        },
+        "security": {
+          "status": "clean",
+          "passed": true,
+          "rawStatus": "clean",
+          "verdict": "benign",
+          "confidence": "high",
+          "summary": "This is a documentation-only skill for finding AgentAPI directory entries, with disclosed external lookup URLs and payment cautions but no executable behavior.",
+          "model": null,
+          "checkedAt": 1789071370772,
+          "scannerReports": {
+            "aig": null,
+            "skillspector": null
+          }
+        },
+        "signature": {
+          "status": "unsigned"
+        }
+      }
+    }
+  }
+}

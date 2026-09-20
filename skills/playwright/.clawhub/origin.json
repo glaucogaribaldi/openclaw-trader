@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "playwright",
+  "ownerHandle": "ivangdavila",
+  "installedVersion": "1.0.4",
+  "installedAt": 1788885646085,
+  "artifact": {
+    "kind": "archive",
+    "sha256": "4d5c96c554c326272fce6aa8eed5f603c1f74079cb28720e09f2cfe692f75865",
+    "integrity": "sha256-TVyWxVTDJicvzmqo7tX2A8H3QHnLKHIOCfLP5pL3WGU="
+  },
+  "skillFile": {
+    "path": "SKILL.md",
+    "sha256": "7fc651f770d1ab18e1b48dac66ac58d456896d455846bb649fc635182aaac6a4"
+  }
+}

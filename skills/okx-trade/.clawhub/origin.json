@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "okx-trade",
+  "ownerHandle": "chingchiu169",
+  "installedAt": 1789311536902,
+  "artifact": {
+    "kind": "archive",
+    "sha256": "b59c447e617cefa9f7e87ee5b949b81eaac49d5b7cf1eb054a61f3714ff5efd4",
+    "integrity": "sha256-tZxEfmF876n36H7luUm4HqrEnVt88esFSmHzcU/179Q="
+  },
+  "skillFile": {
+    "path": "SKILL.md",
+    "sha256": "07fb3885c5d2f017fee9e230ad1a8d7faebb016315437c8f94a3c734c2b91bc9"
+  },
+  "fileTreeSha256": "sha256:43c6b210f3fe9f5011e1f75b322ab2ca6505454faa661f51ef3f7474520d3e92",
+  "installedVersion": "1.0.1"
+}

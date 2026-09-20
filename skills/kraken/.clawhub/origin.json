@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "kraken",
+  "installedAt": 1789380396221,
+  "artifact": {
+    "kind": "archive",
+    "sha256": "f3d59d59863d5732f64929a50480ae00293499b13203b02a860fe28b7c1e0692",
+    "integrity": "sha256-89WdWYY9VzL2SSmlBICuACk0mbEyA7Aqhg/ii3weBpI="
+  },
+  "skillFile": {
+    "path": "SKILL.md",
+    "sha256": "33ec3467ee7cd6abe20d7af8cc5d32a7eec97167ff5880c4e5ff2869cfdc8720"
+  },
+  "fileTreeSha256": "sha256:7050403c291bdca483e01b21f37bdf84f84c08a14435fc4ce2e4b0ffa439bd92",
+  "installedVersion": "1.1.2"
+}

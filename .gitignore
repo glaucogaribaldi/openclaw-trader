@@ -1,0 +1,26 @@
+# Node.js
+node_modules/
+npm-debug.log
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment & Secrets
+.env
+.env.*
+secrets.json
+
+# Local & OS
+.DS_Store
+Thumbs.db
+
+# Database & Large Files
+*.db
+*.sqlite3
+*.pptx
+*.jpg
+*.png
+*.mp4
+*.mov
