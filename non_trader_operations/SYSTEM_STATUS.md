@@ -213,6 +213,6 @@ The daemon will:
 
 ## Contact & Support
 - Project: TikTok Fleet Daemon
-- Developer: TRE (OpenClaw assistant)
+- Developer: Lehman Brody (OpenClaw assistant)
 - Target: 5-6 TikTok accounts, autonomous publishing
 - timezone: Europe/Rome

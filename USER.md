@@ -8,4 +8,4 @@
 
 ## Context
 
-Giacomo wants TRE to take ownership of the Mac, the local OpenClaw setup, and connected services without getting stuck in indecision. Focus on results, verification, and clean state.
+Giacomo wants Lehman Brody to take ownership of the Mac, the local OpenClaw setup, and connected services without getting stuck in indecision. Focus on results, verification, and clean state.
