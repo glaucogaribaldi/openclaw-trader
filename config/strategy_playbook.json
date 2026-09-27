@@ -1,17 +1,25 @@
 {
-  "updated_at": "2026-09-27T11:00:00Z",
-  "reasoning_summary": "Inizializzazione della strategia auto-migliorante. Impostati i target di base per lo scalping e la griglia.",
+  "updated_at": "2026-09-27T11:20:00Z",
+  "reasoning_summary": "Inclusione di NEAR-USDC e LINK-USDC nel paniere diversificato. Impostati i parametri iniziali di scalping.",
   "btc_scalp": {
-    "target_profit_percentage": 0.50,
+    "target_profit_percentage": 0.55,
     "buy_offset_percentage": 0.0
   },
   "eth_scalp": {
-    "target_profit_percentage": 0.60,
+    "target_profit_percentage": 0.70,
+    "buy_offset_percentage": 0.0
+  },
+  "near_scalp": {
+    "target_profit_percentage": 0.85,
+    "buy_offset_percentage": 0.0
+  },
+  "link_scalp": {
+    "target_profit_percentage": 0.65,
     "buy_offset_percentage": 0.0
   },
   "sol_grid": {
-    "lower_limit": 110.0,
-    "upper_limit": 135.0,
+    "lower_limit": 113.9,
+    "upper_limit": 138.9,
     "grid_levels": 15
   }
 }

@@ -53,7 +53,11 @@ def get_okx_data():
             text=True,
             check=True
         )
-        ticker_sol = json.loads(ticker_proc.stdout)
+        ticker_sol_data = json.loads(ticker_proc.stdout)
+        if isinstance(ticker_sol_data, list) and len(ticker_sol_data) > 0:
+            ticker_sol = ticker_sol_data[0]
+        else:
+            ticker_sol = ticker_sol_data
     except Exception as e:
         print(f"[!] Warning: Could not fetch ticker from OKX CLI: {e}. Using fallback prices.")
         ticker_sol = {"last": "123.66"}
@@ -96,19 +100,36 @@ def validate_and_bound(new_playbook, protected):
     print("[-] Running safety validation against config/protected.json...")
     
     # 1. Bounds check on BTC scalp target
-    btc_target = new_playbook.get("btc_scalp", {}).get("target_profit_percentage", 0.50)
+    btc_target = new_playbook.get("btc_scalp", {}).get("target_profit_percentage", 0.55)
     btc_target = max(protected["min_scalp_target"], min(protected["max_scalp_target"], btc_target))
     new_playbook["btc_scalp"]["target_profit_percentage"] = btc_target
     
     # 2. Bounds check on ETH scalp target
-    eth_target = new_playbook.get("eth_scalp", {}).get("target_profit_percentage", 0.60)
+    eth_target = new_playbook.get("eth_scalp", {}).get("target_profit_percentage", 0.70)
     eth_target = max(protected["min_scalp_target"], min(protected["max_scalp_target"], eth_target))
     new_playbook["eth_scalp"]["target_profit_percentage"] = eth_target
+
+    # 3. Bounds check on NEAR scalp target
+    near_target = new_playbook.get("near_scalp", {}).get("target_profit_percentage", 0.85)
+    near_target = max(protected["min_scalp_target"], min(protected["max_scalp_target"], near_target))
+    new_playbook["near_scalp"]["target_profit_percentage"] = near_target
+
+    # 4. Bounds check on LINK scalp target
+    link_target = new_playbook.get("link_scalp", {}).get("target_profit_percentage", 0.65)
+    link_target = max(protected["min_scalp_target"], min(protected["max_scalp_target"], link_target))
+    new_playbook["link_scalp"]["target_profit_percentage"] = link_target
     
-    # 3. Token whitelist validation
-    for key in ["btc_scalp", "eth_scalp", "sol_grid"]:
-        if key == "btc_scalp" and "BTC-USDC" not in protected["allowed_tokens"]:
-            print(f"[!] Security violation: BTC-USDC is not in the whitelist!")
+    # 5. Token whitelist validation
+    for key in ["btc_scalp", "eth_scalp", "near_scalp", "link_scalp"]:
+        token_map = {
+            "btc_scalp": "BTC-USDC",
+            "eth_scalp": "ETH-USDC",
+            "near_scalp": "NEAR-USDC",
+            "link_scalp": "LINK-USDC"
+        }
+        token_id = token_map[key]
+        if token_id not in protected["allowed_tokens"]:
+            print(f"[!] Security violation: {token_id} is not in the whitelist!")
             sys.exit(1)
             
     print("[+] Safety validation PASSED. No guardrails violated.")
@@ -127,6 +148,8 @@ def write_retro_journal(analysis_results, reason):
 - **Modifiche Apportate**:
   - **Target BTC Scalping**: {analysis_results.get('btc_scalp', {}).get('target_profit_percentage')}%
   - **Target ETH Scalping**: {analysis_results.get('eth_scalp', {}).get('target_profit_percentage')}%
+  - **Target NEAR Scalping**: {analysis_results.get('near_scalp', {}).get('target_profit_percentage')}%
+  - **Target LINK Scalping**: {analysis_results.get('link_scalp', {}).get('target_profit_percentage')}%
   - **Range SOL Grid**: ${analysis_results.get('sol_grid', {}).get('lower_limit')} - ${analysis_results.get('sol_grid', {}).get('upper_limit')} (15 livelli)
 
 ## 🧠 Motivazione Logica dell'AI (Ollama/Qwen 7B)
@@ -171,6 +194,8 @@ def main():
     Analyze the current market state and optimize the trading parameters.
     - Active BTC target profit: {playbook['btc_scalp']['target_profit_percentage']}%
     - Active ETH target profit: {playbook['eth_scalp']['target_profit_percentage']}%
+    - Active NEAR target profit: {playbook['near_scalp']['target_profit_percentage']}%
+    - Active LINK target profit: {playbook['link_scalp']['target_profit_percentage']}%
     - Active SOL grid bounds: ${playbook['sol_grid']['lower_limit']} to ${playbook['sol_grid']['upper_limit']}
     - Current SOL last price: ${sol_price}
 
@@ -182,6 +207,12 @@ def main():
       }},
       "eth_scalp": {{
         "target_profit_percentage": 0.70
+      }},
+      "near_scalp": {{
+        "target_profit_percentage": 0.85
+      }},
+      "link_scalp": {{
+        "target_profit_percentage": 0.65
       }},
       "sol_grid": {{
         "lower_limit": {sol_price - 10.0},
@@ -198,16 +229,20 @@ def main():
         print("[!] Using safety default fallback adjustment.")
         optimized = {
             "reasoning": "Ollama fallback. Spaced grid based on last price.",
-            "btc_scalp": {"target_profit_percentage": 0.50},
-            "eth_scalp": {"target_profit_percentage": 0.60},
+            "btc_scalp": {"target_profit_percentage": 0.55},
+            "eth_scalp": {"target_profit_percentage": 0.70},
+            "near_scalp": {"target_profit_percentage": 0.85},
+            "link_scalp": {"target_profit_percentage": 0.65},
             "sol_grid": {"lower_limit": sol_price - 12.0, "upper_limit": sol_price + 12.0}
         }
     
     # 5. Populate and validate new playbook
     playbook["updated_at"] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
     playbook["reasoning_summary"] = optimized.get("reasoning", "Dinamizzazione automatica parametri.")
-    playbook["btc_scalp"]["target_profit_percentage"] = optimized.get("btc_scalp", {}).get("target_profit_percentage", 0.50)
-    playbook["eth_scalp"]["target_profit_percentage"] = optimized.get("eth_scalp", {}).get("target_profit_percentage", 0.60)
+    playbook["btc_scalp"]["target_profit_percentage"] = optimized.get("btc_scalp", {}).get("target_profit_percentage", 0.55)
+    playbook["eth_scalp"]["target_profit_percentage"] = optimized.get("eth_scalp", {}).get("target_profit_percentage", 0.70)
+    playbook["near_scalp"]["target_profit_percentage"] = optimized.get("near_scalp", {}).get("target_profit_percentage", 0.85)
+    playbook["link_scalp"]["target_profit_percentage"] = optimized.get("link_scalp", {}).get("target_profit_percentage", 0.65)
     playbook["sol_grid"]["lower_limit"] = round(optimized.get("sol_grid", {}).get("lower_limit", sol_price - 10.0), 1)
     playbook["sol_grid"]["upper_limit"] = round(optimized.get("sol_grid", {}).get("upper_limit", sol_price + 15.0), 1)
     
