@@ -1,0 +1,17 @@
+{
+  "updated_at": "2026-09-27T11:00:00Z",
+  "reasoning_summary": "Inizializzazione della strategia auto-migliorante. Impostati i target di base per lo scalping e la griglia.",
+  "btc_scalp": {
+    "target_profit_percentage": 0.50,
+    "buy_offset_percentage": 0.0
+  },
+  "eth_scalp": {
+    "target_profit_percentage": 0.60,
+    "buy_offset_percentage": 0.0
+  },
+  "sol_grid": {
+    "lower_limit": 110.0,
+    "upper_limit": 135.0,
+    "grid_levels": 15
+  }
+}

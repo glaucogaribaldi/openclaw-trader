@@ -1,0 +1,8 @@
+{
+  "max_scalp_bet_size": 100.00,
+  "max_grid_allocation": 170.00,
+  "absolute_drawdown_limit": -20.0,
+  "allowed_tokens": ["SOL-USDC", "BTC-USDC", "ETH-USDC"],
+  "min_scalp_target": 0.20,
+  "max_scalp_target": 2.50
+}
