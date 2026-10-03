@@ -6,7 +6,7 @@ import time
 import urllib.request
 import subprocess
 
-TOKEN = "8912531115:AAH-fnCwBHlUAjcqkuCM58XPyz2fmgSMoos"
+TOKEN = "8996959880:AAGs_SvfR3wUu30UC1iZlvw_o9b-xZkQTnw"
 CHAT_ID = "655481675"
 
 
