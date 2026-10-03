@@ -2,20 +2,20 @@
   "updated_at": "2026-09-27T11:20:00Z",
   "reasoning_summary": "Inclusione di NEAR-USDC e LINK-USDC nel paniere diversificato. Impostati i parametri iniziali di scalping.",
   "btc_scalp": {
-    "target_profit_percentage": 0.55,
-    "buy_offset_percentage": 0.0
+    "target_profit_percentage": 0.50,
+    "buy_offset_percentage": 0.50
   },
   "eth_scalp": {
-    "target_profit_percentage": 0.70,
-    "buy_offset_percentage": 0.0
+    "target_profit_percentage": 0.50,
+    "buy_offset_percentage": 0.50
   },
   "near_scalp": {
-    "target_profit_percentage": 0.85,
-    "buy_offset_percentage": 0.0
+    "target_profit_percentage": 0.50,
+    "buy_offset_percentage": 0.50
   },
   "link_scalp": {
-    "target_profit_percentage": 0.65,
-    "buy_offset_percentage": 0.0
+    "target_profit_percentage": 0.50,
+    "buy_offset_percentage": 0.50
   },
   "sol_grid": {
     "lower_limit": 113.9,

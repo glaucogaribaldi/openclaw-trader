@@ -190,8 +190,9 @@ def main():
                     print(f"[!] SRE Profit Event: Sell order for {inst_id} (ID: {cl_ord_id_str}) was FILLED IN PROFIT!")
                     last_price = get_ticker_price(inst_id)
                     if last_price > 0.0:
-                        # Maker-only Entry logic (Limit Buy at -0.80% discount)
-                        buy_px = round(last_price * 0.992, 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else 3))
+                        # Maker-only Entry logic (Limit Buy at dynamic discount)
+                        buy_offset = playbook.get(playbook_key, {}).get("buy_offset_percentage", 0.80) / 100.0
+                        buy_px = round(last_price * (1.0 - buy_offset), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else 3))
                         buy_sz = round(size_usd / buy_px, 6 if "BTC" in inst_id else (5 if "ETH" in inst_id else 3))
                         new_ord_id = place_limit_order(inst_id, "buy", buy_sz, buy_px)
                         if new_ord_id:
