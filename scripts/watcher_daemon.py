@@ -129,12 +129,35 @@ def main():
         # Load currently tracked states
         cursor.execute("SELECT inst_id, state, size, price, cl_ord_id FROM scalp_runs")
         tracked_runs = cursor.fetchall()
+
+        # Compounding integration: calculate lot size dynamically as 20% of total USDC Equity (leaving 20% buffer for SOL grid & fees)
+        balances = get_okx_balance()
+        usdc_equity = 263.85
+        if balances:
+            # Handle list of details or flat dictionary
+            usdc_bal = {}
+            if isinstance(balances, list):
+                usdc_bal = next((b for b in balances if b.get("ccy") == "USDC" or b.get("currency") == "USDC"), {})
+            elif isinstance(balances, dict):
+                usdc_bal = balances
+            
+            val = usdc_bal.get("eq") or usdc_bal.get("equity") or usdc_bal.get("availBal") or 263.85
+            try:
+                usdc_equity = float(val)
+            except:
+                usdc_equity = 263.85
+                
+        if usdc_equity < 100.0:
+            usdc_equity = 263.85
+            
+        dynamic_size_usd = round(usdc_equity / 5.0, 2)
+        print(f"[+] Compounding Active: USDC Equity = {usdc_equity:.2f} USDC | Dynamic Lot Size = {dynamic_size_usd:.2f} USDC")
         
         whitelisted_tokens = {
-            "BTC-USDC": {"coin": "BTC", "playbook_key": "btc_scalp", "size_usd": 50.0},
-            "ETH-USDC": {"coin": "ETH", "playbook_key": "eth_scalp", "size_usd": 50.0},
-            "NEAR-USDC": {"coin": "NEAR", "playbook_key": "near_scalp", "size_usd": 50.0},
-            "LINK-USDC": {"coin": "LINK", "playbook_key": "link_scalp", "size_usd": 50.0}
+            "BTC-USDC": {"coin": "BTC", "playbook_key": "btc_scalp", "size_usd": dynamic_size_usd},
+            "ETH-USDC": {"coin": "ETH", "playbook_key": "eth_scalp", "size_usd": dynamic_size_usd},
+            "NEAR-USDC": {"coin": "NEAR", "playbook_key": "near_scalp", "size_usd": dynamic_size_usd},
+            "LINK-USDC": {"coin": "LINK", "playbook_key": "link_scalp", "size_usd": dynamic_size_usd}
         }
         
         now_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
