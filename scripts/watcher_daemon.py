@@ -5,6 +5,7 @@ import json
 import sqlite3
 import datetime
 import subprocess
+import time
 
 BASE_DIR = "/home/zava/openclaw-trader"
 DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
@@ -83,6 +84,48 @@ def get_ticker_price(inst_id):
         return 0.0
 
 
+def get_ticker_volatility(inst_id):
+    """
+    Get 24h high/low range percentage from ticker to estimate volatility.
+    """
+    try:
+        proc = subprocess.run(
+            ["okx", "--profile", "democlaw", "market", "ticker", inst_id, "--json"],
+            capture_output=True, text=True, timeout=10, check=True
+        )
+        data = json.loads(proc.stdout)
+        ticker = data[0] if isinstance(data, list) and len(data) > 0 else data
+        high = float(ticker.get("high24h", 0.0))
+        low = float(ticker.get("low24h", 0.0))
+        if low > 0:
+            range_pct = ((high - low) / low) * 100.0
+            return range_pct
+        return 4.0 # default fallback
+    except Exception as e:
+        print(f"[!] SRE Warning: Error fetching volatility for {inst_id}: {e}")
+        return 4.0 # default fallback
+
+
+def get_dynamic_parameters(inst_id, range_pct):
+    """
+    Map 24h range percentage to buy_offset and target_profit.
+    """
+    if range_pct < 3.0: # Low Volatility (BTC, ETH standard days)
+        buy_offset = 0.45  # -0.45%
+        target_profit = 0.45  # +0.45%
+        vol_state = "BASSA"
+    elif range_pct < 6.0: # Medium Volatility (LINK standard days)
+        buy_offset = 0.55  # -0.55%
+        target_profit = 0.55  # +0.55%
+        vol_state = "MEDIA"
+    else: # High Volatility (NEAR or during high volatility swings)
+        buy_offset = 0.80  # -0.80% (deeper dip to buy cheaper)
+        target_profit = 0.85  # +0.85% (wider TP to capture big rebound)
+        vol_state = "ALTA"
+        
+    return buy_offset, target_profit, vol_state
+
+
 def place_limit_order(inst_id, side, sz, px):
     """
     Place limit order with strict timeout and validation.
@@ -108,8 +151,12 @@ def place_limit_order(inst_id, side, sz, px):
 
 def main():
     print("[-] Starting SQLite-Driven Hardened State Machine Watcher Daemon...")
-    playbook = load_json(PLAYBOOK_PATH)
-    protected = load_json(PROTECTED_PATH)
+    try:
+        playbook = load_json(PLAYBOOK_PATH)
+        protected = load_json(PROTECTED_PATH)
+    except Exception as e:
+        print(f"[!] SRE Halt: Error loading playbook or protected files: {e}")
+        return
     
     # Connect with immediate transaction lock to prevent SQLite database lock conflicts
     conn = sqlite3.connect(DB_PATH, isolation_level="EXCLUSIVE")
@@ -187,12 +234,21 @@ def main():
                     coin_bal = next((b for b in balances if b.get("ccy") == coin), {})
                     avail = float(coin_bal.get("availBal", 0.0))
                     
-                    target_pct = playbook.get(playbook_key, {}).get("target_profit_percentage", 0.70) / 100.0
+                    # Calculate dynamic targets based on real-time 24h volatility
+                    range_pct = get_ticker_volatility(inst_id)
+                    buy_offset, target_profit, vol_state = get_dynamic_parameters(inst_id, range_pct)
+                    print(f"[+] Volatilità {inst_id}: {range_pct:.2f}% ({vol_state}) | Impostato dynamic Profit Target a +{target_profit:.2f}%")
+                    
+                    target_pct = target_profit / 100.0
                     entry_px = float(coin_bal.get("openAvgPx", 0.0))
                     if entry_px <= 0.0001:
                         entry_px = float(coin_bal.get("accAvgPx", 0.0))
                     if entry_px <= 0.0001:
                         entry_px = get_ticker_price(inst_id)
+                        
+                    if entry_px <= 0.0001:
+                        print(f"[!] SRE Warning: Impossibile rilevare un prezzo di ingresso valido per {inst_id}. Salto il piazzamento d'ordine per sicurezza.")
+                        continue
                         
                     if entry_px > 0.0 and avail > 0.0001:
                         # Maker-only target calculation
@@ -212,10 +268,18 @@ def main():
                 if cl_ord_id_str not in open_orders_map:
                     print(f"[!] SRE Profit Event: Sell order for {inst_id} (ID: {cl_ord_id_str}) was FILLED IN PROFIT!")
                     last_price = get_ticker_price(inst_id)
+                    if last_price <= 0.0001:
+                        print(f"[!] SRE Warning: Impossibile rilevare un prezzo ticker valido per {inst_id}. Salto il piazzamento d'ordine per sicurezza.")
+                        continue
+                        
                     if last_price > 0.0:
-                        # Maker-only Entry logic (Limit Buy at dynamic discount)
-                        buy_offset = playbook.get(playbook_key, {}).get("buy_offset_percentage", 0.80) / 100.0
-                        buy_px = round(last_price * (1.0 - buy_offset), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else 3))
+                        # Calculate dynamic buy offset based on real-time 24h volatility
+                        range_pct = get_ticker_volatility(inst_id)
+                        buy_offset, target_profit, vol_state = get_dynamic_parameters(inst_id, range_pct)
+                        print(f"[+] Volatilità {inst_id}: {range_pct:.2f}% ({vol_state}) | Impostato dynamic Buy Offset a -{buy_offset:.2f}%")
+                        
+                        buy_offset_pct = buy_offset / 100.0
+                        buy_px = round(last_price * (1.0 - buy_offset_pct), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else 3))
                         buy_sz = round(size_usd / buy_px, 6 if "BTC" in inst_id else (5 if "ETH" in inst_id else 3))
                         new_ord_id = place_limit_order(inst_id, "buy", buy_sz, buy_px)
                         if new_ord_id:
@@ -225,6 +289,9 @@ def main():
                             WHERE inst_id = ?
                             """, (buy_sz, buy_px, new_ord_id, now_str, inst_id))
                             print(f"[+] State transition: {inst_id} -> BUY_SUBMITTED (ID: {new_ord_id})")
+            
+            # SRE Rate Limit protection delay between token checks
+            time.sleep(1.0)
                             
         conn.commit()
     except Exception as e:
