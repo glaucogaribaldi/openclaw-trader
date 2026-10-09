@@ -197,14 +197,17 @@ def main():
         if usdc_equity < 100.0:
             usdc_equity = 263.85
             
-        dynamic_size_usd = round(usdc_equity / 5.0, 2)
+        dynamic_size_usd = round(usdc_equity / 8.0, 2)
         print(f"[+] Compounding Active: USDC Equity = {usdc_equity:.2f} USDC | Dynamic Lot Size = {dynamic_size_usd:.2f} USDC")
         
         whitelisted_tokens = {
             "BTC-USDC": {"coin": "BTC", "playbook_key": "btc_scalp", "size_usd": dynamic_size_usd},
             "ETH-USDC": {"coin": "ETH", "playbook_key": "eth_scalp", "size_usd": dynamic_size_usd},
             "NEAR-USDC": {"coin": "NEAR", "playbook_key": "near_scalp", "size_usd": dynamic_size_usd},
-            "LINK-USDC": {"coin": "LINK", "playbook_key": "link_scalp", "size_usd": dynamic_size_usd}
+            "LINK-USDC": {"coin": "LINK", "playbook_key": "link_scalp", "size_usd": dynamic_size_usd},
+            "SUI-USDC": {"coin": "SUI", "playbook_key": "sui_scalp", "size_usd": dynamic_size_usd},
+            "RENDER-USDC": {"coin": "RENDER", "playbook_key": "render_scalp", "size_usd": dynamic_size_usd},
+            "SOL-USDC": {"coin": "SOL", "playbook_key": "sol_scalp", "size_usd": dynamic_size_usd}
         }
         
         now_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -251,16 +254,27 @@ def main():
                         continue
                         
                     if entry_px > 0.0 and avail > 0.0001:
-                        # Maker-only target calculation
-                        sell_px = round(entry_px * (1 + target_pct), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else 3))
-                        new_ord_id = place_limit_order(inst_id, "sell", avail, sell_px)
-                        if new_ord_id:
+                        # 80% / 20% Split Take-Profit (Maker-only & Moonbag)
+                        dec_sz = 6 if "BTC" in inst_id else (5 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 2))
+                        sz_80 = round(avail * 0.8, dec_sz)
+                        sz_20 = round(avail - sz_80, dec_sz)
+                        
+                        sell_px_80 = round(entry_px * (1 + target_pct), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 4)))
+                        sell_px_20 = round(entry_px * (1 + target_pct * 4.0), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 4)))
+                        
+                        # Place Order 1: Core 80% Take Profit
+                        new_ord_id_80 = place_limit_order(inst_id, "sell", sz_80, sell_px_80)
+                        if new_ord_id_80:
+                            # Place Order 2: 20% Moonbag Take Profit
+                            print(f"[+] Piazzamento Moonbag (20%): Sz {sz_20} @ Px {sell_px_20} (+{target_profit * 4.0:.2f}%)")
+                            place_limit_order(inst_id, "sell", sz_20, sell_px_20)
+                            
                             cursor.execute("""
                             UPDATE scalp_runs 
                             SET state = 'SELL_SUBMITTED', size = ?, price = ?, cl_ord_id = ?, updated_at = ?
                             WHERE inst_id = ?
-                            """, (avail, sell_px, new_ord_id, now_str, inst_id))
-                            print(f"[+] State transition: {inst_id} -> SELL_SUBMITTED (ID: {new_ord_id})")
+                            """, (sz_80, sell_px_80, new_ord_id_80, now_str, inst_id))
+                            print(f"[+] State transition: {inst_id} -> SELL_SUBMITTED (ID: {new_ord_id_80})")
                             
             # 2. State: SELL_SUBMITTED (We have a pending sell limit TP order)
             elif state == "SELL_SUBMITTED":
