@@ -281,6 +281,17 @@ def main():
                 # If the order is NO LONGER active in open orders on the book, it got filled in profit!
                 if cl_ord_id_str not in open_orders_map:
                     print(f"[!] SRE Profit Event: Sell order for {inst_id} (ID: {cl_ord_id_str}) was FILLED IN PROFIT!")
+                    
+                    # TRANSITION PLAN: Exit BTC and ETH on profit fill to reallocate 100% capital to High-Beta fast tokens
+                    if inst_id in ["BTC-USDC", "ETH-USDC"]:
+                        cursor.execute("""
+                        UPDATE scalp_runs 
+                        SET state = 'CLOSED', size = 0.0, price = 0.0, cl_ord_id = NULL, updated_at = ?
+                        WHERE inst_id = ?
+                        """, (now_str, inst_id))
+                        print(f"[+] TRANSITION PLAN EXECUTED: {inst_id} exited in full profit! Capital reallocated to High-Beta fast tokens!")
+                        continue
+                        
                     last_price = get_ticker_price(inst_id)
                     if last_price <= 0.0001:
                         print(f"[!] SRE Warning: Impossibile rilevare un prezzo ticker valido per {inst_id}. Salto il piazzamento d'ordine per sicurezza.")
