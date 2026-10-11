@@ -106,33 +106,99 @@ def get_ticker_volatility(inst_id):
         return 4.0 # default fallback
 
 
-def get_dynamic_parameters(inst_id, range_pct):
+def get_orderbook_imbalance(inst_id):
     """
-    Map 24h range percentage to buy_offset and target_profit.
+    Calculate Order Book Imbalance (OBI) ratio: sum(bid_vols) / sum(ask_vols) from top 10 LOB levels.
     """
-    if range_pct < 3.0: # Low Volatility (BTC, ETH standard days)
-        buy_offset = 0.45  # -0.45%
-        target_profit = 0.45  # +0.45%
-        vol_state = "BASSA"
-    elif range_pct < 6.0: # Medium Volatility (LINK standard days)
-        buy_offset = 0.55  # -0.55%
-        target_profit = 0.55  # +0.55%
-        vol_state = "MEDIA"
-    else: # High Volatility (NEAR or during high volatility swings)
-        buy_offset = 0.80  # -0.80% (deeper dip to buy cheaper)
-        target_profit = 0.85  # +0.85% (wider TP to capture big rebound)
-        vol_state = "ALTA"
+    try:
+        proc = subprocess.run(
+            ["okx", "--profile", "democlaw", "market", "orderbook", inst_id, "--json"],
+            capture_output=True, text=True, timeout=8, check=True
+        )
+        data = json.loads(proc.stdout)
+        lob = data[0] if isinstance(data, list) and len(data) > 0 else data
         
-    return buy_offset, target_profit, vol_state
+        bids = lob.get("bids", [])
+        asks = lob.get("asks", [])
+        
+        bid_vol = sum(float(b[1]) * float(b[0]) for b in bids[:10]) if bids else 0.0
+        ask_vol = sum(float(a[1]) * float(a[0]) for a in asks[:10]) if asks else 0.0
+        
+        if ask_vol > 0:
+            return bid_vol / ask_vol
+        return 1.0
+    except Exception as e:
+        print(f"[!] SRE Warning: Error fetching orderbook for {inst_id}: {e}")
+        return 1.0
+
+
+def get_mtf_volatility(inst_id):
+    """
+    Get 1h price range percentage from candles to measure short-term volatility.
+    """
+    try:
+        proc = subprocess.run(
+            ["okx", "--profile", "democlaw", "market", "candles", inst_id, "--bar", "1H", "--limit", "2", "--json"],
+            capture_output=True, text=True, timeout=8, check=True
+        )
+        data = json.loads(proc.stdout)
+        if isinstance(data, list) and len(data) > 0:
+            c = data[0]
+            high_1h = float(c[2])
+            low_1h = float(c[3])
+            if low_1h > 0:
+                return ((high_1h - low_1h) / low_1h) * 100.0
+        return 1.0
+    except Exception as e:
+        print(f"[!] SRE Warning: Error fetching 1h candles for {inst_id}: {e}")
+        return 1.0
+
+
+def get_dynamic_parameters(inst_id, range_24h_pct):
+    """
+    Map 24h range, Orderbook Imbalance (OBI), and 1h Volatility ratio to buy_offset and target_profit.
+    SRE v5.5 Multi-Microstructure Engine.
+    """
+    if range_24h_pct < 3.0: # Low Volatility
+        buy_offset = 0.45
+        target_profit = 0.45
+        vol_state = "BASSA"
+    elif range_24h_pct < 6.0: # Medium Volatility
+        buy_offset = 0.55
+        target_profit = 0.55
+        vol_state = "MEDIA"
+    else: # High Volatility
+        buy_offset = 0.80
+        target_profit = 0.85
+        vol_state = "ALTA"
+
+    # Innovation 1: Order Book Imbalance (OBI Alpha)
+    obi_ratio = get_orderbook_imbalance(inst_id)
+    if obi_ratio >= 2.0:
+        print(f"[+] OBI Alpha ({inst_id}): Pressione d'acquisto forte ({obi_ratio:.2f}x)! Alzato Buy Offset a -0.40%")
+        buy_offset = 0.40
+        vol_state += "+OBI"
+
+    # Innovation 2: MTF Volatility Surge (Moonbag Target Expansion)
+    range_1h_pct = get_mtf_volatility(inst_id)
+    hourly_avg_vol = range_24h_pct / 24.0
+    moonbag_multiplier = 4.0 # Standard Moonbag (+3.40%)
+    
+    if hourly_avg_vol > 0 and (range_1h_pct / hourly_avg_vol) >= 1.8:
+        moonbag_multiplier = 6.0 # Expands Moonbag TP target to +5.10%!
+        print(f"[+] MTF Volatility Surge ({inst_id}): Volatilità 1h/24h = {range_1h_pct / hourly_avg_vol:.2f}x! Espansa Moonbag a +5.00%")
+        vol_state += "+VOL_SURGE"
+
+    return buy_offset, target_profit, moonbag_multiplier, vol_state
 
 
 def place_limit_order(inst_id, side, sz, px):
     """
-    Place limit order with strict timeout and validation.
+    Place limit order with strict timeout and validation, enforcing Post-Only (cancel_maker) for zero taker fee drag.
     """
     try:
         proc = subprocess.run(
-            ["okx", "--profile", "democlaw", "spot", "place", "--instId", inst_id, "--side", side, "--ordType", "limit", "--sz", str(sz), "--px", str(px), "--tdMode", "cash", "--json"],
+            ["okx", "--profile", "democlaw", "spot", "place", "--instId", inst_id, "--side", side, "--ordType", "limit", "--sz", str(sz), "--px", str(px), "--tdMode", "cash", "--stpMode", "cancel_maker", "--json"],
             capture_output=True, text=True, timeout=12, check=True
         )
         data = json.loads(proc.stdout)
@@ -237,10 +303,10 @@ def main():
                     coin_bal = next((b for b in balances if b.get("ccy") == coin), {})
                     avail = float(coin_bal.get("availBal", 0.0))
                     
-                    # Calculate dynamic targets based on real-time 24h volatility
+                    # Calculate dynamic targets based on real-time 24h volatility, OBI Alpha, and MTF Volatility Surge
                     range_pct = get_ticker_volatility(inst_id)
-                    buy_offset, target_profit, vol_state = get_dynamic_parameters(inst_id, range_pct)
-                    print(f"[+] Volatilità {inst_id}: {range_pct:.2f}% ({vol_state}) | Impostato dynamic Profit Target a +{target_profit:.2f}%")
+                    buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct)
+                    print(f"[+] SRE v5.5 Engine {inst_id}: 24h Vol = {range_pct:.2f}% ({vol_state}) | Dynamic TP = +{target_profit:.2f}% | Moonbag Mult = {moonbag_multiplier:.1f}x")
                     
                     target_pct = target_profit / 100.0
                     entry_px = float(coin_bal.get("openAvgPx", 0.0))
@@ -254,19 +320,19 @@ def main():
                         continue
                         
                     if entry_px > 0.0 and avail > 0.0001:
-                        # 80% / 20% Split Take-Profit (Maker-only & Moonbag)
+                        # 80% / 20% Split Take-Profit (Maker-only & Moonbag MTF)
                         dec_sz = 6 if "BTC" in inst_id else (5 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 2))
                         sz_80 = round(avail * 0.8, dec_sz)
                         sz_20 = round(avail - sz_80, dec_sz)
                         
                         sell_px_80 = round(entry_px * (1 + target_pct), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 4)))
-                        sell_px_20 = round(entry_px * (1 + target_pct * 4.0), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 4)))
+                        sell_px_20 = round(entry_px * (1 + target_pct * moonbag_multiplier), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 4)))
                         
                         # Place Order 1: Core 80% Take Profit
                         new_ord_id_80 = place_limit_order(inst_id, "sell", sz_80, sell_px_80)
                         if new_ord_id_80:
                             # Place Order 2: 20% Moonbag Take Profit
-                            print(f"[+] Piazzamento Moonbag (20%): Sz {sz_20} @ Px {sell_px_20} (+{target_profit * 4.0:.2f}%)")
+                            print(f"[+] Piazzamento Moonbag (20%): Sz {sz_20} @ Px {sell_px_20} (+{target_profit * moonbag_multiplier:.2f}%)")
                             place_limit_order(inst_id, "sell", sz_20, sell_px_20)
                             
                             cursor.execute("""
@@ -298,10 +364,10 @@ def main():
                         continue
                         
                     if last_price > 0.0:
-                        # Calculate dynamic buy offset based on real-time 24h volatility
+                        # Calculate dynamic buy offset based on real-time 24h volatility, OBI Alpha, and MTF Volatility Surge
                         range_pct = get_ticker_volatility(inst_id)
-                        buy_offset, target_profit, vol_state = get_dynamic_parameters(inst_id, range_pct)
-                        print(f"[+] Volatilità {inst_id}: {range_pct:.2f}% ({vol_state}) | Impostato dynamic Buy Offset a -{buy_offset:.2f}%")
+                        buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct)
+                        print(f"[+] SRE v5.5 Engine {inst_id}: 24h Vol = {range_pct:.2f}% ({vol_state}) | Dynamic Buy Offset = -{buy_offset:.2f}%")
                         
                         buy_offset_pct = buy_offset / 100.0
                         buy_px = round(last_price * (1.0 - buy_offset_pct), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else 3))
