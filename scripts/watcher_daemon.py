@@ -197,7 +197,7 @@ def main():
         if usdc_equity < 100.0:
             usdc_equity = 263.85
             
-        dynamic_size_usd = round(usdc_equity / 8.0, 2)
+        dynamic_size_usd = round(usdc_equity / 5.0, 2)
         print(f"[+] Compounding Active: USDC Equity = {usdc_equity:.2f} USDC | Dynamic Lot Size = {dynamic_size_usd:.2f} USDC")
         
         whitelisted_tokens = {
