@@ -1,0 +1,14 @@
+# TRE OS v5.5 OKX Configuration Template
+# Populate with your OKX API credentials
+
+[democlaw]
+api_key = "YOUR_OKX_API_KEY"
+secret_key = "YOUR_OKX_SECRET_KEY"
+passphrase = "YOUR_OKX_PASSPHRASE"
+simulated = "1"  # 1 for Demo/Paper, 0 for Real Live
+
+[live]
+api_key = "YOUR_LIVE_OKX_API_KEY"
+secret_key = "YOUR_LIVE_OKX_SECRET_KEY"
+passphrase = "YOUR_LIVE_OKX_PASSPHRASE"
+simulated = "0"
