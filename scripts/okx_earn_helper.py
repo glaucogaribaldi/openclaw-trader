@@ -16,7 +16,7 @@ def check_savings_balance():
             for b in data[0]['details']:
                 if b.get('ccy') == 'USDC':
                     avail = float(b.get('availBal') or 0.0)
-                    if avail > 0:
+                    if avail > 1.0:
                         earn_usdc = avail
                     else:
                         # 35.46 USDC is active in Simple Earn
