@@ -3,20 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRE OS v5.6 • PIXEL AGENTS QUANT WORKPLACE</title>
-    <!-- Fonts & Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <title>TRE OS v5.6 • PIXEL AGENTS WORKPLACE CANVAS</title>
+    <!-- Pixel & Inter Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@500;700&family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --bg-dark: #070a10;
-            --bg-surface: #0e1524;
-            --bg-card: #141f36;
+            --bg-dark: #04060a;
+            --bg-surface: #0a0f1d;
+            --bg-card: #101728;
             --passive-cyan: #00f2fe;
             --reasoning-purple: #a855f7;
             --active-green: #00e676;
-            --border-glow: rgba(255, 255, 255, 0.08);
-            --text-main: #f1f5f9;
+            --border-glow: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
             --text-muted: #64748b;
         }
 
@@ -38,13 +38,13 @@
         }
 
         .mono { font-family: 'JetBrains Mono', monospace; }
-        .pixel-text { font-family: 'Pixelify Sans', monospace; }
+        .pixel-font { font-family: 'Press Start 2P', monospace; }
 
-        /* Top Header */
+        /* Top Bar */
         header {
-            background: rgba(14, 21, 36, 0.9);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid var(--border-glow);
+            background: rgba(10, 15, 29, 0.95);
+            backdrop-filter: blur(12px);
+            border-bottom: 2px solid var(--border-glow);
             padding: 12px 24px;
             display: flex;
             align-items: center;
@@ -59,7 +59,7 @@
         }
 
         .brand-logo {
-            width: 38px; height: 38px;
+            width: 40px; height: 40px;
             background: linear-gradient(135deg, #a855f7 0%, #00f2fe 100%);
             border-radius: 10px;
             display: flex;
@@ -67,436 +67,394 @@
             justify-content: center;
             color: #000;
             font-size: 22px;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+            box-shadow: 0 0 20px rgba(0, 242, 254, 0.5);
         }
 
         .brand-title {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 700;
             letter-spacing: -0.3px;
         }
 
         .brand-sub {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
-        /* 2.5D Isometric Workplace Grid Viewport */
-        .workplace-viewport {
-            flex: 1;
-            position: relative;
-            background: radial-gradient(circle at center, #0f192d 0%, #05080e 100%);
-            overflow: hidden;
+        /* Mode Switcher Buttons */
+        .mode-buttons {
             display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        /* Isometric Floor Grid */
-        .iso-floor {
-            position: absolute;
-            width: 1200px;
-            height: 600px;
-            background-image: 
-                linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-            background-size: 40px 40px;
-            transform: rotateX(55deg) rotateZ(-45deg);
-            box-shadow: 0 0 100px rgba(0, 242, 254, 0.1);
-            border: 2px solid rgba(0, 242, 254, 0.2);
-            pointer-events: none;
-        }
-
-        /* SVG Vector Energy Flow Lines */
-        svg.agent-flow-pipes {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none;
-            z-index: 10;
-        }
-
-        .flow-pipe {
-            fill: none;
-            stroke-width: 3;
-            stroke-linecap: round;
-        }
-
-        .pipe-passive {
-            stroke: var(--passive-cyan);
-            stroke-dasharray: 8 8;
-            animation: flow-pulse 15s linear infinite;
-        }
-
-        .pipe-active {
-            stroke: var(--active-green);
-            stroke-dasharray: 8 8;
-            animation: flow-pulse 10s linear infinite;
-        }
-
-        @keyframes flow-pulse {
-            to { stroke-dashoffset: -1000; }
-        }
-
-        /* 3 Isometric Pixel Workstations Layout */
-        .workplace-stations {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 60px;
-            width: 90%;
-            max-width: 1400px;
-            z-index: 20;
-        }
-
-        .station-card {
-            background: rgba(14, 21, 36, 0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border-glow);
-            border-radius: 18px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            position: relative;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            cursor: pointer;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-        }
-
-        .station-card:hover {
-            transform: translateY(-6px) scale(1.02);
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
-        }
-
-        /* Station Color Accents */
-        .station-passive { border-top: 4px solid var(--passive-cyan); }
-        .station-passive:hover { border-color: var(--passive-cyan); box-shadow: 0 0 30px rgba(0, 242, 254, 0.3); }
-
-        .station-reasoning { border-top: 4px solid var(--reasoning-purple); }
-        .station-reasoning:hover { border-color: var(--reasoning-purple); box-shadow: 0 0 30px rgba(168, 85, 247, 0.3); }
-
-        .station-active { border-top: 4px solid var(--active-green); }
-        .station-active:hover { border-color: var(--active-green); box-shadow: 0 0 30px rgba(0, 230, 118, 0.3); }
-
-        .station-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .station-title {
-            font-size: 13px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            display: flex;
-            align-items: center;
             gap: 8px;
-        }
-
-        .station-passive .station-title { color: var(--passive-cyan); }
-        .station-reasoning .station-title { color: var(--reasoning-purple); }
-        .station-active .station-title { color: var(--active-green); }
-
-        /* Pixel Agent Avatar Display */
-        .agent-avatar-box {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            background: rgba(0, 0, 0, 0.4);
-            border: 1px solid var(--border-glow);
-            padding: 12px 16px;
-            border-radius: 12px;
-        }
-
-        .pixel-avatar {
-            font-size: 38px;
-            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.6));
-            animation: avatar-float 2.5s infinite ease-in-out;
-        }
-
-        @keyframes avatar-float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-4px); }
-        }
-
-        .agent-meta {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .agent-name {
-            font-size: 14px;
-            font-weight: 700;
-        }
-
-        .agent-status {
-            font-size: 11px;
-            color: var(--text-muted);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .status-dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            background: var(--active-green);
-            box-shadow: 0 0 8px var(--active-green);
-        }
-
-        /* Metric Rows inside Station */
-        .metric-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .metric-item {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            padding: 10px 14px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 4px;
             border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .metric-label {
-            font-size: 12px;
-            color: var(--text-muted);
-            font-weight: 500;
-        }
-
-        .metric-value {
-            font-size: 16px;
-            font-weight: 700;
-        }
-
-        /* Handles for Vector Pipes */
-        .pipe-handle {
-            width: 12px; height: 12px;
-            border-radius: 50%;
-            background: var(--bg-dark);
-            border: 2px solid var(--text-muted);
-            position: absolute;
-            top: 50%; transform: translateY(-50%);
-        }
-
-        .handle-left { left: -7px; }
-        .handle-right { right: -7px; }
-
-        .station-passive .pipe-handle { border-color: var(--passive-cyan); background: var(--passive-cyan); }
-        .station-reasoning .pipe-handle { border-color: var(--reasoning-purple); background: var(--reasoning-purple); }
-        .station-active .pipe-handle { border-color: var(--active-green); background: var(--active-green); }
-
-        /* Floating Nav Controls */
-        .nav-bar {
-            position: absolute;
-            bottom: 24px; left: 24px;
-            display: flex;
-            gap: 12px;
-            z-index: 50;
-        }
-
-        .btn-nav {
-            background: rgba(14, 21, 36, 0.9);
             border: 1px solid var(--border-glow);
-            color: var(--text-main);
-            padding: 10px 16px;
-            border-radius: 10px;
+        }
+
+        .mode-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 6px 14px;
+            border-radius: 8px;
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
-        .btn-nav:hover {
-            border-color: var(--passive-cyan);
-            color: var(--passive-cyan);
+        .mode-btn.active {
+            background: linear-gradient(135deg, #a855f7 0%, #00f2fe 100%);
+            color: #000;
+            font-weight: 700;
+            box-shadow: 0 0 12px rgba(0, 242, 254, 0.4);
+        }
+
+        /* Pixel Agents Canvas Container */
+        .viewport-container {
+            flex: 1;
+            position: relative;
+            background: #020408;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas#pixelCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Overlay UI Floating Cards */
+        .floating-overlay {
+            position: absolute;
+            top: 20px; left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 50;
+            pointer-events: none;
+        }
+
+        .stat-badge {
+            background: rgba(10, 15, 29, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glow);
+            padding: 10px 16px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            pointer-events: auto;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        .badge-icon {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        /* Bottom Control Bar */
+        .bottom-bar {
+            position: absolute;
+            bottom: 20px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 15, 29, 0.9);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-glow);
+            padding: 10px 24px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            z-index: 50;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        }
+
+        .bar-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .dot-pulse {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--active-green);
+            box-shadow: 0 0 10px var(--active-green);
+            animation: pulse-green 1.5s infinite alternate;
+        }
+
+        @keyframes pulse-green {
+            from { opacity: 0.5; }
+            to { opacity: 1; }
         }
     </style>
 </head>
 <body>
 
-    <!-- Header Bar -->
+    <!-- Top Header -->
     <header>
         <div class="brand">
-            <div class="brand-logo"><i class="fa-solid fa-cubes"></i></div>
+            <div class="brand-logo"><i class="fa-solid fa-gamepad"></i></div>
             <div>
-                <div class="brand-title pixel-text">PIXEL AGENTS • QUANT WORKPLACE</div>
-                <div class="brand-sub">REALTIME 2.5D ISOMETRIC DECISION CANVAS</div>
+                <div class="brand-title pixel-font" style="font-size: 12px; color: var(--passive-cyan)">PIXEL AGENTS WORKPLACE 2.5D</div>
+                <div class="brand-sub">TRE OS v5.6 REALTIME PIXEL ART CANVAS</div>
             </div>
         </div>
 
-        <div style="display: flex; gap: 14px; align-items: center;">
-            <div class="agent-status mono" style="font-size: 12px;" id="clock-display">Europe/Rome (CEST)</div>
-            <a href="/" class="btn-nav"><i class="fa-solid fa-chart-line"></i> Dashboard Estesa</a>
+        <div class="mode-buttons">
+            <button class="mode-btn active"><i class="fa-solid fa-cubes"></i> 2.5D Pixel Office</button>
+            <a href="/win95" class="mode-btn" style="text-decoration:none;"><i class="fa-solid fa-window-restore"></i> Win95 Desk</a>
+            <a href="/api/export/summary.csv" class="mode-btn" style="text-decoration:none;"><i class="fa-solid fa-download"></i> CSV</a>
+        </div>
+
+        <div class="mono" style="font-size: 12px; color: var(--text-muted);" id="clock-display">
+            Europe/Rome (CEST)
         </div>
     </header>
 
-    <!-- 2.5D Isometric Workplace Viewport -->
-    <div class="workplace-viewport">
-        <div class="iso-floor"></div>
-
-        <!-- SVG Vector Energy Pipes -->
-        <svg class="agent-flow-pipes" id="svg-pipes">
-            <!-- Rendered dynamically via JS -->
-        </svg>
-
-        <!-- 3 Pixel Agent Workstations -->
-        <div class="workplace-stations">
-
-            <!-- STATION 1: PASSIVE VAULT & SAFETY (Vinnie Risk Agent) -->
-            <div class="station-card station-passive" id="st-passive">
-                <div class="pipe-handle handle-right"></div>
-                <div class="station-header">
-                    <div class="station-title"><i class="fa-solid fa-vault"></i> 1. PASSIVE VAULT STATION</div>
-                    <div class="agent-status"><div class="status-dot"></div> SAFE</div>
-                </div>
-
-                <div class="agent-avatar-box">
-                    <div class="pixel-avatar">📈</div>
-                    <div class="agent-meta">
-                        <div class="agent-name pixel-text">Vinnie (Risk Guard)</div>
-                        <div class="agent-status">Spot Zero Leva • 10% Earn</div>
-                    </div>
-                </div>
-
-                <div class="metric-list">
-                    <div class="metric-item">
-                        <span class="metric-label">NET ASSET VALUE</span>
-                        <span class="metric-value mono" style="color: var(--passive-cyan)" id="val-nav">$312.03</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">CASSA LIQUIDA USDC</span>
-                        <span class="metric-value mono" id="val-cash">$68.45</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">SIMPLE EARN YIELD</span>
-                        <span class="metric-value mono" style="color: var(--active-green)">10.0% APR</span>
-                    </div>
+    <!-- Canvas Viewport -->
+    <div class="viewport-container">
+        <!-- Floating Stat Badges -->
+        <div class="floating-overlay">
+            <div class="stat-badge">
+                <div class="badge-icon" style="background: rgba(0, 242, 254, 0.15); color: var(--passive-cyan)"><i class="fa-solid fa-wallet"></i></div>
+                <div>
+                    <div style="font-size: 10px; color: var(--text-muted); font-weight: bold;">NAV ATTUALE</div>
+                    <div class="mono" style="font-size: 18px; font-weight: 700;" id="ui-nav">$312.03 USDC</div>
                 </div>
             </div>
 
-            <!-- STATION 2: REASONING BRAIN LAB (Lehman AI Agent) -->
-            <div class="station-card station-reasoning" id="st-reasoning">
-                <div class="pipe-handle handle-left"></div>
-                <div class="pipe-handle handle-right"></div>
-                <div class="station-header">
-                    <div class="station-title"><i class="fa-solid fa-brain"></i> 2. REASONING BRAIN LAB</div>
-                    <div class="agent-status"><div class="status-dot"></div> THINKING</div>
-                </div>
-
-                <div class="agent-avatar-box">
-                    <div class="pixel-avatar">🤖</div>
-                    <div class="agent-meta">
-                        <div class="agent-name pixel-text">Lehman Brody (AI Brain)</div>
-                        <div class="agent-status">Avellaneda Skew • OpenRouter</div>
-                    </div>
-                </div>
-
-                <div class="metric-list">
-                    <div class="metric-item">
-                        <span class="metric-label">INVENTORY SKEW (q)</span>
-                        <span class="metric-value mono" style="color: var(--reasoning-purple); font-size:14px;">q_skew: ACTIVE</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">OPENROUTER AI 1H</span>
-                        <span class="metric-value mono" style="font-size:13px; color: var(--reasoning-purple);">Neutro-Difensivo</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">OBI ALPHA DEPTH</span>
-                        <span class="metric-value mono" style="font-size:13px;">Depth Expansion</span>
-                    </div>
+            <div class="stat-badge">
+                <div class="badge-icon" style="background: rgba(168, 85, 247, 0.15); color: var(--reasoning-purple)"><i class="fa-solid fa-brain"></i></div>
+                <div>
+                    <div style="font-size: 10px; color: var(--text-muted); font-weight: bold;">AI CO-PILOT 1H</div>
+                    <div class="mono" style="font-size: 13px; font-weight: 700; color: var(--reasoning-purple)" id="ui-ai">NEUTRO-DIFENSIVO</div>
                 </div>
             </div>
 
-            <!-- STATION 3: ACTIVE TRADING FLOOR (Sal Execution Agent) -->
-            <div class="station-card station-active" id="st-active">
-                <div class="pipe-handle handle-left"></div>
-                <div class="station-header">
-                    <div class="station-title"><i class="fa-solid fa-bolt"></i> 3. ACTIVE TRADING DESK</div>
-                    <div class="agent-status"><div class="status-dot"></div> EXECUTING</div>
-                </div>
-
-                <div class="agent-avatar-box">
-                    <div class="pixel-avatar">🗣️</div>
-                    <div class="agent-meta">
-                        <div class="agent-name pixel-text">Sal (Floor Execution)</div>
-                        <div class="agent-status">Maker-Only Post-Only</div>
-                    </div>
-                </div>
-
-                <div class="metric-list">
-                    <div class="metric-item">
-                        <span class="metric-label">TRAPPOLE LIMIT</span>
-                        <span class="metric-value mono" style="color: var(--active-green)" id="val-orders">31 Ordini</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">CASH-AWARE LOT</span>
-                        <span class="metric-value mono" id="val-lot">$17.73 USDC</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">REALIZED FILLS</span>
-                        <span class="metric-value mono" style="color: var(--active-green)">56 Trades (+3.96$)</span>
-                    </div>
+            <div class="stat-badge">
+                <div class="badge-icon" style="background: rgba(0, 230, 118, 0.15); color: var(--active-green)"><i class="fa-solid fa-bolt"></i></div>
+                <div>
+                    <div style="font-size: 10px; color: var(--text-muted); font-weight: bold;">TRAPPOLE LIMIT MAKER</div>
+                    <div class="mono" style="font-size: 18px; font-weight: 700; color: var(--active-green)" id="ui-orders">31 ORDINI</div>
                 </div>
             </div>
+        </div>
 
+        <!-- Realtime HTML5 Canvas -->
+        <canvas id="pixelCanvas"></canvas>
+
+        <!-- Bottom Status Bar -->
+        <div class="bottom-bar">
+            <div class="bar-item">
+                <div class="dot-pulse"></div>
+                <span>BRODY VPS ENGINE LIVE</span>
+            </div>
+            <div class="bar-item mono">
+                <span>CASSA: <strong style="color: var(--passive-cyan)" id="ui-cash">$68.45</strong> ($35.46 Free)</span>
+            </div>
+            <div class="bar-item mono">
+                <span>SKEW: <strong style="color: var(--reasoning-purple)">AVELLANEDA ACTIVE</strong></span>
+            </div>
+            <div class="bar-item mono">
+                <span>EARN: <strong style="color: var(--active-green)">10.0% APR</strong></span>
+            </div>
         </div>
     </div>
 
-    <!-- JS Connectors Logic -->
+    <!-- Canvas Engine JS Script -->
     <script>
-        function drawPipes() {
-            const svg = document.getElementById('svg-pipes');
-            svg.innerHTML = '';
+        const canvas = document.getElementById('pixelCanvas');
+        const ctx = canvas.getContext('2d');
 
-            const connections = [
-                { from: 'st-passive', to: 'st-reasoning', type: 'passive' },
-                { from: 'st-reasoning', to: 'st-active', type: 'active' }
-            ];
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
 
-            const vpRect = document.querySelector('.workplace-viewport').getBoundingClientRect();
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
 
-            connections.forEach(c => {
-                const fromEl = document.getElementById(c.from);
-                const toEl = document.getElementById(c.to);
+        // 3 Pixel Workstations Coordinates
+        let time = 0;
 
-                if (fromEl && toEl) {
-                    const fRect = fromEl.getBoundingClientRect();
-                    const tRect = toEl.getBoundingClientRect();
+        const agents = [
+            { id: 'vinnie', name: 'Vinnie (Risk Guard)', role: 'PASSIVE VAULT', emoji: '📈', color: '#00f2fe', xPct: 0.22, yPct: 0.5, bubble: 'Cassa $68.45 USDC safe!' },
+            { id: 'lehman', name: 'Lehman Brody (AI)', role: 'REASONING LAB', emoji: '🤖', color: '#a855f7', xPct: 0.50, yPct: 0.5, bubble: 'Avellaneda Skew active!' },
+            { id: 'sal', name: 'Sal (Execution)', role: 'TRADING DESK', emoji: '🗣️', color: '#00e676', xPct: 0.78, yPct: 0.5, bubble: '31 Limit Traps in Book!' }
+        ];
 
-                    const x1 = fRect.right - vpRect.left;
-                    const y1 = fRect.top + fRect.height / 2 - vpRect.top;
-                    const x2 = tRect.left - vpRect.left;
-                    const y2 = tRect.top + tRect.height / 2 - vpRect.top;
-
-                    const dx = (x2 - x1) * 0.5;
-
-                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-                    path.setAttribute('d', d);
-                    path.setAttribute('class', `flow-pipe pipe-${c.type}`);
-                    svg.appendChild(path);
-                }
+        // Animated Flow Particles
+        const particles = [];
+        for (let i = 0; i < 20; i++) {
+            particles.push({
+                progress: Math.random(),
+                speed: 0.003 + Math.random() * 0.003,
+                type: Math.random() > 0.5 ? 1 : 2
             });
         }
 
-        async function fetchLiveData() {
+        function renderPixelOffice() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Draw Isometric Floor Grid
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+            ctx.lineWidth = 1;
+
+            const gridSize = 40;
+            for (let x = 0; x < w; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+                ctx.stroke();
+            }
+            for (let y = 0; y < h; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            // Draw Workstations Connections (Pipes)
+            const x1 = w * agents[0].xPct;
+            const y1 = h * agents[0].yPct;
+            const x2 = w * agents[1].xPct;
+            const y2 = h * agents[1].yPct;
+            const x3 = w * agents[2].xPct;
+            const y3 = h * agents[2].yPct;
+
+            // Pipe 1 (Passive -> Reasoning)
+            ctx.save();
+            ctx.strokeStyle = '#00f2fe';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([8, 8]);
+            ctx.lineDashOffset = -time * 20;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.quadraticCurveTo((x1+x2)/2, y1 - 60, x2, y2);
+            ctx.stroke();
+
+            // Pipe 2 (Reasoning -> Active)
+            ctx.strokeStyle = '#00e676';
+            ctx.beginPath();
+            ctx.moveTo(x2, y2);
+            ctx.quadraticCurveTo((x2+x3)/2, y2 + 60, x3, y3);
+            ctx.stroke();
+            ctx.restore();
+
+            // Draw Energy Particles
+            particles.forEach(p => {
+                p.progress += p.speed;
+                if (p.progress > 1) p.progress = 0;
+
+                let px, py, color;
+                if (p.type === 1) {
+                    px = x1 + (x2 - x1) * p.progress;
+                    py = (y1 + (y2 - y1) * p.progress) - Math.sin(p.progress * Math.PI) * 60;
+                    color = '#00f2fe';
+                } else {
+                    px = x2 + (x3 - x2) * p.progress;
+                    py = (y2 + (y3 - y2) * p.progress) + Math.sin(p.progress * Math.PI) * 60;
+                    color = '#00e676';
+                }
+
+                ctx.save();
+                ctx.fillStyle = color;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(px, py, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // Draw 3 Agent Workstations
+            agents.forEach((ag, idx) => {
+                const ax = w * ag.xPct;
+                const ay = h * ag.yPct;
+
+                // Workstation Base Box
+                ctx.save();
+                ctx.fillStyle = 'rgba(16, 23, 40, 0.9)';
+                ctx.strokeStyle = ag.color;
+                ctx.lineWidth = 2;
+                ctx.shadowColor = ag.color;
+                ctx.shadowBlur = 15;
+
+                ctx.beginPath();
+                ctx.roundRect(ax - 110, ay - 80, 220, 160, 16);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+
+                // Agent Avatar & Animation
+                const bounce = Math.sin(time * 3 + idx) * 4;
+
+                ctx.font = '42px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(ag.emoji, ax, ay - 10 + bounce);
+
+                // Station Title
+                ctx.fillStyle = ag.color;
+                ctx.font = 'bold 12px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText(ag.role, ax, ay + 40);
+
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = 'bold 11px Inter';
+                ctx.fillText(ag.name, ax, ay + 58);
+
+                // Speech Bubble
+                ctx.save();
+                ctx.fillStyle = '#ffffcc';
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.roundRect(ax - 90, ay - 130 + bounce, 180, 34, 8);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 10px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText(ag.bubble, ax, ay - 110 + bounce);
+                ctx.restore();
+            });
+
+            time += 0.03;
+            requestAnimationFrame(renderPixelOffice);
+        }
+
+        requestAnimationFrame(renderPixelOffice);
+
+        async function updateLiveData() {
             try {
                 const res = await fetch('/api/data');
                 const data = await res.json();
                 if (data.status === 'ok') {
-                    document.getElementById('val-nav').innerText = '$' + data.current_nav_usdc.toFixed(2);
-                    document.getElementById('val-cash').innerText = '$' + data.usdc_cash_total.toFixed(2);
-                    document.getElementById('val-orders').innerText = data.orders_count + ' Ordini';
+                    document.getElementById('ui-nav').innerText = '$' + data.current_nav_usdc.toFixed(2) + ' USDC';
+                    document.getElementById('ui-cash').innerText = '$' + data.usdc_cash_total.toFixed(2);
+                    document.getElementById('ui-orders').innerText = data.orders_count + ' ORDINI';
                 }
             } catch (e) {}
         }
@@ -505,10 +463,8 @@
             document.getElementById('clock-display').innerText = new Date().toLocaleTimeString('it-IT') + ' CEST';
         }, 1000);
 
-        window.addEventListener('resize', drawPipes);
-        setTimeout(drawPipes, 300);
-        setInterval(fetchLiveData, 15000);
-        fetchLiveData();
+        setInterval(updateLiveData, 15000);
+        updateLiveData();
     </script>
 </body>
 </html>
