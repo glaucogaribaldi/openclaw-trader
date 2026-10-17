@@ -247,6 +247,10 @@ def export_ledger_csv():
     response.headers["Content-Disposition"] = "attachment; filename=TRE_OS_Ledger_Fills.csv"
     return response
 
+@app.route("/win95")
+def win95():
+    return render_template("win95.html")
+
 @app.route("/")
 def index():
     return render_template("index.html")

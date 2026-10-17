@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRE OS v5.6 • WALL STREET 95 QUANT DESK</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --win95-bg: #008080;
+            --win95-gray: #c0c0c0;
+            --win95-light: #ffffff;
+            --win95-dark: #808080;
+            --win95-black: #000000;
+            --win95-blue: #000080;
+            --win95-blue-light: #1084d0;
+            --win95-green: #008000;
+            --win95-red: #800000;
+            --win95-yellow: #ffff00;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'MS Sans Serif', 'Pixelify Sans', Tahoma, sans-serif;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--win95-bg);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Classic Win95 Bevel Utilities */
+        .window-bevel {
+            background: var(--win95-gray);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-dark);
+            border-bottom: 2px solid var(--win95-dark);
+            box-shadow: 1px 1px 0px var(--win95-black);
+        }
+
+        .inset-bevel {
+            border-top: 2px solid var(--win95-dark);
+            border-left: 2px solid var(--win95-dark);
+            border-right: 2px solid var(--win95-light);
+            border-bottom: 2px solid var(--win95-light);
+            background: #ffffff;
+            color: #000;
+        }
+
+        .inset-dark {
+            border-top: 2px solid var(--win95-black);
+            border-left: 2px solid var(--win95-black);
+            border-right: 2px solid var(--win95-gray);
+            border-bottom: 2px solid var(--win95-gray);
+            background: #000000;
+            color: #00ff00;
+        }
+
+        /* Window Styling */
+        .win-titlebar {
+            background: linear-gradient(90deg, var(--win95-blue) 0%, var(--win95-blue-light) 100%);
+            color: white;
+            padding: 3px 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .win-controls {
+            display: flex;
+            gap: 2px;
+        }
+
+        .win-btn {
+            width: 16px;
+            height: 14px;
+            background: var(--win95-gray);
+            border-top: 1px solid var(--win95-light);
+            border-left: 1px solid var(--win95-light);
+            border-right: 1px solid var(--win95-dark);
+            border-bottom: 1px solid var(--win95-dark);
+            font-size: 9px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #000;
+        }
+
+        .win-btn:active {
+            border-top: 1px solid var(--win95-dark);
+            border-left: 1px solid var(--win95-dark);
+            border-right: 1px solid var(--win95-light);
+            border-bottom: 1px solid var(--win95-light);
+        }
+
+        /* Desktop Container Grid */
+        .desktop-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 12px;
+            padding: 12px;
+            flex: 1;
+            height: calc(100vh - 40px);
+        }
+
+        /* Panel 1: Wall Street Pixel Office */
+        .office-window {
+            grid-column: 1 / 2;
+            grid-row: 1 / 3;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .office-canvas-container {
+            flex: 1;
+            position: relative;
+            background: #111;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Pixel Trader Characters */
+        .trader-desk {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .trader-desk:hover {
+            transform: scale(1.05);
+        }
+
+        .trader-avatar {
+            font-size: 38px;
+            filter: drop-shadow(2px 4px 0px rgba(0,0,0,0.5));
+            animation: bounce 2s infinite ease-in-out;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+
+        .trader-name {
+            background: #000;
+            color: #fff;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-top: 4px;
+            font-weight: bold;
+            border: 1px solid #555;
+        }
+
+        .trader-bubble {
+            position: absolute;
+            top: -45px;
+            background: #ffffcc;
+            color: #000;
+            border: 2px solid #000;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+            box-shadow: 2px 2px 0px #000;
+            z-index: 10;
+            animation: pulse-bubble 1.5s infinite alternate;
+        }
+
+        @keyframes pulse-bubble {
+            from { transform: scale(1); }
+            to { transform: scale(1.03); }
+        }
+
+        /* Positions */
+        #giacomo-desk { top: 15%; left: 15%; }
+        #lehman-desk { top: 15%; right: 15%; }
+        #sal-desk { bottom: 18%; left: 18%; }
+        #vinnie-desk { bottom: 18%; right: 18%; }
+
+        /* Panel 2: Agent Brain Decision Flow Canvas */
+        .brain-window {
+            grid-column: 2 / 3;
+            grid-row: 1 / 2;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .flow-canvas {
+            flex: 1;
+            background: #050a14;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+        }
+
+        .flow-node {
+            background: #0d1a2d;
+            border: 2px solid #00f2fe;
+            color: #00f2fe;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+        }
+
+        .flow-arrow {
+            text-align: center;
+            color: #00e676;
+            font-size: 14px;
+            animation: pulse-arrow 1s infinite alternate;
+        }
+
+        @keyframes pulse-arrow {
+            from { opacity: 0.4; }
+            to { opacity: 1.0; }
+        }
+
+        /* Panel 3: Live Ticker & Orders */
+        .ticker-window {
+            grid-column: 2 / 3;
+            grid-row: 2 / 3;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Windows 95 Taskbar */
+        .taskbar {
+            height: 32px;
+            background: var(--win95-gray);
+            border-top: 2px solid var(--win95-light);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 2px 4px;
+            z-index: 1000;
+        }
+
+        .start-btn {
+            height: 24px;
+            background: var(--win95-gray);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-dark);
+            border-bottom: 2px solid var(--win95-dark);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 8px;
+            font-weight: bold;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .start-btn:active {
+            border-top: 2px solid var(--win95-dark);
+            border-left: 2px solid var(--win95-dark);
+            border-right: 2px solid var(--win95-light);
+            border-bottom: 2px solid var(--win95-light);
+        }
+
+        .taskbar-tabs {
+            display: flex;
+            gap: 4px;
+            flex: 1;
+            margin: 0 8px;
+        }
+
+        .task-tab {
+            background: var(--win95-gray);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-dark);
+            border-bottom: 2px solid var(--win95-dark);
+            padding: 2px 10px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .sys-tray {
+            border-top: 2px solid var(--win95-dark);
+            border-left: 2px solid var(--win95-dark);
+            border-right: 2px solid var(--win95-light);
+            border-bottom: 2px solid var(--win95-light);
+            padding: 2px 8px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--win95-gray);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Desktop Windows Grid -->
+    <div class="desktop-grid">
+
+        <!-- Window 1: Wall Street Trading Desk Room -->
+        <div class="window-bevel office-window">
+            <div class="win-titlebar">
+                <span><i class="fa-solid fa-building-columns"></i> Wall_Street_Quant_Desk_95.exe</span>
+                <div class="win-controls">
+                    <div class="win-btn">_</div>
+                    <div class="win-btn">口</div>
+                    <div class="win-btn">X</div>
+                </div>
+            </div>
+            <div class="office-canvas-container">
+                <!-- Wall Street Character 1: Giacomo -->
+                <div class="trader-desk" id="giacomo-desk" onclick="shoutCharacter('giacomo')">
+                    <div class="trader-bubble" id="giacomo-bubble">👔 Giacomo: "NAV a $312! Mantenere compounding organico!"</div>
+                    <div class="trader-avatar">💼</div>
+                    <div class="trader-name">Giacomo (Boss)</div>
+                </div>
+
+                <!-- Wall Street Character 2: Lehman Brody -->
+                <div class="trader-desk" id="lehman-desk" onclick="shoutCharacter('lehman')">
+                    <div class="trader-bubble" id="lehman-bubble">⚡ Lehman Brody: "Inventory Skew attivo! Lotto $17.73 USDC!"</div>
+                    <div class="trader-avatar">🤖</div>
+                    <div class="trader-name">Lehman Brody (Quant AI)</div>
+                </div>
+
+                <!-- Wall Street Character 3: Sal The Floor Broker -->
+                <div class="trader-desk" id="sal-desk" onclick="shoutCharacter('sal')">
+                    <div class="trader-bubble" id="sal-bubble">📞 Sal (Broker): "BUY LIMIT SUI E SEI INIZIATI IN BOOK!"</div>
+                    <div class="trader-avatar">🗣️</div>
+                    <div class="trader-name">Sal (Floor Trader)</div>
+                </div>
+
+                <!-- Wall Street Character 4: Vinnie Risk Manager -->
+                <div class="trader-desk" id="vinnie-desk" onclick="shoutCharacter('vinnie')">
+                    <div class="trader-bubble" id="vinnie-bubble">📊 Vinnie (Risk): "Zero Leva OKX Spot! 10% Earn attivo!"</div>
+                    <div class="trader-avatar">📈</div>
+                    <div class="trader-name">Vinnie (Risk Mgr)</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Window 2: Agent Brain Decision Flow Canvas -->
+        <div class="window-bevel brain-window">
+            <div class="win-titlebar">
+                <span><i class="fa-solid fa-brain"></i> Agent_Brain_Decision_Tree.exe</span>
+                <div class="win-controls">
+                    <div class="win-btn">_</div>
+                    <div class="win-btn">口</div>
+                    <div class="win-btn">X</div>
+                </div>
+            </div>
+            <div class="flow-canvas">
+                <div class="flow-node">
+                    <span>1. INPUTS MERCATO OKX SPOT</span>
+                    <span class="mono" id="flow-nav">NAV: $312.03 USDC</span>
+                </div>
+                <div class="flow-arrow"><i class="fa-solid fa-arrow-down"></i> OBI Alpha & Volatilità 1h/24h</div>
+                
+                <div class="flow-node">
+                    <span>2. AVELLANEDA-STOIKOV INVENTORY SKEW</span>
+                    <span class="mono" id="flow-skew">q_skew: ACTIVE</span>
+                </div>
+                <div class="flow-arrow"><i class="fa-solid fa-arrow-down"></i> Directives & Yield Optimization</div>
+
+                <div class="flow-node">
+                    <span>3. OPENROUTER AI STEERING (1H CRON)</span>
+                    <span class="mono" id="flow-ai">Status: 200 OK</span>
+                </div>
+                <div class="flow-arrow"><i class="fa-solid fa-arrow-down"></i> Executing Limit Orders</div>
+
+                <div class="flow-node" style="border-color: #00e676; color: #00e676;">
+                    <span>4. 31 TRAPPOLE LIMIT IN BOOK (MAKER-ONLY)</span>
+                    <span class="mono" id="flow-orders">30 Orders | 56 Fills</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Window 3: Realtime Ledger & Console -->
+        <div class="window-bevel ticker-window">
+            <div class="win-titlebar">
+                <span><i class="fa-solid fa-terminal"></i> Quant_Ledger_Console.log</span>
+                <div class="win-controls">
+                    <div class="win-btn">_</div>
+                    <div class="win-btn">口</div>
+                    <div class="win-btn">X</div>
+                </div>
+            </div>
+            <div class="inset-dark" style="flex:1; padding:10px; font-size:11px; overflow-y:auto;" id="console-log">
+                [16:41:00 CEST] System SRE v5.6 Multi-Microstructure initialized.<br>
+                [16:41:02 CEST] Host: brody (34.28.19.242) | VPS CPU: 0.08% | Memory: 402MB Free<br>
+                [16:41:05 CEST] Avellaneda-Stoikov Inventory Skew active on 8 High-Beta tokens.<br>
+                [16:41:10 CEST] OKX Simple Earn 10% APR Flexible yield tracker running.<br>
+                [16:41:15 CEST] Hourly OpenRouter AI Steering Co-Pilot active.<br>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Windows 95 Taskbar -->
+    <div class="taskbar">
+        <div class="start-btn" onclick="alert('TRE OS v5.6 • Wall Street 95 Quant Desk Running Autonomously!')">
+            <i class="fa-solid fa-window-restore" style="color:#000080"></i>
+            <span>Avvio</span>
+        </div>
+
+        <div class="taskbar-tabs">
+            <div class="task-tab">
+                <i class="fa-solid fa-building-columns"></i>
+                <span>Wall_Street_Desk.exe</span>
+            </div>
+            <div class="task-tab">
+                <i class="fa-solid fa-brain"></i>
+                <span>Agent_Brain.exe</span>
+            </div>
+        </div>
+
+        <div class="sys-tray">
+            <i class="fa-solid fa-shield-halved" style="color:var(--win95-green)"></i>
+            <i class="fa-solid fa-network-wired"></i>
+            <span class="mono" id="win95-clock">16:41 CEST</span>
+        </div>
+    </div>
+
+    <!-- Script Logic -->
+    <script>
+        const giacomoPhrases = [
+            '👔 Giacomo: "NAV a $312! Mantenere compounding organico!"',
+            '👔 Giacomo: "Nessun capitale extra fino al 31/12/2026!"',
+            '👔 Giacomo: "Controlla le trappole limit su SUI e SEI!"'
+        ];
+
+        const lehmanPhrases = [
+            '⚡ Lehman Brody: "Inventory Skew attivo! Lotto $17.73 USDC!"',
+            '⚡ Lehman Brody: "Maker-Only cancel_maker: Zero Taker Fee Drag!"',
+            '⚡ Lehman Brody: "Co-Pilot orario OpenRouter AI in esecuzione!"'
+        ];
+
+        const salPhrases = [
+            '🗣️ Sal (Broker): "BUY LIMIT SUI E SEI INIZIATI IN BOOK!"',
+            '🗣️ Sal (Broker): "TRAPPOLE LIMIT SU SOL E LINK PRONTE!"',
+            '🗣️ Sal (Broker): "31 ORDINI IN MAKER-ONLY REGISTRATI!"'
+        ];
+
+        const vinniePhrases = [
+            '📊 Vinnie (Risk): "Zero Leva OKX Spot! 10% Earn attivo!"',
+            '📊 Vinnie (Risk): "Cassa $101.43 USDC al sicuro su brody!"',
+            '📊 Vinnie (Risk): "SQLite WAL mode OK! Nessun blocco!"'
+        ];
+
+        function shoutCharacter(charName) {
+            if (charName === 'giacomo') {
+                document.getElementById('giacomo-bubble').innerText = giacomoPhrases[Math.floor(Math.random() * giacomoPhrases.length)];
+            } else if (charName === 'lehman') {
+                document.getElementById('lehman-bubble').innerText = lehmanPhrases[Math.floor(Math.random() * lehmanPhrases.length)];
+            } else if (charName === 'sal') {
+                document.getElementById('sal-bubble').innerText = salPhrases[Math.floor(Math.random() * salPhrases.length)];
+            } else if (charName === 'vinnie') {
+                document.getElementById('vinnie-bubble').innerText = vinniePhrases[Math.floor(Math.random() * vinniePhrases.length)];
+            }
+        }
+
+        async function updateDeskData() {
+            try {
+                const res = await fetch('/api/data');
+                const data = await res.json();
+
+                if (data.status === 'ok') {
+                    document.getElementById('flow-nav').innerText = 'NAV: $' + data.current_nav_usdc.toFixed(2) + ' USDC';
+                    document.getElementById('flow-orders').innerText = data.orders_count + ' Orders | 56 Fills';
+                    
+                    const logEl = document.getElementById('console-log');
+                    const nowStr = new Date().toLocaleTimeString('it-IT') + ' CEST';
+                    logEl.innerHTML += `[${nowStr}] Sync OK: NAV $${data.current_nav_usdc.toFixed(2)} | Cash $${data.usdc_cash_total.toFixed(2)} | ${data.orders_count} Orders<br>`;
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('win95-clock').innerText = now.toLocaleTimeString('it-IT') + ' CEST';
+        }, 1000);
+
+        setInterval(updateDeskData, 10000);
+        updateDeskData();
+    </script>
+</body>
+</html>
