@@ -166,10 +166,29 @@ def calculate_inventory_skew(inst_id, token_val_usdc, total_nav):
 
 
 def get_dynamic_parameters(inst_id, range_24h_pct, token_val_usdc, total_nav):
-    if range_24h_pct < 3.0: # Low Volatility / Weekend Regime
-        base_buy_offset = 0.35
-        base_target_profit = 0.40
-        vol_state = "LOW_VOL_WEEKEND"
+    ai_buy_offset = None
+    ai_target_profit = None
+    ai_mode = "STANDARD"
+    
+    try:
+        if os.path.exists(DIRECTIVE_PATH):
+            with open(DIRECTIVE_PATH, "r") as f:
+                directive = json.load(f)
+                if directive.get("low_volatility_mode") is True:
+                    ai_buy_offset = float(directive.get("grid_spread_buy_pct", 0.25))
+                    ai_target_profit = float(directive.get("take_profit_sell_pct", 0.35))
+                    ai_mode = "AI_MICRO_SCALPING"
+    except Exception:
+        pass
+
+    if ai_buy_offset is not None and ai_target_profit is not None:
+        base_buy_offset = ai_buy_offset
+        base_target_profit = ai_target_profit
+        vol_state = f"{ai_mode}(Buy -{base_buy_offset:.2f}% / Sell +{base_target_profit:.2f}%)"
+    elif range_24h_pct < 3.0: # Low Volatility / Weekend Regime
+        base_buy_offset = 0.25
+        base_target_profit = 0.35
+        vol_state = "LOW_VOL_MICRO_SCALPING"
     elif range_24h_pct < 6.0: # Medium Volatility
         base_buy_offset = 0.55
         base_target_profit = 0.55

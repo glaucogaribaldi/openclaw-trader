@@ -44,6 +44,7 @@ Dati attuali:
 
 Fornisci una DIRETTIVA STRATEGICA TATTICA in italiano (max 3 frasi) indicando:
 1. Inclinazione di mercato post-evento.
+2. Rilevamento della volatilita: Se la volatilita 24h e bassa (<3.0%), abilita low_volatility_mode con grid_spread_buy_pct 0.25 e take_profit_sell_pct 0.35.
 2. Suggerimento d allocazione immediata sui 8 token.
 3. Raccomandazione sugli spread Take-Profit e buy offsets."""
 
