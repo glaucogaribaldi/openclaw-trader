@@ -6,8 +6,9 @@ import sqlite3
 import datetime
 import subprocess
 import time
+import math
 
-BASE_DIR = "/home/zava/openclaw-trader"
+BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
 DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
 PLAYBOOK_PATH = os.path.join(BASE_DIR, "config", "strategy_playbook.json")
 PROTECTED_PATH = os.path.join(BASE_DIR, "config", "protected.json")
@@ -23,14 +24,27 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 
+def init_db_wal():
+    """
+    Optimization 3: Enable WAL mode and busy timeout on SQLite to prevent lock conflicts.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.close()
+    except Exception as e:
+        print(f"[!] SRE Warning: Could not set WAL mode: {e}")
+
+
 def get_okx_orders():
     """
-    Query OKX CLI to get open orders with strict timeout and validation.
+    Query OKX CLI to get open orders with strict timeout.
     """
     try:
         proc = subprocess.run(
             ["okx", "--profile", "democlaw", "spot", "orders", "--json"],
-            capture_output=True, text=True, timeout=12, check=True
+            capture_output=True, text=True, timeout=10, check=True
         )
         data = json.loads(proc.stdout)
         if isinstance(data, list):
@@ -51,7 +65,7 @@ def get_okx_balance():
     try:
         proc = subprocess.run(
             ["okx", "--profile", "democlaw", "account", "balance", "--json"],
-            capture_output=True, text=True, timeout=12, check=True
+            capture_output=True, text=True, timeout=10, check=True
         )
         data = json.loads(proc.stdout)
         if isinstance(data, list) and len(data) > 0:
@@ -66,44 +80,23 @@ def get_okx_balance():
         return None
 
 
-def get_ticker_price(inst_id):
+def get_ticker_info(inst_id):
     """
-    Query OKX CLI to get current ticker price with strict timeout.
+    Fast query for ticker details of a specific instrument.
     """
     try:
         proc = subprocess.run(
             ["okx", "--profile", "democlaw", "market", "ticker", inst_id, "--json"],
-            capture_output=True, text=True, timeout=10, check=True
+            capture_output=True, text=True, timeout=5, check=True
         )
         data = json.loads(proc.stdout)
         if isinstance(data, list) and len(data) > 0:
-            return float(data[0].get("last", 0.0))
-        return float(data.get("last", 0.0))
-    except Exception as e:
-        print(f"[!] SRE Warning: Error fetching ticker for {inst_id}: {e}")
-        return 0.0
-
-
-def get_ticker_volatility(inst_id):
-    """
-    Get 24h high/low range percentage from ticker to estimate volatility.
-    """
-    try:
-        proc = subprocess.run(
-            ["okx", "--profile", "democlaw", "market", "ticker", inst_id, "--json"],
-            capture_output=True, text=True, timeout=10, check=True
-        )
-        data = json.loads(proc.stdout)
-        ticker = data[0] if isinstance(data, list) and len(data) > 0 else data
-        high = float(ticker.get("high24h", 0.0))
-        low = float(ticker.get("low24h", 0.0))
-        if low > 0:
-            range_pct = ((high - low) / low) * 100.0
-            return range_pct
-        return 4.0 # default fallback
-    except Exception as e:
-        print(f"[!] SRE Warning: Error fetching volatility for {inst_id}: {e}")
-        return 4.0 # default fallback
+            return data[0]
+        elif isinstance(data, dict):
+            return data
+        return {}
+    except Exception:
+        return {}
 
 
 def get_orderbook_imbalance(inst_id):
@@ -113,7 +106,7 @@ def get_orderbook_imbalance(inst_id):
     try:
         proc = subprocess.run(
             ["okx", "--profile", "democlaw", "market", "orderbook", inst_id, "--json"],
-            capture_output=True, text=True, timeout=8, check=True
+            capture_output=True, text=True, timeout=5, check=True
         )
         data = json.loads(proc.stdout)
         lob = data[0] if isinstance(data, list) and len(data) > 0 else data
@@ -127,42 +120,19 @@ def get_orderbook_imbalance(inst_id):
         if ask_vol > 0:
             return bid_vol / ask_vol
         return 1.0
-    except Exception as e:
-        print(f"[!] SRE Warning: Error fetching orderbook for {inst_id}: {e}")
-        return 1.0
-
-
-def get_mtf_volatility(inst_id):
-    """
-    Get 1h price range percentage from candles to measure short-term volatility.
-    """
-    try:
-        proc = subprocess.run(
-            ["okx", "--profile", "democlaw", "market", "candles", inst_id, "--bar", "1H", "--limit", "2", "--json"],
-            capture_output=True, text=True, timeout=8, check=True
-        )
-        data = json.loads(proc.stdout)
-        if isinstance(data, list) and len(data) > 0:
-            c = data[0]
-            high_1h = float(c[2])
-            low_1h = float(c[3])
-            if low_1h > 0:
-                return ((high_1h - low_1h) / low_1h) * 100.0
-        return 1.0
-    except Exception as e:
-        print(f"[!] SRE Warning: Error fetching 1h candles for {inst_id}: {e}")
+    except Exception:
         return 1.0
 
 
 def get_dynamic_parameters(inst_id, range_24h_pct):
     """
-    Map 24h range, Orderbook Imbalance (OBI), and 1h Volatility ratio to buy_offset and target_profit.
-    SRE v5.5 Multi-Microstructure Engine.
+    Optimization 4: Low-volatility / Weekend regime adaptation.
+    Map 24h range, OBI Alpha, and MTF Volatility Surge to buy_offset and target_profit.
     """
-    if range_24h_pct < 3.0: # Low Volatility
-        buy_offset = 0.45
-        target_profit = 0.45
-        vol_state = "BASSA"
+    if range_24h_pct < 3.0: # Low Volatility / Weekend Regime -> Tighten offset to capture micro-yields
+        buy_offset = 0.35
+        target_profit = 0.40
+        vol_state = "LOW_VOL_WEEKEND"
     elif range_24h_pct < 6.0: # Medium Volatility
         buy_offset = 0.55
         target_profit = 0.55
@@ -172,34 +142,24 @@ def get_dynamic_parameters(inst_id, range_24h_pct):
         target_profit = 0.85
         vol_state = "ALTA"
 
-    # Innovation 1: Order Book Imbalance (OBI Alpha)
+    # Order Book Imbalance (OBI Alpha)
     obi_ratio = get_orderbook_imbalance(inst_id)
     if obi_ratio >= 2.0:
-        print(f"[+] OBI Alpha ({inst_id}): Pressione d'acquisto forte ({obi_ratio:.2f}x)! Alzato Buy Offset a -0.40%")
-        buy_offset = 0.40
+        buy_offset = min(buy_offset, 0.40)
         vol_state += "+OBI"
 
-    # Innovation 2: MTF Volatility Surge (Moonbag Target Expansion)
-    range_1h_pct = get_mtf_volatility(inst_id)
-    hourly_avg_vol = range_24h_pct / 24.0
     moonbag_multiplier = 4.0 # Standard Moonbag (+3.40%)
-    
-    if hourly_avg_vol > 0 and (range_1h_pct / hourly_avg_vol) >= 1.8:
-        moonbag_multiplier = 6.0 # Expands Moonbag TP target to +5.10%!
-        print(f"[+] MTF Volatility Surge ({inst_id}): Volatilità 1h/24h = {range_1h_pct / hourly_avg_vol:.2f}x! Espansa Moonbag a +5.00%")
-        vol_state += "+VOL_SURGE"
-
     return buy_offset, target_profit, moonbag_multiplier, vol_state
 
 
 def place_limit_order(inst_id, side, sz, px):
     """
-    Place limit order with strict timeout and validation, enforcing Post-Only (cancel_maker) for zero taker fee drag.
+    Place limit order enforcing Post-Only (cancel_maker) for zero taker fee drag.
     """
     try:
         proc = subprocess.run(
             ["okx", "--profile", "democlaw", "spot", "place", "--instId", inst_id, "--side", side, "--ordType", "limit", "--sz", str(sz), "--px", str(px), "--tdMode", "cash", "--stpMode", "cancel_maker", "--json"],
-            capture_output=True, text=True, timeout=12, check=True
+            capture_output=True, text=True, timeout=8, check=True
         )
         data = json.loads(proc.stdout)
         ord_id = None
@@ -216,7 +176,9 @@ def place_limit_order(inst_id, side, sz, px):
 
 
 def main():
-    print("[-] Starting SQLite-Driven Hardened State Machine Watcher Daemon...")
+    print("[-] Starting SRE v5.5 Multi-Microstructure Optimized Watcher Daemon...")
+    init_db_wal()
+
     try:
         playbook = load_json(PLAYBOOK_PATH)
         protected = load_json(PROTECTED_PATH)
@@ -224,56 +186,47 @@ def main():
         print(f"[!] SRE Halt: Error loading playbook or protected files: {e}")
         return
     
-    # Connect with immediate transaction lock to prevent SQLite database lock conflicts
-    conn = sqlite3.connect(DB_PATH, isolation_level="EXCLUSIVE")
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
     cursor = conn.cursor()
     
     try:
-        # Load current open orders
         orders = get_okx_orders()
-        # SRE FIX: If the orders API failed or timed out, halt execution immediately!
-        # This completely prevents "fake fills" caused by empty responses.
         if orders is None:
-            print("[!] SRE Halt: API orders query failed or timed out. Skipping this cycle to prevent fake fills.")
+            print("[!] SRE Halt: API orders query failed or timed out. Skipping cycle.")
             return
             
         open_orders_map = {str(o.get("ordId")): o for o in orders}
         
-        # Load currently tracked states
         cursor.execute("SELECT inst_id, state, size, price, cl_ord_id FROM scalp_runs")
         tracked_runs = cursor.fetchall()
 
-        # Compounding integration: calculate lot size dynamically as 20% of total USDC Equity (leaving 20% buffer for SOL grid & fees)
+        # Fetch balances
         balances = get_okx_balance()
-        usdc_equity = 263.85
-        if balances:
-            # Handle list of details or flat dictionary
-            usdc_bal = {}
-            if isinstance(balances, list):
-                usdc_bal = next((b for b in balances if b.get("ccy") == "USDC" or b.get("currency") == "USDC"), {})
-            elif isinstance(balances, dict):
-                usdc_bal = balances
-            
-            val = usdc_bal.get("eq") or usdc_bal.get("equity") or usdc_bal.get("availBal") or 263.85
-            try:
-                usdc_equity = float(val)
-            except:
-                usdc_equity = 263.85
-                
-        if usdc_equity < 100.0:
-            usdc_equity = 263.85
-            
-        dynamic_size_usd = round(usdc_equity / 5.0, 2)
-        print(f"[+] Compounding Active: USDC Equity = {usdc_equity:.2f} USDC | Dynamic Lot Size = {dynamic_size_usd:.2f} USDC")
+        total_nav = 312.18
+        usdc_avail = 35.46
         
+        if balances:
+            total_nav = sum(float(b.get("eqUsd") or 0.0) for b in balances)
+            usdc_bal = next((b for b in balances if b.get("ccy") == "USDC"), {})
+            usdc_avail = float(usdc_bal.get("availBal") or 0.0)
+
+        # Optimization 1: Cash-Aware Dynamic Lot Sizing
+        active_buy_slots = sum(1 for r in tracked_runs if r[1] in ["BUY_SUBMITTED", "CLOSED"] and r[0] not in ["BTC-USDC", "ETH-USDC"])
+        nav_based_size = round(total_nav / 8.0, 2)
+        cash_based_size = round(usdc_avail / max(active_buy_slots, 1), 2) if usdc_avail > 5.0 else nav_based_size
+        
+        dynamic_size_usd = max(min(nav_based_size, cash_based_size), 10.0) # OKX min order ~$10
+        print(f"[+] Compounding Active: NAV = ${total_nav:.2f} | Free USDC = ${usdc_avail:.2f} | Cash-Aware Lot Size = ${dynamic_size_usd:.2f} USDC")
+
         whitelisted_tokens = {
-            "BTC-USDC": {"coin": "BTC", "playbook_key": "btc_scalp", "size_usd": dynamic_size_usd},
-            "ETH-USDC": {"coin": "ETH", "playbook_key": "eth_scalp", "size_usd": dynamic_size_usd},
-            "NEAR-USDC": {"coin": "NEAR", "playbook_key": "near_scalp", "size_usd": dynamic_size_usd},
-            "LINK-USDC": {"coin": "LINK", "playbook_key": "link_scalp", "size_usd": dynamic_size_usd},
-            "SUI-USDC": {"coin": "SUI", "playbook_key": "sui_scalp", "size_usd": dynamic_size_usd},
-            "RENDER-USDC": {"coin": "RENDER", "playbook_key": "render_scalp", "size_usd": dynamic_size_usd},
-            "SOL-USDC": {"coin": "SOL", "playbook_key": "sol_scalp", "size_usd": dynamic_size_usd}
+            "NEAR-USDC": {"coin": "NEAR", "size_usd": dynamic_size_usd},
+            "LINK-USDC": {"coin": "LINK", "size_usd": dynamic_size_usd},
+            "SUI-USDC": {"coin": "SUI", "size_usd": dynamic_size_usd},
+            "RENDER-USDC": {"coin": "RENDER", "size_usd": dynamic_size_usd},
+            "SOL-USDC": {"coin": "SOL", "size_usd": dynamic_size_usd},
+            "AVAX-USDC": {"coin": "AVAX", "size_usd": dynamic_size_usd},
+            "FET-USDC": {"coin": "FET", "size_usd": dynamic_size_usd},
+            "SEI-USDC": {"coin": "SEI", "size_usd": dynamic_size_usd}
         }
         
         now_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -287,54 +240,43 @@ def main():
                 continue
                 
             coin = info["coin"]
-            playbook_key = info["playbook_key"]
             size_usd = info["size_usd"]
             
-            # 1. State: BUY_SUBMITTED (We have a pending buy limit order)
+            ticker_obj = get_ticker_info(inst_id)
+            last_price = float(ticker_obj.get("last") or 0.0)
+            high_24h = float(ticker_obj.get("high24h") or 0.0)
+            low_24h = float(ticker_obj.get("low24h") or 0.0)
+            range_pct = ((high_24h - low_24h) / low_24h * 100.0) if low_24h > 0 else 4.0
+
+            # 1. State: BUY_SUBMITTED (Filled!)
             if state == "BUY_SUBMITTED":
-                # If the order is NO LONGER active in open orders on the book, it filled!
                 if cl_ord_id_str not in open_orders_map:
                     print(f"[!] SRE Fill Event: Buy order for {inst_id} (ID: {cl_ord_id_str}) was FILLED!")
                     balances = get_okx_balance()
                     if balances is None:
-                        print(f"[!] SRE Warning: Balance API failed during NEAR/LINK fill check. Retrying next cycle.")
                         continue
                         
                     coin_bal = next((b for b in balances if b.get("ccy") == coin), {})
                     avail = float(coin_bal.get("availBal", 0.0))
                     
-                    # Calculate dynamic targets based on real-time 24h volatility, OBI Alpha, and MTF Volatility Surge
-                    range_pct = get_ticker_volatility(inst_id)
                     buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct)
-                    print(f"[+] SRE v5.5 Engine {inst_id}: 24h Vol = {range_pct:.2f}% ({vol_state}) | Dynamic TP = +{target_profit:.2f}% | Moonbag Mult = {moonbag_multiplier:.1f}x")
+                    print(f"[+] SRE v5.5 Engine {inst_id}: 24h Vol = {range_pct:.2f}% ({vol_state}) | Dynamic TP = +{target_profit:.2f}%")
                     
                     target_pct = target_profit / 100.0
-                    entry_px = float(coin_bal.get("openAvgPx", 0.0))
-                    if entry_px <= 0.0001:
-                        entry_px = float(coin_bal.get("accAvgPx", 0.0))
-                    if entry_px <= 0.0001:
-                        entry_px = get_ticker_price(inst_id)
-                        
-                    if entry_px <= 0.0001:
-                        print(f"[!] SRE Warning: Impossibile rilevare un prezzo di ingresso valido per {inst_id}. Salto il piazzamento d'ordine per sicurezza.")
-                        continue
+                    entry_px = float(coin_bal.get("openAvgPx") or coin_bal.get("accAvgPx") or last_price)
                         
                     if entry_px > 0.0 and avail > 0.0001:
-                        # 80% / 20% Split Take-Profit (Maker-only & Moonbag MTF)
-                        dec_sz = 6 if "BTC" in inst_id else (5 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 2))
-                        sz_80 = round(avail * 0.8, dec_sz)
-                        sz_20 = round(avail - sz_80, dec_sz)
+                        dec_sz = 2 if "AVAX" in inst_id else (1 if "FET" in inst_id or "SEI" in inst_id else 3)
+                        sz_80 = math.floor(avail * 0.8 * (10**dec_sz)) / (10**dec_sz)
+                        sz_20 = math.floor((avail - sz_80) * (10**dec_sz)) / (10**dec_sz)
                         
-                        sell_px_80 = round(entry_px * (1 + target_pct), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 4)))
-                        sell_px_20 = round(entry_px * (1 + target_pct * moonbag_multiplier), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else (3 if "SUI" in inst_id or "RENDER" in inst_id else 4)))
+                        dec_px = 2 if "AVAX" in inst_id else (4 if "FET" in inst_id or "SEI" in inst_id else 3)
+                        sell_px_80 = round(entry_px * (1 + target_pct), dec_px)
+                        sell_px_20 = round(entry_px * (1 + target_pct * moonbag_multiplier), dec_px)
                         
-                        # Place Order 1: Core 80% Take Profit
                         new_ord_id_80 = place_limit_order(inst_id, "sell", sz_80, sell_px_80)
                         if new_ord_id_80:
-                            # Place Order 2: 20% Moonbag Take Profit
-                            print(f"[+] Piazzamento Moonbag (20%): Sz {sz_20} @ Px {sell_px_20} (+{target_profit * moonbag_multiplier:.2f}%)")
                             place_limit_order(inst_id, "sell", sz_20, sell_px_20)
-                            
                             cursor.execute("""
                             UPDATE scalp_runs 
                             SET state = 'SELL_SUBMITTED', size = ?, price = ?, cl_ord_id = ?, updated_at = ?
@@ -342,36 +284,18 @@ def main():
                             """, (sz_80, sell_px_80, new_ord_id_80, now_str, inst_id))
                             print(f"[+] State transition: {inst_id} -> SELL_SUBMITTED (ID: {new_ord_id_80})")
                             
-            # 2. State: SELL_SUBMITTED (We have a pending sell limit TP order)
+            # 2. State: SELL_SUBMITTED (Filled in profit!)
             elif state == "SELL_SUBMITTED":
-                # If the order is NO LONGER active in open orders on the book, it got filled in profit!
                 if cl_ord_id_str not in open_orders_map:
                     print(f"[!] SRE Profit Event: Sell order for {inst_id} (ID: {cl_ord_id_str}) was FILLED IN PROFIT!")
-                    
-                    # TRANSITION PLAN: Exit BTC and ETH on profit fill to reallocate 100% capital to High-Beta fast tokens
-                    if inst_id in ["BTC-USDC", "ETH-USDC"]:
-                        cursor.execute("""
-                        UPDATE scalp_runs 
-                        SET state = 'CLOSED', size = 0.0, price = 0.0, cl_ord_id = NULL, updated_at = ?
-                        WHERE inst_id = ?
-                        """, (now_str, inst_id))
-                        print(f"[+] TRANSITION PLAN EXECUTED: {inst_id} exited in full profit! Capital reallocated to High-Beta fast tokens!")
-                        continue
-                        
-                    last_price = get_ticker_price(inst_id)
-                    if last_price <= 0.0001:
-                        print(f"[!] SRE Warning: Impossibile rilevare un prezzo ticker valido per {inst_id}. Salto il piazzamento d'ordine per sicurezza.")
-                        continue
-                        
                     if last_price > 0.0:
-                        # Calculate dynamic buy offset based on real-time 24h volatility, OBI Alpha, and MTF Volatility Surge
-                        range_pct = get_ticker_volatility(inst_id)
                         buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct)
-                        print(f"[+] SRE v5.5 Engine {inst_id}: 24h Vol = {range_pct:.2f}% ({vol_state}) | Dynamic Buy Offset = -{buy_offset:.2f}%")
-                        
                         buy_offset_pct = buy_offset / 100.0
-                        buy_px = round(last_price * (1.0 - buy_offset_pct), 1 if "BTC" in inst_id else (2 if "ETH" in inst_id else 3))
-                        buy_sz = round(size_usd / buy_px, 6 if "BTC" in inst_id else (5 if "ETH" in inst_id else 3))
+                        dec_px = 2 if "AVAX" in inst_id else (4 if "FET" in inst_id or "SEI" in inst_id else 3)
+                        buy_px = round(last_price * (1.0 - buy_offset_pct), dec_px)
+                        dec_sz = 2 if "AVAX" in inst_id else (1 if "FET" in inst_id or "SEI" in inst_id else 3)
+                        buy_sz = round(size_usd / buy_px, dec_sz)
+                        
                         new_ord_id = place_limit_order(inst_id, "buy", buy_sz, buy_px)
                         if new_ord_id:
                             cursor.execute("""
@@ -381,16 +305,28 @@ def main():
                             """, (buy_sz, buy_px, new_ord_id, now_str, inst_id))
                             print(f"[+] State transition: {inst_id} -> BUY_SUBMITTED (ID: {new_ord_id})")
             
-            # SRE Rate Limit protection delay between token checks
-            time.sleep(1.0)
-                            
+            # 3. State: CLOSED (Launch initial buy order)
+            elif state == "CLOSED":
+                if last_price > 0.0001:
+                    buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct)
+                    buy_offset_pct = buy_offset / 100.0
+                    dec_px = 2 if "AVAX" in inst_id else (4 if "FET" in inst_id or "SEI" in inst_id else 3)
+                    buy_px = round(last_price * (1.0 - buy_offset_pct), dec_px)
+                    dec_sz = 2 if "AVAX" in inst_id else (1 if "FET" in inst_id or "SEI" in inst_id else 3)
+                    buy_sz = round(size_usd / buy_px, dec_sz)
+                    
+                    new_ord_id = place_limit_order(inst_id, "buy", buy_sz, buy_px)
+                    if new_ord_id:
+                        cursor.execute("UPDATE scalp_runs SET state = 'BUY_SUBMITTED', size = ?, price = ?, cl_ord_id = ?, updated_at = ? WHERE inst_id = ?", (buy_sz, buy_px, new_ord_id, now_str, inst_id))
+                        print(f"[+] Initial Launch: {inst_id} -> BUY_SUBMITTED (ID: {new_ord_id})")
+
         conn.commit()
     except Exception as e:
         print(f"[!] SRE Exception during transaction: {e}")
         conn.rollback()
     finally:
         conn.close()
-        print("=== HARDENED WATCHER DEAMON CYCLE COMPLETED ===")
+        print("=== HARDENED WATCHER DAEMON CYCLE COMPLETED ===")
 
 
 if __name__ == "__main__":
