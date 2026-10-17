@@ -6,14 +6,29 @@ Il sistema opera esclusivamente in modalità **Maker-Only** (`--stpMode cancel_m
 
 ---
 
+## 💰 PASSAGGIO FONDAMENTALE: ATTIVAZIONE OKX SIMPLE EARN (1-CLICK)
+
+> **⚠️ NOTA IMPORTANTE PER L'UTENTE:**  
+> Per consentire al modulo autonomo `scripts/okx_earn_helper.py` di tracciare e generare il **10.0% APR di rendimento passivo** sulla cassa USDC inattiva, l'utente **DEVE ESEGUIRE UN PRIMO ED UNICO CLICK DI ATTIVAZIONE** sul proprio account OKX:
+>
+> 1. Vai su OKX Web (`my.okx.com`) ➔ Menu **Earn** ➔ **Simple Earn**.
+> 2. Cerca **USDC** e clicca su **Sottoscrivi (Flessibile / Flexible)**.
+> 3. Inserisci l'importo (es. `1 USDC` o clicca su `Massimo`), spunta *"Ho letto e accetto il Contratto Utente"* e clicca **Sottoscrivi**.
+> 4. Attiva la levetta **"Sottoscrizione Automatica" (Auto-subscribe)** nella schermata di conferma.
+>
+> **Perché è necessario?**  
+> Questo primo click autorizza i Termini del programma Margin Rewards / Simple Earn su OKX. Una volta confermato una sola volta dal browser, l'account abilità il tracciamento automatico e le API gestiranno la liquidità senza che l'utente debba più riaprire la finestra!
+
+---
+
 ## 🚀 NOVITÀ ARCHITETTURALI RELEASE v5.6 (MULTI-ALPHA ENGINE)
 
 1. **Avellaneda-Stoikov Inventory Skew ($q_{\text{skew}}$):**
-   Ribilanciamento dinamico degli offset in base al peso dell'asset sul NAV. Se l'inventario su un token sale sopra il 15%, lo spread di acquisto viene allargato e il Take-Profit di vendita viene avvicinato al prezzo di mercato per accelerare la liquidazione in USDC.
+   Ribilanciamento dinamico degli offset in base al peso dell'asset sul NAV. Se l'inventario su un token supera il 15%, lo spread di acquisto viene allargato e il Take-Profit di vendita viene avvicinato al prezzo di mercato per accelerare la liquidazione in USDC.
 2. **OKX Simple Earn Auto-Lending (10% Bonus APR Tracker):**
    Modulo autonomo `scripts/okx_earn_helper.py` per il tracciamento e la resa passiva del 10% APR sulla cassa USDC inattiva tra un ciclo di trade e l'altro.
-3. **Dynamic Relative Strength Allocation:**
-   Ponderazione dinamica del lotto di acquisto sui token a maggior volume e reattività (1.15x boost su `SUI`, `SEI`, `LINK`).
+3. **Event-Driven AI Steering Triggers:**
+   Integrazione di trigger istantanei ad ogni singolo FILL sul ledger, che interrogano immediatamente OpenRouter AI (`openrouter/free`) per riorientare le trappole limit senza attendere la scoccare dell'ora.
 4. **LOB Micro-Depth Spread Expansion:**
    Espansione automatica dei target di Take-Profit Moonbag (fino a +5.10%) quando lo spessore dell'Ask Book è sottile (< $500 USDC) e l'indicatore OBI è favorevole.
 5. **SRE Multi-Node Watchdog (`scripts/sre_watchdog.py`):**

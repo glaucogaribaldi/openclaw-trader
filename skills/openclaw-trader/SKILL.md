@@ -13,11 +13,25 @@ This skill defines the autonomous agent procedure for **Lehman Brody / TRE OS v5
 
 ---
 
+## 💰 MANDATORY STEP: OKX SIMPLE EARN 1-CLICK ACTIVATION
+
+To enable the autonomous yield module (`scripts/okx_earn_helper.py`) to track and generate **10.0% APR passive interest** on unallocated USDC cash, the operator **MUST PERFORM A ONE-TIME 1-CLICK ACTIVATION** on OKX:
+
+1. Open OKX Web (`my.okx.com`) ➔ Menu **Earn** ➔ **Simple Earn**.
+2. Search for **USDC** and click **Subscribe / Flexible (Flessibile)**.
+3. Enter amount (e.g. `1 USDC` or click `Max`), check *"I have read and agree to Margin Rewards User Agreement"*, and click **Subscribe**.
+4. Enable **"Auto-subscribe"** on the confirmation screen.
+
+*Once confirmed once via browser, OKX unlocks the user agreement authorization and the API tracks all idle cash yield automatically.*
+
+---
+
 ## 🚀 CORE CAPABILITIES & WORKFLOWS
 
 ### 1. Multi-Microstructure Execution Engine (`scripts/watcher_daemon.py`)
 - Runs every 60 seconds via Linux `crontab` (`* * * * *`).
 - **Avellaneda-Stoikov Inventory Skew ($q_{\text{skew}}$):** Dynamically skews buy offsets and sell Take-Profits based on token holding weight in NAV.
+- **Event-Driven AI Triggers:** Automatically triggers background OpenRouter AI calls (`--trigger FILL_<coin>`) on every buy/sell trade fill to adapt micro-tactics instantly.
 - **Cash-Aware Lot Sizing:** Automatically caps order sizes to available free USDC cash to prevent balance errors.
 - **Order Book Imbalance (OBI Alpha) & LOB Micro-Depth:** Reads top 10 orderbook bid/ask volumes to adjust dip traps and expand Moonbag Take-Profits (+5.10%).
 
