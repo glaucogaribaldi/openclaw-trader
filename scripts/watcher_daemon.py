@@ -37,6 +37,22 @@ def init_db_wal():
         print(f"[!] SRE Warning: Could not set WAL mode: {e}")
 
 
+def trigger_event_ai_steering(event_name):
+    """
+    Non-blocking background trigger for OpenRouter AI Steering upon trade fills.
+    """
+    try:
+        cmd = [
+            os.path.join(BASE_DIR, "venv/bin/python"),
+            os.path.join(BASE_DIR, "scripts/hourly_ai_steer.py"),
+            "--trigger", event_name
+        ]
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"[⚡ EVENT AI TRIGGER] Fired background OpenRouter AI Steering check for event: {event_name}")
+    except Exception as e:
+        print(f"[!] Event AI Trigger error: {e}")
+
+
 def get_okx_orders():
     """
     Query OKX CLI to get open orders with strict timeout.
@@ -125,7 +141,7 @@ def get_orderbook_depth_and_imbalance(inst_id):
 
 def calculate_inventory_skew(inst_id, token_val_usdc, total_nav):
     """
-    Module 1: Avellaneda-Stoikov Inventory Skew ($q_{skew}$).
+    Avellaneda-Stoikov Inventory Skew ($q_{skew}$).
     Adjusts buy offset and sell target based on token holding weight in NAV.
     """
     if total_nav <= 0:
@@ -134,11 +150,11 @@ def calculate_inventory_skew(inst_id, token_val_usdc, total_nav):
     q_ratio = token_val_usdc / total_nav
     
     if q_ratio > 0.15: # High Inventory -> Lower buy aggressiveness (-0.80%), accelerate sell (+0.35%)
-        buy_skew = 1.45 # Widen buy offset
-        sell_skew = 0.70 # Tighten sell TP
+        buy_skew = 1.45
+        sell_skew = 0.70
         state = f"HIGH_INV({q_ratio*100:.1f}%)"
     elif q_ratio < 0.04: # Low/Zero Inventory -> Aggressive buy offset (-0.35%)
-        buy_skew = 0.65 # Tighten buy offset to catch dip fast
+        buy_skew = 0.65
         sell_skew = 1.00
         state = f"LOW_INV({q_ratio*100:.1f}%)"
     else:
@@ -150,9 +166,6 @@ def calculate_inventory_skew(inst_id, token_val_usdc, total_nav):
 
 
 def get_dynamic_parameters(inst_id, range_24h_pct, token_val_usdc, total_nav):
-    """
-    Module 1, 4 & Low-Vol: Avellaneda-Stoikov Inventory Skew + LOB Depth Expansion.
-    """
     if range_24h_pct < 3.0: # Low Volatility / Weekend Regime
         base_buy_offset = 0.35
         base_target_profit = 0.40
@@ -166,21 +179,18 @@ def get_dynamic_parameters(inst_id, range_24h_pct, token_val_usdc, total_nav):
         base_target_profit = 0.85
         vol_state = "ALTA"
 
-    # Module 1: Avellaneda-Stoikov Inventory Skew
     buy_skew, sell_skew, inv_state = calculate_inventory_skew(inst_id, token_val_usdc, total_nav)
     buy_offset = base_buy_offset * buy_skew
     target_profit = base_target_profit * sell_skew
 
-    # Module 4: Order Book Imbalance & LOB Depth Expansion
     obi_ratio, ask_depth = get_orderbook_depth_and_imbalance(inst_id)
     if obi_ratio >= 2.0:
         buy_offset = min(buy_offset, 0.40)
         vol_state += "+OBI"
 
-    # Thin Ask Depth -> Expand Moonbag TP target!
-    moonbag_multiplier = 4.0 # Standard Moonbag (+3.40%)
+    moonbag_multiplier = 4.0
     if ask_depth < 500.0 and obi_ratio > 1.5:
-        moonbag_multiplier = 6.0 # Expand Moonbag to +5.10%!
+        moonbag_multiplier = 6.0
         vol_state += "+THIN_LOB_EXPANSION"
 
     return buy_offset, target_profit, moonbag_multiplier, f"{vol_state}|{inv_state}"
@@ -210,7 +220,7 @@ def place_limit_order(inst_id, side, sz, px):
 
 
 def main():
-    print("[-] Starting SRE v5.6 Avellaneda-Stoikov & Multi-Alpha Optimized Watcher Daemon...")
+    print("[-] Starting SRE v5.6 Avellaneda-Stoikov & Event-Driven AI Watcher Daemon...")
     init_db_wal()
 
     try:
@@ -236,7 +246,7 @@ def main():
 
         # Fetch balances
         balances = get_okx_balance()
-        total_nav = 312.18
+        total_nav = 309.36
         usdc_avail = 35.46
         asset_values = {}
         
@@ -247,7 +257,6 @@ def main():
             for b in balances:
                 asset_values[b.get("ccy")] = float(b.get("eqUsd") or 0.0)
 
-        # Optimization 1: Cash-Aware Dynamic Lot Sizing
         active_buy_slots = sum(1 for r in tracked_runs if r[1] in ["BUY_SUBMITTED", "CLOSED"] and r[0] not in ["BTC-USDC", "ETH-USDC"])
         nav_based_size = round(total_nav / 8.0, 2)
         cash_based_size = round(usdc_avail / max(active_buy_slots, 1), 2) if usdc_avail > 5.0 else nav_based_size
@@ -279,10 +288,8 @@ def main():
             coin = info["coin"]
             token_val_usdc = asset_values.get(coin, 0.0)
             
-            # Module 3: Dynamic Relative Strength Allocation
-            # High-Beta momentum boost for active tokens
             size_usd = dynamic_size_usd
-            if coin in ["SUI", "SEI", "LINK"]: # Top high-beta volume drivers
+            if coin in ["SUI", "SEI", "LINK"]:
                 size_usd = round(dynamic_size_usd * 1.15, 2)
 
             ticker_obj = get_ticker_info(inst_id)
@@ -295,6 +302,9 @@ def main():
             if state == "BUY_SUBMITTED":
                 if cl_ord_id_str not in open_orders_map:
                     print(f"[!] SRE Fill Event: Buy order for {inst_id} (ID: {cl_ord_id_str}) was FILLED!")
+                    # Event-driven AI steering trigger!
+                    trigger_event_ai_steering(f"BUY_FILL_{coin}")
+
                     balances = get_okx_balance()
                     if balances is None:
                         continue
@@ -331,6 +341,9 @@ def main():
             elif state == "SELL_SUBMITTED":
                 if cl_ord_id_str not in open_orders_map:
                     print(f"[!] SRE Profit Event: Sell order for {inst_id} (ID: {cl_ord_id_str}) was FILLED IN PROFIT!")
+                    # Event-driven AI steering trigger!
+                    trigger_event_ai_steering(f"SELL_PROFIT_FILL_{coin}")
+
                     if last_price > 0.0:
                         buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
                         buy_offset_pct = buy_offset / 100.0
@@ -348,7 +361,7 @@ def main():
                             """, (buy_sz, buy_px, new_ord_id, now_str, inst_id))
                             print(f"[+] State transition: {inst_id} -> BUY_SUBMITTED (ID: {new_ord_id})")
             
-            # 3. State: CLOSED (Launch initial buy order)
+            # 3. State: CLOSED
             elif state == "CLOSED":
                 if last_price > 0.0001:
                     buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)

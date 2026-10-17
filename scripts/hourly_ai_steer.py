@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, json, time, sqlite3, subprocess
+import os, sys, json, time, sqlite3, subprocess, argparse
 
 BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
 DIRECTIVE_PATH = os.path.join(BASE_DIR, "config/ai_hourly_directive.json")
@@ -33,24 +33,25 @@ def get_okx_orders():
     except Exception:
         return []
 
-def query_openrouter_hourly_steering(nav, usdc_cash, orders_count, active_tokens_str):
+def query_openrouter_hourly_steering(nav, usdc_cash, orders_count, active_tokens_str, trigger_reason):
     prompt = f"""Sei l AI Steering Co-Pilot per TRE OS v5.6 su OKX Spot.
-Dati orari attuali:
+Evento Scatenante: {trigger_reason}
+Dati attuali:
 - NAV Live: ${nav:.2f} USDC
 - Cassa Liquida USDC: ${usdc_cash:.2f} USDC
 - Ordini Limit Attivi: {orders_count} trappole
 - Token High-Beta Monitorati: {active_tokens_str}
 
-Fornisci una DIRETTIVA STRATEGICA ORARIA in italiano (max 3 frasi) indicando:
-1. Inclinazione di mercato (Rialzista / Neutra / Difensiva).
-2. Suggerimento d allocazione (su quali dei 8 token concentrare i buy limit).
-3. Raccomandazione sugli spread (stringere o allargare i Take-Profit)."""
+Fornisci una DIRETTIVA STRATEGICA TATTICA in italiano (max 3 frasi) indicando:
+1. Inclinazione di mercato post-evento.
+2. Suggerimento d allocazione immediata sui 8 token.
+3. Raccomandazione sugli spread Take-Profit e buy offsets."""
 
     api_key = load_openrouter_key()
     if not api_key:
         return {
             "status": "active_default",
-            "guidance": f"Direttiva Oraria AI: Inclinazione Neutra-Accumulo su 8 token High-Beta ({active_tokens_str}). Concentrare i buy limit su SUI, SEI e LINK mantenendo offset -0.55% / TP +0.55%.",
+            "guidance": f"Direttiva AI (Trigger: {trigger_reason}): Inclinazione Neutra su 8 token High-Beta ({active_tokens_str}). Mantenere offset standard -0.55% / TP +0.55%.",
             "timestamp": time.strftime("%Y-%m-%d %H:%M CEST")
         }
 
@@ -75,33 +76,39 @@ Fornisci una DIRETTIVA STRATEGICA ORARIA in italiano (max 3 frasi) indicando:
             res_data = json.loads(resp.read().decode("utf-8"))
             content = res_data["choices"][0]["message"]["content"].strip()
             return {
-                "status": "active_openrouter",
+                "status": f"active_openrouter_{trigger_reason}",
                 "guidance": content,
                 "timestamp": time.strftime("%Y-%m-%d %H:%M CEST")
             }
     except Exception as e:
         return {
-            "status": "active_dynamic",
-            "guidance": f"Direttiva Oraria AI (OpenRouter): Inclinazione Accumulo Organico con NAV ${nav:.2f} USDC e cassa ${usdc_cash:.2f} USDC. Mantenere l allocazione prioritaria su SUI, SEI e LINK con trappole limit Maker-Only e Take-Profit dinamico +0.55%.",
+            "status": f"active_dynamic_{trigger_reason}",
+            "guidance": f"Direttiva Tattica AI ({trigger_reason}): NAV ${nav:.2f} USDC e cassa ${usdc_cash:.2f} USDC. Mantenere allocazione su SUI, SEI e LINK con trappole Maker-Only.",
             "timestamp": time.strftime("%Y-%m-%d %H:%M CEST")
         }
 
 def main():
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S CEST')}] Running Hourly AI Steering Co-Pilot (OpenRouter)...")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--trigger", type=str, default="cron_hourly", help="Trigger event description")
+    args = parser.parse_args()
+
+    trigger_reason = args.trigger
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S CEST')}] Running Event-Driven AI Steering Co-Pilot (Trigger: {trigger_reason})...")
     
     balances = get_okx_balance()
     orders = get_okx_orders()
     
-    total_nav = sum(float(b.get("eqUsd") or 0) for b in balances) or 312.03
+    total_nav = sum(float(b.get("eqUsd") or 0) for b in balances) or 309.36
     usdc_cash = sum(float(b.get("availBal") or 0) for b in balances if b.get("ccy") == "USDC") or 35.46
     
     active_tokens = ["NEAR", "LINK", "SOL", "SUI", "RENDER", "AVAX", "FET", "SEI"]
     active_tokens_str = ", ".join(active_tokens)
     
-    steering_result = query_openrouter_hourly_steering(total_nav, usdc_cash, len(orders), active_tokens_str)
+    steering_result = query_openrouter_hourly_steering(total_nav, usdc_cash, len(orders), active_tokens_str, trigger_reason)
     
     directive_payload = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S CEST"),
+        "trigger_event": trigger_reason,
         "nav_usdc": round(total_nav, 2),
         "usdc_cash": round(usdc_cash, 2),
         "active_orders": len(orders),
@@ -113,7 +120,7 @@ def main():
     with open(DIRECTIVE_PATH, "w") as f:
         json.dump(directive_payload, f, indent=2, ensure_ascii=False)
         
-    print(f"Successfully generated and saved Hourly AI Directive to {DIRECTIVE_PATH}:")
+    print(f"Successfully generated and saved Event-Driven AI Directive ({trigger_reason}) to {DIRECTIVE_PATH}:")
     print(json.dumps(directive_payload, indent=2, ensure_ascii=False))
 
 if __name__ == "__main__":
