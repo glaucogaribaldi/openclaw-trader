@@ -26,7 +26,7 @@ def save_json(path, data):
 
 def init_db_wal():
     """
-    Optimization 3: Enable WAL mode and busy timeout on SQLite to prevent lock conflicts.
+    Enable WAL mode and busy timeout on SQLite to prevent lock conflicts.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -99,9 +99,9 @@ def get_ticker_info(inst_id):
         return {}
 
 
-def get_orderbook_imbalance(inst_id):
+def get_orderbook_depth_and_imbalance(inst_id):
     """
-    Calculate Order Book Imbalance (OBI) ratio: sum(bid_vols) / sum(ask_vols) from top 10 LOB levels.
+    Calculate Order Book Imbalance (OBI) ratio and Ask Depth liquidity.
     """
     try:
         proc = subprocess.run(
@@ -117,39 +117,73 @@ def get_orderbook_imbalance(inst_id):
         bid_vol = sum(float(b[1]) * float(b[0]) for b in bids[:10]) if bids else 0.0
         ask_vol = sum(float(a[1]) * float(a[0]) for a in asks[:10]) if asks else 0.0
         
-        if ask_vol > 0:
-            return bid_vol / ask_vol
-        return 1.0
+        obi_ratio = (bid_vol / ask_vol) if ask_vol > 0 else 1.0
+        return obi_ratio, ask_vol
     except Exception:
-        return 1.0
+        return 1.0, 1000.0
 
 
-def get_dynamic_parameters(inst_id, range_24h_pct):
+def calculate_inventory_skew(inst_id, token_val_usdc, total_nav):
     """
-    Optimization 4: Low-volatility / Weekend regime adaptation.
-    Map 24h range, OBI Alpha, and MTF Volatility Surge to buy_offset and target_profit.
+    Module 1: Avellaneda-Stoikov Inventory Skew ($q_{skew}$).
+    Adjusts buy offset and sell target based on token holding weight in NAV.
     """
-    if range_24h_pct < 3.0: # Low Volatility / Weekend Regime -> Tighten offset to capture micro-yields
-        buy_offset = 0.35
-        target_profit = 0.40
+    if total_nav <= 0:
+        return 1.0, 1.0, "BALANCED"
+    
+    q_ratio = token_val_usdc / total_nav
+    
+    if q_ratio > 0.15: # High Inventory -> Lower buy aggressiveness (-0.80%), accelerate sell (+0.35%)
+        buy_skew = 1.45 # Widen buy offset
+        sell_skew = 0.70 # Tighten sell TP
+        state = f"HIGH_INV({q_ratio*100:.1f}%)"
+    elif q_ratio < 0.04: # Low/Zero Inventory -> Aggressive buy offset (-0.35%)
+        buy_skew = 0.65 # Tighten buy offset to catch dip fast
+        sell_skew = 1.00
+        state = f"LOW_INV({q_ratio*100:.1f}%)"
+    else:
+        buy_skew = 1.00
+        sell_skew = 1.00
+        state = f"BALANCED({q_ratio*100:.1f}%)"
+        
+    return buy_skew, sell_skew, state
+
+
+def get_dynamic_parameters(inst_id, range_24h_pct, token_val_usdc, total_nav):
+    """
+    Module 1, 4 & Low-Vol: Avellaneda-Stoikov Inventory Skew + LOB Depth Expansion.
+    """
+    if range_24h_pct < 3.0: # Low Volatility / Weekend Regime
+        base_buy_offset = 0.35
+        base_target_profit = 0.40
         vol_state = "LOW_VOL_WEEKEND"
     elif range_24h_pct < 6.0: # Medium Volatility
-        buy_offset = 0.55
-        target_profit = 0.55
+        base_buy_offset = 0.55
+        base_target_profit = 0.55
         vol_state = "MEDIA"
     else: # High Volatility
-        buy_offset = 0.80
-        target_profit = 0.85
+        base_buy_offset = 0.80
+        base_target_profit = 0.85
         vol_state = "ALTA"
 
-    # Order Book Imbalance (OBI Alpha)
-    obi_ratio = get_orderbook_imbalance(inst_id)
+    # Module 1: Avellaneda-Stoikov Inventory Skew
+    buy_skew, sell_skew, inv_state = calculate_inventory_skew(inst_id, token_val_usdc, total_nav)
+    buy_offset = base_buy_offset * buy_skew
+    target_profit = base_target_profit * sell_skew
+
+    # Module 4: Order Book Imbalance & LOB Depth Expansion
+    obi_ratio, ask_depth = get_orderbook_depth_and_imbalance(inst_id)
     if obi_ratio >= 2.0:
         buy_offset = min(buy_offset, 0.40)
         vol_state += "+OBI"
 
+    # Thin Ask Depth -> Expand Moonbag TP target!
     moonbag_multiplier = 4.0 # Standard Moonbag (+3.40%)
-    return buy_offset, target_profit, moonbag_multiplier, vol_state
+    if ask_depth < 500.0 and obi_ratio > 1.5:
+        moonbag_multiplier = 6.0 # Expand Moonbag to +5.10%!
+        vol_state += "+THIN_LOB_EXPANSION"
+
+    return buy_offset, target_profit, moonbag_multiplier, f"{vol_state}|{inv_state}"
 
 
 def place_limit_order(inst_id, side, sz, px):
@@ -176,7 +210,7 @@ def place_limit_order(inst_id, side, sz, px):
 
 
 def main():
-    print("[-] Starting SRE v5.5 Multi-Microstructure Optimized Watcher Daemon...")
+    print("[-] Starting SRE v5.6 Avellaneda-Stoikov & Multi-Alpha Optimized Watcher Daemon...")
     init_db_wal()
 
     try:
@@ -204,29 +238,32 @@ def main():
         balances = get_okx_balance()
         total_nav = 312.18
         usdc_avail = 35.46
+        asset_values = {}
         
         if balances:
             total_nav = sum(float(b.get("eqUsd") or 0.0) for b in balances)
             usdc_bal = next((b for b in balances if b.get("ccy") == "USDC"), {})
             usdc_avail = float(usdc_bal.get("availBal") or 0.0)
+            for b in balances:
+                asset_values[b.get("ccy")] = float(b.get("eqUsd") or 0.0)
 
         # Optimization 1: Cash-Aware Dynamic Lot Sizing
         active_buy_slots = sum(1 for r in tracked_runs if r[1] in ["BUY_SUBMITTED", "CLOSED"] and r[0] not in ["BTC-USDC", "ETH-USDC"])
         nav_based_size = round(total_nav / 8.0, 2)
         cash_based_size = round(usdc_avail / max(active_buy_slots, 1), 2) if usdc_avail > 5.0 else nav_based_size
         
-        dynamic_size_usd = max(min(nav_based_size, cash_based_size), 10.0) # OKX min order ~$10
-        print(f"[+] Compounding Active: NAV = ${total_nav:.2f} | Free USDC = ${usdc_avail:.2f} | Cash-Aware Lot Size = ${dynamic_size_usd:.2f} USDC")
+        dynamic_size_usd = max(min(nav_based_size, cash_based_size), 10.0)
+        print(f"[+] Compounding Active (v5.6): NAV = ${total_nav:.2f} | Free USDC = ${usdc_avail:.2f} | Cash-Aware Lot Size = ${dynamic_size_usd:.2f} USDC")
 
         whitelisted_tokens = {
-            "NEAR-USDC": {"coin": "NEAR", "size_usd": dynamic_size_usd},
-            "LINK-USDC": {"coin": "LINK", "size_usd": dynamic_size_usd},
-            "SUI-USDC": {"coin": "SUI", "size_usd": dynamic_size_usd},
-            "RENDER-USDC": {"coin": "RENDER", "size_usd": dynamic_size_usd},
-            "SOL-USDC": {"coin": "SOL", "size_usd": dynamic_size_usd},
-            "AVAX-USDC": {"coin": "AVAX", "size_usd": dynamic_size_usd},
-            "FET-USDC": {"coin": "FET", "size_usd": dynamic_size_usd},
-            "SEI-USDC": {"coin": "SEI", "size_usd": dynamic_size_usd}
+            "NEAR-USDC": {"coin": "NEAR"},
+            "LINK-USDC": {"coin": "LINK"},
+            "SUI-USDC": {"coin": "SUI"},
+            "RENDER-USDC": {"coin": "RENDER"},
+            "SOL-USDC": {"coin": "SOL"},
+            "AVAX-USDC": {"coin": "AVAX"},
+            "FET-USDC": {"coin": "FET"},
+            "SEI-USDC": {"coin": "SEI"}
         }
         
         now_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -240,8 +277,14 @@ def main():
                 continue
                 
             coin = info["coin"]
-            size_usd = info["size_usd"]
+            token_val_usdc = asset_values.get(coin, 0.0)
             
+            # Module 3: Dynamic Relative Strength Allocation
+            # High-Beta momentum boost for active tokens
+            size_usd = dynamic_size_usd
+            if coin in ["SUI", "SEI", "LINK"]: # Top high-beta volume drivers
+                size_usd = round(dynamic_size_usd * 1.15, 2)
+
             ticker_obj = get_ticker_info(inst_id)
             last_price = float(ticker_obj.get("last") or 0.0)
             high_24h = float(ticker_obj.get("high24h") or 0.0)
@@ -259,8 +302,8 @@ def main():
                     coin_bal = next((b for b in balances if b.get("ccy") == coin), {})
                     avail = float(coin_bal.get("availBal", 0.0))
                     
-                    buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct)
-                    print(f"[+] SRE v5.5 Engine {inst_id}: 24h Vol = {range_pct:.2f}% ({vol_state}) | Dynamic TP = +{target_profit:.2f}%")
+                    buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
+                    print(f"[+] SRE v5.6 Engine {inst_id}: 24h Vol = {range_pct:.2f}% ({vol_state}) | Dynamic TP = +{target_profit:.2f}%")
                     
                     target_pct = target_profit / 100.0
                     entry_px = float(coin_bal.get("openAvgPx") or coin_bal.get("accAvgPx") or last_price)
@@ -289,7 +332,7 @@ def main():
                 if cl_ord_id_str not in open_orders_map:
                     print(f"[!] SRE Profit Event: Sell order for {inst_id} (ID: {cl_ord_id_str}) was FILLED IN PROFIT!")
                     if last_price > 0.0:
-                        buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct)
+                        buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
                         buy_offset_pct = buy_offset / 100.0
                         dec_px = 2 if "AVAX" in inst_id else (4 if "FET" in inst_id or "SEI" in inst_id else 3)
                         buy_px = round(last_price * (1.0 - buy_offset_pct), dec_px)
@@ -308,7 +351,7 @@ def main():
             # 3. State: CLOSED (Launch initial buy order)
             elif state == "CLOSED":
                 if last_price > 0.0001:
-                    buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct)
+                    buy_offset, target_profit, moonbag_multiplier, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
                     buy_offset_pct = buy_offset / 100.0
                     dec_px = 2 if "AVAX" in inst_id else (4 if "FET" in inst_id or "SEI" in inst_id else 3)
                     buy_px = round(last_price * (1.0 - buy_offset_pct), dec_px)
