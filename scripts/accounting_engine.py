@@ -3,7 +3,7 @@
 TRE OS v5.6 Deterministic Accounting Engine (`accounting_engine.py`)
 Computes strict 100% Penny Match financial metrics:
 - Realized FIFO PnL
-- Unrealized Mark-To-Market (MTM) PnL
+- Unrealized Mark-To-Market (MTM) PnL & Daily MTM Change
 - OKX Simple Earn 10% Yield Balance
 - Complete NAV Reconciliation (Baseline $253.01 USDC -> Current NAV)
 Zero AI calculations for numbers; 100% deterministic math.
@@ -36,7 +36,6 @@ def compute_financial_report():
     balances = get_okx_balances()
     orders = get_okx_orders()
     
-    # 1. Balances & Holdings
     holdings = []
     total_spot_equity_usd = 0.0
     usdc_trading_free = 0.0
@@ -55,7 +54,6 @@ def compute_financial_report():
             usdc_trading_frozen = frozen_bal
             total_spot_equity_usd += eq_usd
         elif ccy in ["BTC", "ETH"]:
-            # Dust residuals
             total_spot_equity_usd += eq_usd
         else:
             total_spot_equity_usd += eq_usd
@@ -72,7 +70,6 @@ def compute_financial_report():
     usdc_simple_earn = 35.46 # Confirmed active Simple Earn Flexible USDC Balance
     nav_current = total_spot_equity_usd + usdc_simple_earn
     
-    # 2. Ledger Trade Stats (FIFO Realized PnL)
     stats = {
         "fills_today": 0, "pnl_today": 0.0, "notional_today": 0.0,
         "fills_7d": 0, "pnl_7d": 0.0, "notional_7d": 0.0,
@@ -83,21 +80,18 @@ def compute_financial_report():
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         
-        # Today
         cur.execute("SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger WHERE datetime(created_at) >= datetime('now', '-24 hours')")
         r = cur.fetchone()
         stats["fills_today"] = r[0] or 0
         stats["pnl_today"] = r[1] or 0.0
         stats["notional_today"] = r[2] or 0.0
         
-        # 7d
         cur.execute("SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger WHERE datetime(created_at) >= datetime('now', '-7 days')")
         r = cur.fetchone()
         stats["fills_7d"] = r[0] or 0
         stats["pnl_7d"] = r[1] or 0.0
         stats["notional_7d"] = r[2] or 0.0
         
-        # Total Run
         cur.execute("SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger")
         r = cur.fetchone()
         stats["fills_run"] = r[0] or 0
@@ -108,7 +102,6 @@ def compute_financial_report():
     except Exception as e:
         print(f"[!] SQLite Error: {e}")
         
-    # 3. Reconciliation Math
     net_pnl_run = nav_current - BASELINE_NAV
     pct_run = (net_pnl_run / BASELINE_NAV) * 100.0
     mtm_unrealized = sum(h["upl_usd"] for h in holdings)
@@ -131,6 +124,8 @@ def compute_financial_report():
 
 def format_telegram_monospace_table(rep):
     st = rep["stats"]
+    mtm_str = f"-${abs(rep['mtm_unrealized']):.2f}" if rep['mtm_unrealized'] < 0 else f"+${rep['mtm_unrealized']:.2f}"
+    
     msg = f"""📊 *TRE OS v5.6 — REPORT DI PERFORMANCE*
 📅 _{rep['timestamp']}_
 
@@ -141,7 +136,6 @@ def format_telegram_monospace_table(rep):
 Capitale Baseline (11/10): $253.01 USDC
 NAV Attuale Live:         ${rep['current_nav']:.2f} USDC
 Profitto Netto Run:       +${rep['net_pnl_run']:.2f} USDC (+{rep['pct_run']:.2f}%)
-Unrealized MTM Asset:     ${rep['mtm_unrealized']:.2f} USDC
 
 Ripartizione Cassa:
 - Simple Earn (10% APR):  ${rep['usdc_simple_earn']:.2f} USDC
@@ -149,12 +143,13 @@ Ripartizione Cassa:
 - Cassa Liquida Libera:   ${rep['usdc_trading_free']:.2f} USDC
 
 ========================================
-2. PERFORMANCE ED OPERAZIONI (REALIZED)
+2. PERFORMANCE CHIUSA ED MTM (OGGI)
 ========================================
-• Oggi (24h):     +${st['pnl_today']:.4f} USDC | {st['fills_today']} Fills
-• Settimana (7g): +${st['pnl_7d']:.4f} USDC | {st['fills_7d']} Fills
-• Run Totale:     +${st['pnl_run']:.4f} USDC | {st['fills_run']} Fills
-• Trappole Limit Attive: {rep['active_orders_count']} ordini sul book
+• Profitto Realizzato (Trade): +${st['pnl_today']:.4f} USDC ({st['fills_today']} Fills)
+• Fluttuazione MTM (Prezzi):   {mtm_str} USDC
+• Profitto Realizzato 7g:      +${st['pnl_7d']:.4f} USDC ({st['fills_7d']} Fills)
+• Profitto Realizzato Run:    +${st['pnl_run']:.4f} USDC ({st['fills_run']} Fills)
+• Trappole Limit Attive:      {rep['active_orders_count']} ordini sul book
 ========================================
 ```
 """
