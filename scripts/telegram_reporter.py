@@ -25,7 +25,7 @@ def generate_report():
     table = format_telegram_monospace_table(rep)
     
     env_vars = load_env_vars()
-    api_key = ***"OPENROUTER_API_KEY", "")
+    api_key = env_vars.get("OPENROUTER_API_KEY", "")
     
     narrative = "💡 *ANALISI DISCORSIVA DI MERCATO (Deterministic Fallback):*\n"
     narrative += "• Il mercato crypto si attesta in fase di consolidamento laterale di weekend sui 8 token High-Beta (NEAR, LINK, SOL, SUI, RENDER, AVAX, FET, SEI).\n"
