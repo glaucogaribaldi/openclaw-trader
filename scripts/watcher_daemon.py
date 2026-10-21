@@ -3,7 +3,8 @@
 TRE OS v5.6 Multi-Tier Multi-Alpha Watcher Daemon
 Implements:
 - Leva 1 (Capital Allocation Boost 85%) & Leva 2 (Multi-Tier Progressive Buy/Sell Grid)
-- AUTOMATED UNASSIGNED CASH SWEEPER: Instantly re-engages free USDC cash (> $5 USDC) into active Buy Dip limit traps without manual intervention.
+- AUTOMATED UNASSIGNED CASH SWEEPER (CAP-AWARE & INVENTORY-SAFE):
+  Re-engages free USDC cash (> $5.00 USDC) into active Buy Dip limit traps, respecting token allocation caps and available cash.
 - Enforces Post-Only (cancel_maker) execution for 0.00% Taker Fee Drag.
 """
 import os
@@ -144,7 +145,7 @@ def calculate_inventory_skew(inst_id, token_val_usdc, total_nav):
     """
     q_ratio = (token_val_usdc / total_nav) if total_nav > 0 else 0.0
     
-    if q_ratio > 0.15: # High Inventory -> Lower buy aggressiveness (-0.80%), accelerate sell (+0.35%)
+    if q_ratio > 0.18: # High Inventory (>18%) -> Lower buy aggressiveness (-0.80%), accelerate sell (+0.35%)
         buy_skew = 1.45
         sell_skew = 0.70
         state = f"HIGH_INV({q_ratio*100:.1f}%)"
@@ -274,6 +275,9 @@ def run_daemon_cycle():
         "SEI-USDC": {"coin": "SEI", "dec_px": 4, "dec_sz": 1}
     }
     
+    max_token_weight = 0.20 # Max 20% NAV per single token allocation cap
+    max_token_usd_cap = total_nav * max_token_weight
+    
     now_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
     
     for row in tracked_runs:
@@ -344,18 +348,19 @@ def run_daemon_cycle():
 
         # 3. State: CLOSED (Replenish buy trap)
         elif state == "CLOSED":
-            buy_offset, target_profit, moonbag_mult, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
-            buy_offset_pct = buy_offset / 100.0
-            buy_px = round(last_price * (1.0 - buy_offset_pct), dec_px)
-            
-            size_usd = dynamic_size_usd
-            buy_sz = round(size_usd / buy_px, dec_sz)
-            
-            new_ord_id = place_limit_order(inst_id, "buy", buy_sz, buy_px)
-            if new_ord_id:
-                cursor.execute("UPDATE scalp_runs SET state = 'BUY_SUBMITTED', size = ?, price = ?, cl_ord_id = ?, updated_at = ? WHERE inst_id = ?", (buy_sz, buy_px, new_ord_id, now_str, inst_id))
+            if token_val_usdc < max_token_usd_cap:
+                buy_offset, target_profit, moonbag_mult, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
+                buy_offset_pct = buy_offset / 100.0
+                buy_px = round(last_price * (1.0 - buy_offset_pct), dec_px)
+                
+                size_usd = dynamic_size_usd
+                buy_sz = round(size_usd / buy_px, dec_sz)
+                
+                new_ord_id = place_limit_order(inst_id, "buy", buy_sz, buy_px)
+                if new_ord_id:
+                    cursor.execute("UPDATE scalp_runs SET state = 'BUY_SUBMITTED', size = ?, price = ?, cl_ord_id = ?, updated_at = ? WHERE inst_id = ?", (buy_sz, buy_px, new_ord_id, now_str, inst_id))
 
-    # 4. AUTOMATED UNASSIGNED CASH SWEEPER
+    # 4. AUTOMATED UNASSIGNED CASH SWEEPER (WITH STRICT ALLOCATION & CASH CAPS)
     # Automatically re-engages free USDC cash (> $5.00 USDC) into active Buy Dip traps
     if usdc_avail > 5.0:
         for inst_id, info in whitelisted_tokens.items():
@@ -364,6 +369,14 @@ def run_daemon_cycle():
                 dec_px = info["dec_px"]
                 dec_sz = info["dec_sz"]
                 
+                token_bal_obj = next((b for b in balances if b.get("ccy") == coin), {})
+                token_val_usdc = float(token_bal_obj.get("eqUsd") or 0.0)
+                
+                # Risk Guard 1: Don't over-concentrate in a single token (> 20% NAV)
+                if token_val_usdc >= max_token_usd_cap:
+                    print(f"[🛡️ CASH SWEEPER GUARD] Skipping {inst_id}: Current value (${token_val_usdc:.2f}) exceeds 20% NAV cap (${max_token_usd_cap:.2f})")
+                    continue
+                
                 ticker_obj = get_okx_ticker(inst_id)
                 if ticker_obj:
                     last_price = float(ticker_obj.get("last") or 0.0)
@@ -371,15 +384,17 @@ def run_daemon_cycle():
                     low_24h = float(ticker_obj.get("low24h") or 0.0)
                     range_pct = ((high_24h - low_24h) / low_24h * 100.0) if low_24h > 0 else 4.0
                     
-                    token_bal_obj = next((b for b in balances if b.get("ccy") == coin), {})
-                    token_val_usdc = float(token_bal_obj.get("eqUsd") or 0.0)
-                    
                     buy_offset, target_profit, moonbag_mult, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
                     buy_offset_pct = buy_offset / 100.0
                     buy_px = round(last_price * (1.0 - buy_offset_pct), dec_px)
                     
-                    sz_buy = round(dynamic_size_usd / buy_px, dec_sz)
-                    print(f"[⚡ UNASSIGNED CASH SWEEPER] Auto re-engaging ${usdc_avail:.2f} free USDC into Buy Dip for {inst_id} @ ${buy_px}")
+                    # Risk Guard 2: Cap trade size by available cash
+                    order_size_usd = min(dynamic_size_usd, usdc_avail)
+                    if order_size_usd < 5.0: # OKX minimum order threshold
+                        break
+                        
+                    sz_buy = round(order_size_usd / buy_px, dec_sz)
+                    print(f"[⚡ UNASSIGNED CASH SWEEPER] Auto re-engaging ${order_size_usd:.2f} free USDC into Buy Dip for {inst_id} @ ${buy_px}")
                     
                     new_ord_id = place_limit_order(inst_id, "buy", sz_buy, buy_px)
                     if new_ord_id:
