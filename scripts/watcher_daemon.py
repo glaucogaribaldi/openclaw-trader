@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 TRE OS v5.6 Multi-Tier Multi-Alpha Watcher Daemon
-Implements Leva 1 (Capital Allocation Boost 85%) & Leva 2 (Multi-Tier Progressive Buy/Sell Grid).
-Enforces Post-Only (cancel_maker) execution for 0.00% Taker Fee Drag.
+Implements:
+- Leva 1 (Capital Allocation Boost 85%) & Leva 2 (Multi-Tier Progressive Buy/Sell Grid)
+- AUTOMATED UNASSIGNED CASH SWEEPER: Instantly re-engages free USDC cash (> $5 USDC) into active Buy Dip limit traps without manual intervention.
+- Enforces Post-Only (cancel_maker) execution for 0.00% Taker Fee Drag.
 """
 import os
 import sys
@@ -243,21 +245,23 @@ def run_daemon_cycle():
     open_orders = get_okx_orders()
     
     open_order_ids = set()
+    open_buy_instruments = set()
     for o in open_orders:
         if isinstance(o, dict):
-            open_order_ids.add(str(o.get("ordId")))
+            ord_id_str = str(o.get("ordId"))
+            open_order_ids.add(ord_id_str)
+            if o.get("side") == "buy":
+                open_buy_instruments.add(o.get("instId"))
             
     total_nav = sum(float(b.get("eqUsd") or 0.0) for b in balances) or 309.36
     usdc_avail = sum(float(b.get("availBal") or 0.0) for b in balances if b.get("ccy") == "USDC")
     
-    # LEVA 1: Capital Allocation Boost 85% Trading Allocation / 15% Idle Buffer
-    # Capital lot sizing per token boosted from $10.00 to ~$15.00 - $18.00 USDC
     active_buy_slots = sum(1 for r in tracked_runs if r[1] in ["BUY_SUBMITTED", "CLOSED"] and r[0] not in ["BTC-USDC", "ETH-USDC"])
     nav_based_size = round((total_nav * 0.85) / 8.0, 2)
     cash_based_size = round(usdc_avail / max(active_buy_slots, 1), 2) if usdc_avail > 5.0 else nav_based_size
     
     dynamic_size_usd = max(min(nav_based_size, cash_based_size), 12.50)
-    print(f"[+] Compounding Active (v5.6 LEVA 1+2): NAV = ${total_nav:.2f} | Trading Allocation = 85% (${total_nav*0.85:.2f}) | Dynamic Lot Size = ${dynamic_size_usd:.2f} USDC")
+    print(f"[+] Compounding Active (v5.6 LEVA 1+2): NAV = ${total_nav:.2f} | Free USDC = ${usdc_avail:.2f} | Dynamic Lot Size = ${dynamic_size_usd:.2f} USDC")
 
     whitelisted_tokens = {
         "NEAR-USDC": {"coin": "NEAR", "dec_px": 3, "dec_sz": 1},
@@ -325,7 +329,6 @@ def run_daemon_cycle():
                 buy_offset, target_profit, moonbag_mult, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
                 
                 if avail_qty > 0:
-                    # LEVA 2: Multi-Tier Progressive Profit Take (80% Main TP / 20% Moonbag TP)
                     sell_px_80 = round(last_price * (1.0 + (target_profit / 100.0)), dec_px)
                     sell_px_20 = round(last_price * (1.0 + ((target_profit * moonbag_mult) / 100.0)), dec_px)
                     
@@ -351,6 +354,40 @@ def run_daemon_cycle():
             new_ord_id = place_limit_order(inst_id, "buy", buy_sz, buy_px)
             if new_ord_id:
                 cursor.execute("UPDATE scalp_runs SET state = 'BUY_SUBMITTED', size = ?, price = ?, cl_ord_id = ?, updated_at = ? WHERE inst_id = ?", (buy_sz, buy_px, new_ord_id, now_str, inst_id))
+
+    # 4. AUTOMATED UNASSIGNED CASH SWEEPER
+    # Automatically re-engages free USDC cash (> $5.00 USDC) into active Buy Dip traps
+    if usdc_avail > 5.0:
+        for inst_id, info in whitelisted_tokens.items():
+            if inst_id not in open_buy_instruments:
+                coin = info["coin"]
+                dec_px = info["dec_px"]
+                dec_sz = info["dec_sz"]
+                
+                ticker_obj = get_okx_ticker(inst_id)
+                if ticker_obj:
+                    last_price = float(ticker_obj.get("last") or 0.0)
+                    high_24h = float(ticker_obj.get("high24h") or 0.0)
+                    low_24h = float(ticker_obj.get("low24h") or 0.0)
+                    range_pct = ((high_24h - low_24h) / low_24h * 100.0) if low_24h > 0 else 4.0
+                    
+                    token_bal_obj = next((b for b in balances if b.get("ccy") == coin), {})
+                    token_val_usdc = float(token_bal_obj.get("eqUsd") or 0.0)
+                    
+                    buy_offset, target_profit, moonbag_mult, vol_state = get_dynamic_parameters(inst_id, range_pct, token_val_usdc, total_nav)
+                    buy_offset_pct = buy_offset / 100.0
+                    buy_px = round(last_price * (1.0 - buy_offset_pct), dec_px)
+                    
+                    sz_buy = round(dynamic_size_usd / buy_px, dec_sz)
+                    print(f"[⚡ UNASSIGNED CASH SWEEPER] Auto re-engaging ${usdc_avail:.2f} free USDC into Buy Dip for {inst_id} @ ${buy_px}")
+                    
+                    new_ord_id = place_limit_order(inst_id, "buy", sz_buy, buy_px)
+                    if new_ord_id:
+                        cursor.execute("UPDATE scalp_runs SET state = 'BUY_SUBMITTED', size = ?, price = ?, cl_ord_id = ?, updated_at = ? WHERE inst_id = ?", (sz_buy, buy_px, new_ord_id, now_str, inst_id))
+                        open_buy_instruments.add(inst_id)
+                        usdc_avail -= (sz_buy * buy_px)
+                        if usdc_avail <= 5.0:
+                            break
 
     conn.commit()
     conn.close()
