@@ -427,10 +427,14 @@ def run_predator_cycle(
                     "ord_id": ord_id_sell,
                 })
 
+        # Sort candidates by highest expected return (predicted_return_bps) & lowest VPIN toxicity
+        # In the main loop we evaluate telemetry first, and deploy free_usdc on the best-ranked opportunities
         # 3B. Automated Cash Sweeper & Predictive Buy Trap (only if inventory weight < 20% NAV Hard Cap and free_usdc >= $8)
         base_lot_usd = (spot_equity_usd * 0.85) / len(DEFAULT_UNIVERSE)
         conv_boost = 1.0 + max(-0.25, min(0.45, llm_bias * 0.4))
-        lot_usd = min(free_usdc * 0.98, max(10.0, round(base_lot_usd * agg_mult * conv_boost, 2)))
+        # Alpha-boost: increase lot size by up to +15% when Kronos + RLS predicted return is strongly positive
+        alpha_boost = 1.0 + max(-0.15, min(0.15, pred.predicted_return_bps / 100.0))
+        lot_usd = min(free_usdc * 0.98, max(10.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
 
         exec_style = "PASSIVE_MAKER"
         target_buy_px = round(sig.mid_price * (1.0 - pred.recommended_buy_offset_bps / 10000.0), dec_px)
