@@ -125,6 +125,20 @@ def init_predator_db(db_path: str) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fresh_scalp_tranches (
+            trade_id TEXT PRIMARY KEY,
+            inst_id TEXT,
+            buy_px REAL,
+            buy_sz REAL,
+            tp_ord_id TEXT,
+            tp_px REAL,
+            status TEXT,
+            created_at TEXT
+        )
+        """
+    )
     conn.commit()
     return conn
 
@@ -190,6 +204,9 @@ def run_predator_cycle(
                 )
 
     # Sync recent OKX fills into both SQLite tables (`predator_fills_ledger` and `trade_ledger`)
+    # and register new BUY fills (>= RUN_START_ISO) in `fresh_scalp_tranches` for independent Quick-Scalp TPs!
+    active_tranche_ord_ids: set[str] = set()
+    active_tranches_by_inst: Dict[str, List[tuple]] = {}
     if client.is_authenticated:
         try:
             raw_fills = client.get_recent_fills(limit=50)
@@ -199,8 +216,46 @@ def run_predator_cycle(
                 open_avg_px_map=cost_basis_map,
                 allowed_pairs=set(DEFAULT_UNIVERSE.keys()),
             )
-        except Exception:
-            pass
+            cur_tr = conn.cursor()
+            cur_tr.execute(
+                """
+                SELECT trade_id, inst_id, fill_px, fill_sz, fill_time
+                FROM predator_fills_ledger
+                WHERE side='buy' AND fill_time >= ?
+                """,
+                (RUN_START_ISO,),
+            )
+            for t_id, t_inst, t_px, t_sz, t_time in cur_tr.fetchall():
+                cur_tr.execute("SELECT 1 FROM fresh_scalp_tranches WHERE trade_id = ?", (t_id,))
+                if not cur_tr.fetchone():
+                    cur_tr.execute(
+                        """
+                        INSERT INTO fresh_scalp_tranches (trade_id, inst_id, buy_px, buy_sz, tp_ord_id, tp_px, status, created_at)
+                        VALUES (?, ?, ?, ?, '', 0.0, 'PENDING_TP', ?)
+                        """,
+                        (t_id, t_inst, float(t_px), float(t_sz), str(t_time)),
+                    )
+            conn.commit()
+
+            open_ord_id_set = {str(o.get("ordId") or "") for o in open_orders}
+            cur_tr.execute("SELECT trade_id, inst_id, buy_px, buy_sz, tp_ord_id, tp_px, status FROM fresh_scalp_tranches WHERE status IN ('PENDING_TP', 'TP_PLACED')")
+            for tr_row in cur_tr.fetchall():
+                tr_id, tr_inst, tr_px, tr_sz, tr_oid, tr_tp_px, tr_st = tr_row
+                if tr_st == "TP_PLACED" and tr_oid and tr_oid not in open_ord_id_set:
+                    # Quick-Scalp TP order was filled (or cancelled)! Check if filled in ledger
+                    cur_tr.execute("SELECT 1 FROM predator_fills_ledger WHERE ord_id = ? AND side='sell'", (tr_oid,))
+                    if cur_tr.fetchone():
+                        cur_tr.execute("UPDATE fresh_scalp_tranches SET status='CLOSED_PROFIT' WHERE trade_id = ?", (tr_id,))
+                    else:
+                        cur_tr.execute("UPDATE fresh_scalp_tranches SET status='PENDING_TP', tp_ord_id='' WHERE trade_id = ?", (tr_id,))
+                        active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), "", 0.0, "PENDING_TP"))
+                else:
+                    if tr_oid:
+                        active_tranche_ord_ids.add(str(tr_oid))
+                    active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), str(tr_oid), float(tr_tp_px), tr_st))
+            conn.commit()
+        except Exception as e:
+            print(f"[!] Fresh tranche sync note: {e}")
 
     # Load latest LLM council directive if present
     convictions: Dict[str, float] = {}
@@ -353,7 +408,10 @@ def run_predator_cycle(
                     active_ord_id = ord_id
                     active_ord_px = ord_px
                     active_ord_sz = ord_sz
-                    # AUDIT SAFEGUARD 1: Never allow a SELL order below openAvgPx * 1.0022 (Cost-Basis Floor Rescue!)
+                    # Skip global Cost-Basis Floor check if this SELL order is an independent Fresh Tranche Quick-Scalp TP!
+                    if ord_id in active_tranche_ord_ids:
+                        continue
+                    # AUDIT SAFEGUARD 1: Never allow a legacy SELL order below openAvgPx * 1.0022 (Cost-Basis Floor Rescue!)
                     if cost_floor_px > 0 and ord_px < cost_floor_px:
                         client.cancel_order(inst_id, ord_id)
                         has_sell_order = False
@@ -382,6 +440,42 @@ def run_predator_cycle(
                         })
             except Exception:
                 pass
+
+        # 2B. Independent Fresh Tranche Quick-Scalp TP Placement!
+        # Places an immediate +35 bps to +55 bps Post-Only Maker TP for newly bought tranches without waiting for legacy openAvgPx!
+        for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st in active_tranches_by_inst.get(inst_id, []):
+            if tr_st == "PENDING_TP" and avail_token_qty > 0:
+                scalp_sz = math.floor(min(avail_token_qty, tr_buy_sz * 0.998) * (10 ** dec_sz)) / (10 ** dec_sz)
+                if scalp_sz * sig.mid_price >= 5.0:
+                    quick_tp_bps = max(35.0, min(65.0, pred.recommended_sell_tp_bps))
+                    quick_tp_px = round(max(tr_buy_px * (1.0 + quick_tp_bps / 10000.0), asks[0][0]), dec_px)
+                    res_qtp = client.place_spot_order(
+                        inst_id=inst_id,
+                        side="sell",
+                        sz=scalp_sz,
+                        px=quick_tp_px,
+                        execution_style="PASSIVE_MAKER",
+                    )
+                    qtp_ord_id = ""
+                    if isinstance(res_qtp.get("data"), list) and res_qtp["data"]:
+                        qtp_ord_id = str(res_qtp["data"][0].get("ordId", ""))
+                    if qtp_ord_id:
+                        avail_token_qty = max(0.0, avail_token_qty - scalp_sz)
+                        active_tranche_ord_ids.add(qtp_ord_id)
+                        conn.execute(
+                            "UPDATE fresh_scalp_tranches SET tp_ord_id = ?, tp_px = ?, status = 'TP_PLACED' WHERE trade_id = ?",
+                            (qtp_ord_id, quick_tp_px, tr_id),
+                        )
+                        conn.commit()
+                        actions_taken.append({
+                            "inst_id": inst_id,
+                            "side": "sell",
+                            "style": "FRESH_TRANCHE_QUICK_SCALP_TP",
+                            "sz": scalp_sz,
+                            "buy_px": tr_buy_px,
+                            "px": quick_tp_px,
+                            "ord_id": qtp_ord_id,
+                        })
 
         # 3A. Place Take-Profit SELL orders enforcing Cost-Basis Floor (80% primary TP / 20% Moonbag preserved)
         if not has_sell_order and avail_token_qty * sig.mid_price >= 6.0:
