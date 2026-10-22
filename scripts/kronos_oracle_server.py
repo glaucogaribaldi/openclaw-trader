@@ -82,7 +82,7 @@ def fetch_okx_5m_candles(inst_id: str, limit: int = 240) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 3) -> dict:
+def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 5) -> dict:
     now = time.time()
     with CACHE_LOCK:
         cached = CACHE.get(inst_id)
@@ -104,7 +104,7 @@ def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 3) -> di
             x_timestamp=df["timestamps"],
             y_timestamp=y_ts,
             pred_len=pred_len,
-            T=0.8,
+            T=0.6,
             top_p=0.9,
             sample_count=sample_count,
             verbose=False,
