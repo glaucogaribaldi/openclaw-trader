@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-TRE OS v6.0 (Predator Edition) — Universal Kronos Foundation Model Oracle Server (`scripts/kronos_oracle_server.py`)
+TRE OS v6.1 (Predator Edition) — Universal Kronos Foundation Model Oracle Server (`scripts/kronos_oracle_server.py`)
 Supports:
 - `NeoQuasar/Kronos-mini` (4.1M params, 2048 context, ultra-fast CPU / Apple Silicon MPS / Mini-VPS)
-- `NeoQuasar/Kronos-small` (24.7M params, 512 context, GPU CUDA / MPS / CPU)
-- `NeoQuasar/Kronos-base` (102.3M params, 512 context, GPU CUDA)
+- `NeoQuasar/Kronos-small` (24.7M params, 512 context, GPU CUDA / MPS / CPU — Highest 5m Scalp Accuracy)
 
 Serves real-time K-line foundation model forecasts (`pred_len=12` x 5m = 1h ahead)
 with in-memory TTL caching (120s) on HTTP port 8090 (`/health` and `/forecast?pairs=SOL-USDC,NEAR-USDC`).
@@ -33,12 +32,6 @@ MODEL_PRESETS = {
         "tokenizer_id": "NeoQuasar/Kronos-Tokenizer-base",
         "max_context": 512,
         "label": "NeoQuasar/Kronos-small (24.7M)",
-    },
-    "base": {
-        "model_id": "NeoQuasar/Kronos-base",
-        "tokenizer_id": "NeoQuasar/Kronos-Tokenizer-base",
-        "max_context": 512,
-        "label": "NeoQuasar/Kronos-base (102.3M)",
     },
 }
 
@@ -181,9 +174,9 @@ class KronosHandler(BaseHTTPRequestHandler):
 
 def main():
     global PREDICTOR, ACTIVE_LABEL, ACTIVE_DEVICE
-    parser = argparse.ArgumentParser(description="TRE OS v6.0 Kronos Foundation Model Oracle Server")
-    parser.add_argument("--size", choices=["mini", "small", "base"], default=os.environ.get("KRONOS_SIZE", "mini"),
-                        help="Kronos model tier: mini (4.1M, CPU/MPS friendly), small (24.7M, GPU), base (102.3M)")
+    parser = argparse.ArgumentParser(description="TRE OS v6.1 Kronos Foundation Model Oracle Server")
+    parser.add_argument("--size", choices=["mini", "small"], default=os.environ.get("KRONOS_SIZE", "mini"),
+                        help="Kronos model tier: mini (4.1M, CPU/MPS friendly) or small (24.7M, GPU/MPS)")
     parser.add_argument("--device", default=os.environ.get("KRONOS_DEVICE", "auto"),
                         help="Torch device: auto, cpu, cuda:0, mps")
     parser.add_argument("--port", type=int, default=int(os.environ.get("KRONOS_PORT", "8090")),

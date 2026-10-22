@@ -30,8 +30,7 @@ L'utente può scegliere quale taglia del modello installare in base al proprio h
 | Modello (`--size`) | Repository HuggingFace | Tokenizer | Parametri | Contesto Max | RAM / VRAM Richiesta | Hardware Consigliato |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
 | **`mini`** *(Consigliato per Mini-VPS / CPU)* | `NeoQuasar/Kronos-mini` | `NeoQuasar/Kronos-Tokenizer-2k` | **4.1M** *(Il più leggero in assoluto)* | `2048` | **~350 MB RAM** | Qualsiasi **Mini-VPS Linux (CPU)**, Raspberry Pi 5, Mac M1/M2/M3/M4 |
-| **`small`** *(Consigliato per GPU / Mac Pro)* | `NeoQuasar/Kronos-small` | `NeoQuasar/Kronos-Tokenizer-base` | **24.7M** | `512` | **~800 MB RAM/VRAM** | **VPS con GPU CUDA**, Apple Silicon (`mps`), CPU multi-core |
-| **`base`** *(Server GPU dedicati)* | `NeoQuasar/Kronos-base` | `NeoQuasar/Kronos-Tokenizer-base` | **102.3M** | `512` | **~2.2 GB VRAM** | Server con GPU NVIDIA dedicata (`cuda:0`) |
+| **`small`** *(Consigliato per GPU / Mac Pro)* | `NeoQuasar/Kronos-small` | `NeoQuasar/Kronos-Tokenizer-base` | **24.7M** *(83.3% 5m TP Hit-Rate)* | `512` | **~800 MB RAM/VRAM** | **VPS con GPU CUDA**, Apple Silicon (`mps`), CPU multi-core |
 
 > 💡 **Nota "Micro / Mini":** Nell'ecosistema ufficiale Kronos, il modello più piccolo e ultraleggero (4.1 milioni di parametri, progettato per girare istantaneamente anche su CPU senza scheda video) si chiama **`Kronos-mini`**. Il nostro script supporta l'installazione 1-Click sia di **`mini` (4.1M)** che di **`small` (24.7M)**.
 
