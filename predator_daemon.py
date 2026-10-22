@@ -278,6 +278,7 @@ def run_predator_cycle(
     telemetry_tuples: List[tuple] = []
     order_tuples: List[tuple] = []
     scalp_run_updates: List[tuple] = []
+    buy_candidates: List[Dict[str, Any]] = []
 
     # 1. Scan all 8 High-Beta instruments in universe
     for inst_id, meta in DEFAULT_UNIVERSE.items():
@@ -408,8 +409,33 @@ def run_predator_cycle(
                     active_ord_id = ord_id
                     active_ord_px = ord_px
                     active_ord_sz = ord_sz
-                    # Skip global Cost-Basis Floor check if this SELL order is an independent Fresh Tranche Quick-Scalp TP!
+                    # Handle independent Fresh Tranche Quick-Scalp TP orders (Dynamic Profit-Lock at +28 bps!)
                     if ord_id in active_tranche_ord_ids:
+                        for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st in active_tranches_by_inst.get(inst_id, []):
+                            if tr_oid == ord_id and tr_buy_px > 0:
+                                tr_unr_bps = ((sig.mid_price - tr_buy_px) / tr_buy_px) * 10000.0
+                                if tr_unr_bps >= 28.0 and drift_bps > 6.0 and pred.predicted_return_bps < 4.0:
+                                    client.cancel_order(inst_id, ord_id)
+                                    profit_lock_repegs += 1
+                                    repeg_px = round(max(tr_buy_px * 1.0024, asks[0][0]), dec_px)
+                                    repeg_sz = math.floor(min(cash_token_qty, tr_buy_sz * 0.998) * (10 ** dec_sz)) / (10 ** dec_sz)
+                                    res_rp = client.place_spot_order(inst_id, "sell", repeg_sz, repeg_px, "PASSIVE_MAKER")
+                                    new_rp_id = ""
+                                    if isinstance(res_rp.get("data"), list) and res_rp["data"]:
+                                        new_rp_id = str(res_rp["data"][0].get("ordId", ""))
+                                    if new_rp_id:
+                                        conn.execute(
+                                            "UPDATE fresh_scalp_tranches SET tp_ord_id = ?, tp_px = ? WHERE trade_id = ?",
+                                            (new_rp_id, repeg_px, tr_id),
+                                        )
+                                        conn.commit()
+                                        actions_taken.append({
+                                            "action": "FRESH_TRANCHE_PROFIT_LOCK_REPEG",
+                                            "inst_id": inst_id,
+                                            "tranche_unr_bps": round(tr_unr_bps, 1),
+                                            "old_px": ord_px,
+                                            "new_px": repeg_px,
+                                        })
                         continue
                     # AUDIT SAFEGUARD 1: Never allow a legacy SELL order below openAvgPx * 1.0022 (Cost-Basis Floor Rescue!)
                     if cost_floor_px > 0 and ord_px < cost_floor_px:
@@ -521,30 +547,59 @@ def run_predator_cycle(
                     "ord_id": ord_id_sell,
                 })
 
-        # Sort candidates by highest expected return (predicted_return_bps) & lowest VPIN toxicity
-        # In the main loop we evaluate telemetry first, and deploy free_usdc on the best-ranked opportunities
-        # 3B. Automated Cash Sweeper & Predictive Buy Trap (only if inventory weight < 20% NAV Hard Cap and free_usdc >= $8)
-        base_lot_usd = (spot_equity_usd * 0.85) / len(DEFAULT_UNIVERSE)
-        conv_boost = 1.0 + max(-0.25, min(0.45, llm_bias * 0.4))
-        # Alpha-boost: increase lot size by up to +15% when Kronos + RLS predicted return is strongly positive
-        alpha_boost = 1.0 + max(-0.15, min(0.15, pred.predicted_return_bps / 100.0))
-        lot_usd = min(free_usdc * 0.98, max(10.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
+        # 3B. Collect candidate for Opportunity-Ranked Cash Sweeper (evaluated after scanning all 8 pairs!)
+        if not has_buy_order and inv_weight < 0.20:
+            opp_score = (
+                pred.predicted_return_bps
+                + (sig.composite_alpha * 15.0)
+                - (sig.vpin_toxicity * 20.0)
+                - (inv_weight * 50.0)
+            )
+            buy_candidates.append({
+                "inst_id": inst_id,
+                "opp_score": round(opp_score, 3),
+                "mid_price": sig.mid_price,
+                "best_bid": bids[0][0],
+                "best_ask": asks[0][0],
+                "dec_px": dec_px,
+                "dec_sz": dec_sz,
+                "llm_bias": llm_bias,
+                "pred_bps": pred.predicted_return_bps,
+                "buy_offset_bps": pred.recommended_buy_offset_bps,
+                "regime": pred.regime,
+                "has_sell_order": has_sell_order,
+            })
 
-        exec_style = "PASSIVE_MAKER"
-        target_buy_px = round(sig.mid_price * (1.0 - pred.recommended_buy_offset_bps / 10000.0), dec_px)
-        # Ensure Post-Only Buy is strictly at or below Best Bid
-        if bids and target_buy_px >= asks[0][0]:
-            target_buy_px = round(bids[0][0], dec_px)
+        scalp_run_updates.append((inst_id, active_state, active_ord_sz, active_ord_px, active_ord_id, now_iso))
 
-        buy_sz = math.floor((lot_usd / target_buy_px) * (10 ** dec_sz)) / (10 ** dec_sz) if target_buy_px > 0 else 0.0
+    # 3C. Opportunity-Ranked Cash Sweeper: Deploy free USDC starting from the #1 highest-scoring pair!
+    if free_usdc >= 8.0 and buy_candidates:
+        buy_candidates.sort(key=lambda x: x["opp_score"], reverse=True)
+        for cand in buy_candidates:
+            if free_usdc < 8.0:
+                break
+            c_inst = cand["inst_id"]
+            c_dec_px = cand["dec_px"]
+            c_dec_sz = cand["dec_sz"]
+            base_lot_usd = (spot_equity_usd * 0.85) / len(DEFAULT_UNIVERSE)
+            conv_boost = 1.0 + max(-0.25, min(0.45, cand["llm_bias"] * 0.4))
+            alpha_boost = 1.0 + max(-0.15, min(0.15, cand["pred_bps"] / 100.0))
+            lot_usd = min(free_usdc * 0.98, max(10.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
 
-        if not has_buy_order and buy_sz > 0 and free_usdc >= 8.0 and inv_weight < 0.20:
+            target_buy_px = round(cand["mid_price"] * (1.0 - cand["buy_offset_bps"] / 10000.0), c_dec_px)
+            if target_buy_px >= cand["best_ask"]:
+                target_buy_px = round(cand["best_bid"], c_dec_px)
+
+            buy_sz = math.floor((lot_usd / target_buy_px) * (10 ** c_dec_sz)) / (10 ** c_dec_sz) if target_buy_px > 0 else 0.0
+            if buy_sz * target_buy_px < 5.0:
+                continue
+
             res_place = client.place_spot_order(
-                inst_id=inst_id,
+                inst_id=c_inst,
                 side="buy",
                 sz=buy_sz,
                 px=target_buy_px,
-                execution_style=exec_style,
+                execution_style="PASSIVE_MAKER",
             )
             mode_str = "DEMO_LIVE" if (client.is_authenticated and client.simulated_demo) else (
                 "PROD_LIVE" if client.is_authenticated else "DRY_RUN_SIM"
@@ -555,41 +610,33 @@ def run_predator_cycle(
 
             if ord_id_placed:
                 free_usdc = max(0.0, free_usdc - (buy_sz * target_buy_px))
-                if not has_sell_order:
-                    active_state = "BUY_SUBMITTED"
-                    active_ord_id = ord_id_placed
-                    active_ord_px = target_buy_px
-                    active_ord_sz = buy_sz
-
-            order_tuples.append(
-                (
-                    now_iso,
-                    inst_id,
-                    "buy",
-                    exec_style,
-                    buy_sz,
-                    target_buy_px,
-                    pred.predicted_return_bps,
-                    pred.regime,
-                    ord_id_placed,
-                    mode_str,
+                order_tuples.append(
+                    (
+                        now_iso,
+                        c_inst,
+                        "buy",
+                        "PASSIVE_MAKER",
+                        buy_sz,
+                        target_buy_px,
+                        cand["pred_bps"],
+                        cand["regime"],
+                        ord_id_placed,
+                        mode_str,
+                    )
                 )
-            )
-            actions_taken.append(
-                {
-                    "inst_id": inst_id,
-                    "side": "buy",
-                    "style": exec_style,
-                    "sz": buy_sz,
-                    "px": target_buy_px,
-                    "pred_bps": pred.predicted_return_bps,
-                    "regime": pred.regime,
-                    "mode": mode_str,
-                    "ord_id": ord_id_placed,
-                }
-            )
-
-        scalp_run_updates.append((inst_id, active_state, active_ord_sz, active_ord_px, active_ord_id, now_iso))
+                actions_taken.append(
+                    {
+                        "inst_id": c_inst,
+                        "side": "buy",
+                        "style": "RANKED_ALPHA_BUY_TRAP",
+                        "opp_score": cand["opp_score"],
+                        "sz": buy_sz,
+                        "px": target_buy_px,
+                        "pred_bps": cand["pred_bps"],
+                        "regime": cand["regime"],
+                        "ord_id": ord_id_placed,
+                    }
+                )
 
     # Commit all telemetry, order rows, and dashboard `scalp_runs` state in one atomic transaction
     try:

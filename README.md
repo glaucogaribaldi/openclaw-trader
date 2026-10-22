@@ -13,9 +13,9 @@ Rispetto alla precedente generazione v5.6 basata su griglie reattive a 24 ore, *
 | **Connettore Exchange** | Dipendente da CLI Node.js esterna (`okx`) | **Client Python Nativo HMAC-SHA256 (`execution/okx_hybrid_executor.py`)** |
 | **Motore di Segnale** | Range statico 24h High/Low | **50% Microstruttura L2 (Cont-Stoikov OFI + VPIN + Hawkes + RLS) + 30% Kronos K-Line Oracle + 20% 3-Agent LLM Council** |
 | **Protezione Costo di Carico** | Assente (rischio vendite sotto `openAvgPx`) | **Cost-Basis Floor Inviolabile (`openAvgPx × 1.0022`): ZERO vendite in perdita** |
-| **Cattura Profitti Rapidi** | Attesa passiva su target fisso | **Dynamic Profit-Lock Re-Pegging (stringe il TP sul Best Ask a `+85/+180 bps`)** |
-| **Difesa dai Crolli (Flash Crash)** | Offset statico | **Asymmetric VPIN Toxicity Shield (allarga i Buy fino a `-160 bps` se `VPIN > 0.68`)** |
-| **Gestione Cassa & Yield** | Rischio stallo se CLI fallisce | **Automated Cash Sweeper Nativo (Cap 20% NAV/token) + OKX Simple Earn 10% APR** |
+| **Cattura Profitti Rapidi** | Attesa passiva su target fisso | **Dynamic Profit-Lock Re-Pegging (`+28/+85/+180 bps`) + Fresh Tranche Quick-Scalp Sub-Ledger** |
+| **Difesa dai Crolli (Flash Crash)** | Offset statico | **Asymmetric VPIN Toxicity Shield (con deduplicazione esatta del tape trade)** |
+| **Gestione Cassa & Yield** | Rischio stallo se CLI fallisce | **Opportunity-Ranked Cash Sweeper (classifica Alpha/VPIN/Kronos, Cap 20% NAV) + OKX Simple Earn 10% APR** |
 
 ---
 

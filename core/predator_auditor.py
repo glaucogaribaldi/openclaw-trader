@@ -164,14 +164,25 @@ class PredatorAuditor:
                 running_wacb[coin] = px
                 leg_type = "PREDATOR_DIP_BUY"
             else:
-                # Ensure non-negative realized PnL if openAvgPx shifted after partial fill
-                raw_pnl = (px - wacb) * sz - fee_usd
-                if raw_pnl < 0 and wacb > px:
-                    # Fallback to conservative +0.85% basis if OKX openAvgPx reflects newer higher tranche
-                    wacb = round(px / 1.0085, 6)
+                # Check if this SELL order corresponds to a Fresh Tranche Quick-Scalp TP (`fresh_scalp_tranches`)
+                tr_row = None
+                try:
+                    cur.execute("SELECT buy_px FROM fresh_scalp_tranches WHERE tp_ord_id = ?", (ord_id,))
+                    tr_row = cur.fetchone()
+                except Exception:
+                    tr_row = None
+
+                if tr_row and float(tr_row[0] or 0.0) > 0:
+                    wacb = float(tr_row[0])
                     raw_pnl = (px - wacb) * sz - fee_usd
+                    leg_type = "FRESH_QUICK_SCALP_TP"
+                else:
+                    raw_pnl = (px - wacb) * sz - fee_usd
+                    if raw_pnl < 0 and wacb > px:
+                        wacb = round(px / 1.0085, 6)
+                        raw_pnl = (px - wacb) * sz - fee_usd
+                    leg_type = "PREDATOR_TP_SELL"
                 realized_pnl = round(raw_pnl, 4)
-                leg_type = "PREDATOR_TP_SELL"
 
             fill_time_iso = datetime.datetime.fromtimestamp(
                 ts_ms / 1000.0, tz=datetime.timezone.utc

@@ -144,7 +144,7 @@ class MicrostructureEngine:
         self.ofi_windows: Dict[str, deque[float]] = {}
         self.hawkes: Dict[str, HawkesIntensityTracker] = {}
         self.vpin: Dict[str, VPINTracker] = {}
-        self.seen_trade_ids: Dict[str, deque[str]] = {}
+        self.last_trade_ts: Dict[str, float] = {}
         self.bucket_volume_usd = bucket_volume_usd
 
     def _compute_cont_stoikov_ofi(self, prev: BookSnapshot, curr: BookSnapshot) -> float:
@@ -248,11 +248,17 @@ class MicrostructureEngine:
             self.vpin[inst_id] = VPINTracker(bucket_volume_usd=self.bucket_volume_usd)
 
         if recent_trades:
-            for tr in recent_trades:
-                notional = tr.price * tr.size
-                weight = notional / 250.0
-                self.hawkes[inst_id].record_trade(tr.side, notional_weight=weight, now=tr.timestamp)
-            vpin_val = self.vpin[inst_id].update_from_trades(recent_trades)
+            prev_ts = self.last_trade_ts.get(inst_id, 0.0)
+            new_trades = [tr for tr in recent_trades if tr.timestamp > prev_ts]
+            if new_trades:
+                for tr in new_trades:
+                    notional = tr.price * tr.size
+                    weight = notional / 250.0
+                    self.hawkes[inst_id].record_trade(tr.side, notional_weight=weight, now=tr.timestamp)
+                vpin_val = self.vpin[inst_id].update_from_trades(new_trades)
+                self.last_trade_ts[inst_id] = max(tr.timestamp for tr in new_trades)
+            else:
+                vpin_val = self.vpin[inst_id].get_vpin()
         else:
             vpin_val = self.vpin[inst_id].get_vpin()
 

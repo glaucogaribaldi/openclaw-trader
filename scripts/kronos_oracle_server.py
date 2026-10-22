@@ -154,16 +154,21 @@ class KronosHandler(BaseHTTPRequestHandler):
             }).encode())
             return
 
+        def _infer_pair(p: str) -> Tuple[str, Dict[str, Any]]:
+            try:
+                return p, forecast_pair(p)
+            except Exception as e:
+                return p, {"error": str(e)}
+
         if self.path.startswith("/forecast"):
+            from concurrent.futures import ThreadPoolExecutor
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             pairs_raw = qs.get("pairs", ["SOL-USDC"])[0]
             pairs = [p.strip() for p in pairs_raw.split(",") if p.strip()]
             out = {}
-            for p in pairs:
-                try:
-                    out[p] = forecast_pair(p)
-                except Exception as e:
-                    out[p] = {"error": str(e)}
+            with ThreadPoolExecutor(max_workers=min(8, max(1, len(pairs)))) as pool:
+                for p, res in pool.map(_infer_pair, pairs):
+                    out[p] = res
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
