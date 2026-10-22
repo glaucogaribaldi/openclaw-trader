@@ -51,7 +51,7 @@ class PredatorAuditor:
         report_out_path: str,
         ollama_url: str = "http://100.125.189.103:11434/api/generate",
         ollama_model: str = "nemotron-3.5-lightning:latest",
-        baseline_nav: float = 253.01,
+        baseline_nav: float = 298.89,
     ):
         self.db_path = db_path
         self.report_out_path = report_out_path
@@ -124,7 +124,7 @@ class PredatorAuditor:
         raw_fills: List[Dict[str, Any]],
         open_avg_px_map: Dict[str, float],
         allowed_pairs: set[str],
-        cutoff_ts_ms: int = 1791700000000,  # 2026-10-11T06:26:40Z (Start of Run 11/10/2026)
+        cutoff_ts_ms: int = 1792695600000,  # 2026-10-22T19:00:00Z (Start of TRE OS v6.0 Predator Run 22/10/2026 21:00 CEST)
     ) -> int:
         """
         Syncs OKX Spot fills into both `predator_fills_ledger` and `trade_ledger` for 100% continuity.
@@ -277,9 +277,10 @@ class PredatorAuditor:
                 COUNT(*),
                 SUM(CASE WHEN side='buy' THEN 1 ELSE 0 END),
                 SUM(CASE WHEN side='sell' THEN 1 ELSE 0 END),
-                SUM(realized_pnl_usdc),
+                SUM(realized_pnl_usd),
                 SUM(CASE WHEN exec_type='M' THEN 1 ELSE 0 END)
-            FROM trade_ledger
+            FROM predator_fills_ledger
+            WHERE fill_time >= '2026-10-22T19:00:00Z'
             """
         )
         row = cur.fetchone() or (0, 0, 0, 0.0, 0)
@@ -301,8 +302,9 @@ class PredatorAuditor:
 
         default_verdict = (
             f"CERTIFICAZIONE QUANTITATIVA SUPERATA ({score}/100): NAV Reale Live a ${current_nav_usd:.2f} USDC "
-            f"(+{net_pnl_pct:.2f}% rispetto alla Baseline di ${self.baseline_nav:.2f} USDC dell'11/10). "
-            f"Realized PnL: +${realized_pnl:.4f} USDC su {total_fills} fills ({maker_ratio:.1f}% Maker). "
+            f"({net_pnl_pct:+.2f}% rispetto alla Nuova Baseline v6.0 di ${self.baseline_nav:.2f} USDC del 22/10 21:00 CEST). "
+            f"REGOLA AUREA ATTIVA: Canale Compounding Giornaliero [+0.70% <-> +5.00%]. "
+            f"Realized PnL Nuova Run: +${realized_pnl:.4f} USDC su {total_fills} fills ({maker_ratio:.1f}% Maker). "
             f"Protezione Cost-Basis Floor (openAvgPx + 22 bps) attiva ({cost_basis_fixes} ordini salvati) "
             f"e Dynamic Profit-Lock Re-Pegging operativo ({profit_lock_repegs} posizioni blindate)."
         )
@@ -313,14 +315,15 @@ class PredatorAuditor:
         if query_ai:
             prompt = (
                 f"Sei Nemotron 3.5 Lightning, Chief Quantitative Auditor per TRE OS v6.0 Predator (OKX Spot EEA).\n"
-                f"Dati certificati al centesimo:\n"
-                f"- Baseline Iniziale (11/10/2026): ${self.baseline_nav:.2f} USDC\n"
-                f"- NAV Attuale Live: ${current_nav_usd:.2f} USDC (Net PnL: +${net_pnl_usd:.2f} USDC / +{net_pnl_pct:.2f}%)\n"
-                f"- Realized FIFO PnL: +${realized_pnl:.4f} USDC | Unrealized MTM: ${unrealized_mtm:+.2f} USDC\n"
-                f"- Fills Eseguiti: {total_fills} ({buy_fills} Buy, {sell_fills} Sell, {maker_ratio:.1f}% Maker)\n"
+                f"REGOLA AUREA INVIOLABILE: Target Compounding Organico Giornaliero [+0.70% <-> +5.00%] con 0% leva e 0% vendite in perdita.\n"
+                f"Dati certificati al centesimo (Nuova Run iniziata il 22/10/2026 21:00 CEST):\n"
+                f"- Baseline Iniziale Nuova Run (22/10/2026 21:00): ${self.baseline_nav:.2f} USDC\n"
+                f"- NAV Attuale Live: ${current_nav_usd:.2f} USDC (Net PnL Run: {net_pnl_usd:+.2f} USDC / {net_pnl_pct:+.2f}%)\n"
+                f"- Realized FIFO PnL (Nuova Run): +${realized_pnl:.4f} USDC | Unrealized MTM: ${unrealized_mtm:+.2f} USDC\n"
+                f"- Fills Eseguiti (Nuova Run): {total_fills} ({buy_fills} Buy, {sell_fills} Sell, {maker_ratio:.1f}% Maker)\n"
                 f"- Self-Healing Fixes applicati: {cost_basis_fixes} Cost-Basis Floor fixes, {profit_lock_repegs} Profit-Lock Re-Pegs\n\n"
                 f"Scrivi un VERDETTO DI AUDIT TECNICO E CONTABILE in italiano (massimo 3 frasi dense e rigorose) "
-                f"valutando la tenuta matematica, l'efficacia di Kronos + OFI/VPIN e le salvaguardie anti-perdita."
+                f"valutando la tenuta matematica, il rispetto della Regola Aurea (+0.7% / +5.0% giornaliero), l'efficacia di Kronos + OFI/VPIN e le salvaguardie anti-perdita."
             )
             ai_resp = self._call_nemotron_gpu(prompt)
             if ai_resp:

@@ -112,8 +112,8 @@ class AdversarialLLMCouncil:
             f"maintain strict Cartea-Jaimungal inventory skew cap at 18% NAV per asset."
         )
         verdict_str = (
-            f"Regime set to {global_regime} (Aggressiveness {agg_mult:.2f}x). "
-            f"Concentrate dynamic lot sizing on highest OFI+RLS velocity leaders while widening buy traps on high-VPIN pairs."
+            f"Regime set to {global_regime} (Aggressiveness {agg_mult:.2f}x) enforcing GOLDEN RULE [+0.70% <-> +5.00% daily compounding]. "
+            f"Concentrate dynamic lot sizing on highest OFI+RLS+Kronos velocity leaders while widening buy traps on high-VPIN pairs."
         )
 
         return AgentDebateResult(
@@ -166,7 +166,8 @@ class AdversarialLLMCouncil:
     ) -> AgentDebateResult:
         fallback = self._build_deterministic_debate(telemetry, trigger_reason)
 
-        prompt = f"""Conduct a 3-Agent Adversarial Trading Debate for TRE PREDATOR v1.0 (OKX Spot/Demo).
+        prompt = f"""Conduct a 3-Agent Adversarial Trading Debate for TRE OS v6.0 Predator (OKX Spot EEA).
+GOLDEN RULE MANDATE: Achieve and protect the daily organic compounding channel of [+0.70% to +5.00% per day] with 0% leverage, 100% Post-Only Maker, and Cost-Basis Floor (openAvgPx + 22 bps).
 Trigger Event: {trigger_reason}
 Portfolio NAV: ${nav_usdc:.2f} USDC | Free Cash: ${free_usdc:.2f} USDC
 Live Microstructure & RLS Predictive Telemetry:

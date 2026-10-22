@@ -2,11 +2,12 @@
 """
 TRE OS v6.0 (Predator Edition) Deterministic Accounting Engine (`scripts/accounting_engine.py`)
 Computes strict 100% Penny Match financial metrics using native HMAC-SHA256 OKX REST API:
-- Auto-syncs recent OKX Spot fills into `trade_ledger` and `predator_fills_ledger`
-- Realized FIFO PnL (24h, 7d, Full Run)
+- Official TRE OS v6.0 Predator Run Baseline: $298.89 USDC (22/10/2026 21:00 CEST)
+- Enforces & tracks the GOLDEN RULE daily organic compounding target: [+0.70% <-> +5.00% / day]
+- Auto-syncs recent OKX Spot fills (since 22/10/2026 21:00 CEST) into `predator_fills_ledger` and `trade_ledger`
+- Realized FIFO PnL (24h, 7d, Full v6.0 Run)
 - Unrealized Mark-To-Market (MTM) PnL & Cost-Basis Floor (`openAvgPx * 1.0022`)
-- OKX Simple Earn 10% Yield Balance ($35.46 USDC)
-- Complete NAV Reconciliation (Baseline $253.01 USDC -> Current NAV)
+- OKX Simple Earn 10% Yield Balance ($35.48 USDC)
 Zero AI calculations for numbers; 100% deterministic math.
 """
 import os
@@ -25,8 +26,12 @@ from core.predator_auditor import PredatorAuditor
 from predator_daemon import DEFAULT_UNIVERSE, load_dotenv
 
 DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
-BASELINE_NAV = 253.01  # Official baseline from 11/10/2026 08:42 CEST
-SIMPLE_EARN_FALLBACK = 35.46
+BASELINE_NAV = 298.89  # Official TRE OS v6.0 Predator Run Start (22/10/2026 21:00 CEST)
+RUN_START_ISO = "2026-10-22T19:00:00Z"  # 22/10/2026 21:00 CEST
+RUN_START_TS_MS = 1792695600000
+GOLDEN_RULE_MIN_PCT = 0.70
+GOLDEN_RULE_MAX_PCT = 5.00
+SIMPLE_EARN_FALLBACK = 35.48
 
 
 def compute_financial_report():
@@ -102,11 +107,14 @@ def compute_financial_report():
                 raw_fills=raw_fills,
                 open_avg_px_map=cost_basis_map,
                 allowed_pairs=set(DEFAULT_UNIVERSE.keys()),
+                cutoff_ts_ms=RUN_START_TS_MS,
             )
 
         cur = conn.cursor()
+        # Strictly count only fills belonging to the new TRE OS v6.0 Run (>= 2026-10-22T19:00:00Z)
         cur.execute(
-            "SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger WHERE datetime(created_at) >= datetime('now', '-24 hours')"
+            "SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger WHERE created_at >= ? AND datetime(created_at) >= datetime('now', '-24 hours')",
+            (RUN_START_ISO,),
         )
         r = cur.fetchone() or (0, 0.0, 0.0)
         stats["fills_today"] = r[0] or 0
@@ -114,14 +122,18 @@ def compute_financial_report():
         stats["notional_today"] = float(r[2] or 0.0)
 
         cur.execute(
-            "SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger WHERE datetime(created_at) >= datetime('now', '-7 days')"
+            "SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger WHERE created_at >= ? AND datetime(created_at) >= datetime('now', '-7 days')",
+            (RUN_START_ISO,),
         )
         r = cur.fetchone() or (0, 0.0, 0.0)
         stats["fills_7d"] = r[0] or 0
         stats["pnl_7d"] = float(r[1] or 0.0)
         stats["notional_7d"] = float(r[2] or 0.0)
 
-        cur.execute("SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger")
+        cur.execute(
+            "SELECT count(*), sum(realized_pnl_usdc), sum(notional_usdc) FROM trade_ledger WHERE created_at >= ?",
+            (RUN_START_ISO,),
+        )
         r = cur.fetchone() or (0, 0.0, 0.0)
         stats["fills_run"] = r[0] or 0
         stats["pnl_run"] = float(r[1] or 0.0)
@@ -135,13 +147,22 @@ def compute_financial_report():
     pct_run = (net_pnl_run / BASELINE_NAV) * 100.0
     mtm_unrealized = sum(h["upl_usd"] for h in holdings)
 
+    # Calculate daily Golden Rule target in USD (+0.70% to +5.00% of current NAV)
+    daily_target_min_usd = round(nav_current * (GOLDEN_RULE_MIN_PCT / 100.0), 2)
+    daily_target_max_usd = round(nav_current * (GOLDEN_RULE_MAX_PCT / 100.0), 2)
+
     report = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S CEST"),
         "engine_version": "TRE OS v6.0 (Predator + Kronos GPU)",
+        "run_start_label": "22/10/2026 21:00 CEST",
         "baseline_nav": BASELINE_NAV,
         "current_nav": round(nav_current, 2),
         "net_pnl_run": round(net_pnl_run, 2),
         "pct_run": round(pct_run, 2),
+        "golden_rule_min_pct": GOLDEN_RULE_MIN_PCT,
+        "golden_rule_max_pct": GOLDEN_RULE_MAX_PCT,
+        "daily_target_min_usd": daily_target_min_usd,
+        "daily_target_max_usd": daily_target_max_usd,
         "usdc_trading_free": round(usdc_trading_free, 2),
         "usdc_trading_frozen": round(usdc_trading_frozen, 2),
         "usdc_simple_earn": round(usdc_simple_earn, 2),
@@ -156,17 +177,20 @@ def compute_financial_report():
 def format_telegram_monospace_table(rep):
     st = rep["stats"]
     mtm_str = f"-${abs(rep['mtm_unrealized']):.2f}" if rep["mtm_unrealized"] < 0 else f"+${rep['mtm_unrealized']:.2f}"
+    pnl_sign = "+" if rep["net_pnl_run"] >= 0 else "-"
+    pct_sign = "+" if rep["pct_run"] >= 0 else ""
 
-    msg = f"""⚡ *TRE OS v6.0 PREDATOR — REPORT DI PERFORMANCE LIVE*
+    msg = f"""⚡ *TRE OS v6.0 PREDATOR — REPORT NUOVA RUN LIVE*
 📅 _{rep['timestamp']}_
 
 ```
 ========================================
-1. CAPITALE E RICONCILIAZIONE (NAV)
+1. CAPITALE E RICONCILIAZIONE (NUOVA RUN)
 ========================================
-Capitale Baseline (11/10): $253.01 USDC
+Inizio Run v6.0 (22/10):  ${rep['baseline_nav']:.2f} USDC
 NAV Attuale Live:         ${rep['current_nav']:.2f} USDC
-Profitto Netto Run:       +${rep['net_pnl_run']:.2f} USDC (+{rep['pct_run']:.2f}%)
+Profitto Netto Run v6.0:  {pnl_sign}${abs(rep['net_pnl_run']):.2f} USDC ({pct_sign}{rep['pct_run']:.2f}%)
+Regola Aurea Giornaliera: +0.70% <-> +5.00% (+${rep['daily_target_min_usd']:.2f} / +${rep['daily_target_max_usd']:.2f})
 
 Ripartizione Cassa:
 - Simple Earn (10% APR):  ${rep['usdc_simple_earn']:.2f} USDC
@@ -174,12 +198,11 @@ Ripartizione Cassa:
 - Cassa Liquida Libera:   ${rep['usdc_trading_free']:.2f} USDC
 
 ========================================
-2. PERFORMANCE CHIUSA ED MTM (OGGI)
+2. PERFORMANCE CHIUSA ED MTM (RUN v6.0)
 ========================================
 • Profitto Realizzato (24h):   +${st['pnl_today']:.4f} USDC ({st['fills_today']} Fills)
-• Fluttuazione MTM (Prezzi):   {mtm_str} USDC
-• Profitto Realizzato 7g:      +${st['pnl_7d']:.4f} USDC ({st['fills_7d']} Fills)
 • Profitto Realizzato Run:    +${st['pnl_run']:.4f} USDC ({st['fills_run']} Fills)
+• Fluttuazione MTM Storica:   {mtm_str} USDC
 • Motore Predittivo:          Kronos GPU + OFI/VPIN/RLS
 • Protezione Cost-Basis:      Attiva (openAvgPx + 22 bps)
 • Trappole Limit Attive:      {rep['active_orders_count']} ordini (100% Post-Only)
@@ -192,5 +215,5 @@ Ripartizione Cassa:
 if __name__ == "__main__":
     rep = compute_financial_report()
     msg = format_telegram_monospace_table(rep)
-    print("=== DETERMINISTIC ACCOUNTING REPORT ===")
+    print("=== DETERMINISTIC ACCOUNTING REPORT (NEW RUN v6.0) ===")
     print(msg)

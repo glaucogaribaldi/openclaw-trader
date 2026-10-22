@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-TRE OS v5.6 Telegram Executive Reporter (`telegram_reporter.py`)
-Generates clean, elegant, high-impact Telegram Markdown reports.
-Falls back safely to local deterministic analysis if OpenRouter rate limit is hit.
+TRE OS v6.0 (Predator Edition) Telegram Executive Reporter (`telegram_reporter.py`)
+Generates clean, deterministic Telegram Markdown reports based on the new TRE OS v6.0 Run
+(Started 22/10/2026 21:00 CEST, Baseline $298.89 USDC) and enforces the Golden Rule [+0.70% <-> +5.00% daily].
 """
 import os, sys, json, sqlite3, subprocess, time
 from accounting_engine import compute_financial_report, format_telegram_monospace_table
@@ -27,20 +27,22 @@ def generate_report():
     env_vars = load_env_vars()
     api_key = env_vars.get("OPENROUTER_API_KEY", "")
     
-    narrative = "💡 *ANALISI DISCORSIVA DI MERCATO (Deterministic Fallback):*\n"
-    narrative += "• Il mercato crypto si attesta in fase di consolidamento laterale di weekend sui 8 token High-Beta (NEAR, LINK, SOL, SUI, RENDER, AVAX, FET, SEI).\n"
-    narrative += f"• Le {rep['active_orders_count']} trappole limit attive sul book garantiscono esecuzione immediata in modalita Maker-Only (0.00% fee).\n"
-    narrative += f"• Operativita a capitale protetto: Leva 1+2 attiva (85% allocazione trading / 15% cassa Simple Earn al 10% APR) con rischio liquidazione zero."
+    narrative = "💡 *ANALISI DISCORSIVA DI MERCATO (TRE OS v6.0 Predator):*\n"
+    narrative += f"• **Regola Aurea Attiva:** Obiettivo di compounding organico giornaliero fissato tra **+0.70% e +5.00%** (+${rep['daily_target_min_usd']:.2f} <-> +${rep['daily_target_max_usd']:.2f} USDC/giorno) a partire dalla Baseline v6.0 del 22/10 ($298.89 USDC).\n"
+    narrative += f"• **Motore Predittivo Kronos GPU + OFI/VPIN:** {rep['active_orders_count']} trappole limit 100% Post-Only Maker presidiano gli 8 token High-Beta con Cost-Basis Floor attivo (`openAvgPx + 22 bps`, zero vendite in perdita).\n"
+    narrative += f"• **Sicurezza Capitale:** Rischio liquidazione 0.00% (Spot Cash) + ${rep['usdc_simple_earn']:.2f} USDC in Simple Earn al 10% APR."
 
     if api_key:
         try:
             import urllib.request
-            prompt = f"""Sei l AI Chief Analyst per TRE OS v5.6 su OKX Spot.
-NAV Live: ${rep['current_nav']:.2f} USDC (Capitale Iniziale: ${rep['baseline_nav']:.2f} USDC)
-Profitto Netto Run: +${rep['net_pnl_run']:.2f} USDC (+{rep['pct_run']:.2f}%)
-Trappole Limit Attive: {rep['active_orders_count']} ordini sul book
+            prompt = f"""Sei l AI Chief Analyst per TRE OS v6.0 Predator Edition su OKX Spot EEA.
+REGOLA AUREA DEL SISTEMA: Canale di compounding organico giornaliero obbligatorio tra +0.70% e +5.00% (+${rep['daily_target_min_usd']:.2f} <-> +${rep['daily_target_max_usd']:.2f} USDC/giorno).
+Dati Nuova Run v6.0 (Iniziata il 22/10/2026 21:00 CEST):
+- Capitale Iniziale Baseline v6.0 (22/10): ${rep['baseline_nav']:.2f} USDC
+- NAV Attuale Live: ${rep['current_nav']:.2f} USDC (Variazione: {rep['net_pnl_run']:+.2f} USDC / {rep['pct_run']:+.2f}%)
+- Trappole Limit Attive: {rep['active_orders_count']} ordini (100% Post-Only Maker + Cost-Basis Floor openAvgPx + 22 bps)
 
-Scrivi un ANALISI DI MERCATO DISCORSIVA E PULITA in lingua italiana (max 4 frasi) spiegando lo stato del mercato sui 8 token e la sicurezza del sistema (0% leva, 0% fee Taker)."""
+Scrivi un ANALISI DI MERCATO DISCORSIVA E PULITA in lingua italiana (max 3 frasi) richiamando la Regola Aurea (+0.7% / +5.0% giornaliero), l'efficacia predittiva di Kronos + OFI/VPIN e la protezione totale del capitale (zero vendite in perdita, zero leva)."""
 
             payload = {
                 "model": "openrouter/free",
@@ -59,7 +61,7 @@ Scrivi un ANALISI DI MERCATO DISCORSIVA E PULITA in lingua italiana (max 4 frasi
                 res_data = json.loads(resp.read().decode("utf-8"))
                 if "choices" in res_data and len(res_data["choices"]) > 0:
                     narrative = "💡 *ANALISI DISCORSIVA DI MERCATO (AI):*\n" + res_data["choices"][0]["message"]["content"].strip()
-        except Exception as e:
+        except Exception:
             pass
 
     return f"{table}\n{narrative}"
@@ -90,6 +92,6 @@ def send_telegram_webhook(text_msg):
 
 if __name__ == "__main__":
     msg = generate_report()
-    print("=== TELEGRAM EXECUTIVE AI REPORT ===")
+    print("=== TELEGRAM EXECUTIVE AI REPORT (NEW RUN v6.0) ===")
     print(msg)
     send_telegram_webhook(msg)

@@ -27,17 +27,17 @@ def get_okx_orders():
 
 def query_openrouter_audit(nav, usdc_cash, total_fills, active_orders):
     sys.path.append(os.path.join(BASE_DIR, "scripts"))
-    prompt = f"""Esegui l'audit giornaliero (24h) di TRE OS v5.6 per OKX Spot.
-Dati di input:
-- Baseline Iniziale: $253.01 USDC (11/10/2026 08:42 CEST)
+    prompt = f"""Esegui l'audit giornaliero (24h) di TRE OS v6.0 Predator per OKX Spot EEA.
+REGOLA AUREA INVIOLABILE: Canale di compounding organico giornaliero obbligatorio tra +0.70% e +5.00% al giorno.
+Dati di input (Nuova Run v6.0 iniziata il 22/10/2026 21:00 CEST):
+- Baseline Iniziale Run v6.0: $298.89 USDC (22/10/2026 21:00 CEST)
 - Net Asset Value (NAV) Attuale: ${nav:.2f} USDC
 - Cassa Liquida Disponibile: ${usdc_cash:.2f} USDC
-- Fills Realizzati nel Ledger: {total_fills}
-- Trappole Limit Attive in Book: {active_orders}
-- Note Operative: BTC ($0.27) ed ETH ($1.96) sono polveri residue storiche non gestite (focalizzazione esclusiva sui 8 token High-Beta).
-- Modelli v5.6: Avellaneda-Stoikov Inventory Skew, OBI Alpha, OKX Simple Earn 10% Tracker.
+- Fills Realizzati nella Nuova Run: {total_fills}
+- Trappole Limit Attive in Book: {active_orders} (100% Post-Only Maker + Cost-Basis Floor openAvgPx + 22 bps)
+- Modelli v6.0: Kronos GPU Foundation Model + Cont-Stoikov OFI + VPIN Toxicity + Online RLS + OKX Simple Earn 10% Tracker.
 
-Fornisci una sintesi di 3 frasi in italiano con la valutazione del rischio, la stabilità del compounding organico e il controllo di gestione."""
+Fornisci una sintesi di 3 frasi in italiano con la valutazione del rischio, il rispetto della Regola Aurea (+0.70% <-> +5.00% giornaliero) e il controllo di gestione."""
     
     try:
         from openrouter_client import query_openrouter
@@ -95,24 +95,25 @@ def main():
     w1.update_cell(16, 1, "Nota Importante Asset Refusi")
     w1.update_cell(16, 2, "BTC ($0,27) ed ETH ($1,96) sono polveri residue storiche non gestite dal sistema TRE OS v5.6 (focalizzato sui 8 token High-Beta) e del tutto ininfluenti sul rendimento.")
 
-    # 5. Generate docs/RUN_REPORT.md inside repo
-    report_md = f"""# 📈 TRE OS v5.6 • DAILY RUN & OPENROUTER AI CO-AUDIT REPORT
+    # 5. Generate docs/RUN_REPORT.md inside repo (without altering Google Sheet portfolio tabs)
+    report_md = f"""# ⚡ TRE OS v6.0 (PREDATOR EDITION) • DAILY RUN & AI CO-AUDIT REPORT
 
 **Ultimo Aggiornamento Automatico:** `{time.strftime('%Y-%m-%d %H:%M CEST')}`  
-**Google Sheet Ufficiale:** [TRE OS • OKX Spot Trading Run Report (2026)](https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID})  
-**AI Co-Auditor Engine 24h:** `OpenRouter Free Tier (openrouter/free)`
+**Inizio Nuova Run v6.0 Predator:** `22/10/2026 21:00 CEST`  
+**Regola Aurea Giornaliera:** `+0.70% <-> +5.00% Compounding Organico`
 
 ---
 
-## 📊 METRICHE CHIAVE LIVE OKX SPOT
+## 📊 METRICHE CHIAVE LIVE OKX SPOT (NUOVA RUN v6.0)
 
-- **Capitale Iniziale Baseline (11/10/2026 08:42 CEST):** `$253.01 USDC`
+- **Capitale Iniziale Baseline v6.0 (22/10/2026 21:00 CEST):** `$298.89 USDC`
 - **Net Asset Value (NAV) Attuale:** `${total_nav:.2f} USDC`
-- **Variazione Netta NAV (P&L Totale):** `+${(total_nav - 253.01):.2f} USDC` (`+{((total_nav - 253.01) / 253.01 * 100):.2f}%`)
+- **Variazione Netta NAV (Nuova Run v6.0):** `{(total_nav - 298.89):+.2f} USDC` (`{((total_nav - 298.89) / 298.89 * 100):+.2f}%`)
+- **Canale Regola Aurea Giornaliera:** `+0.70% <-> +5.00%` (`+${(total_nav * 0.007):.2f} <-> +${(total_nav * 0.05):.2f} USDC/giorno`)
 - **Cassa Liquida Disponibile USDC:** `${usdc_cash:.2f} USDC`
-- **Trappole Limit Attive in Book:** `{active_orders}`
-- **Fills Totali Eseguiti nel Ledger:** `{total_fills}`
-- **P&L Netto Realizzato Fills:** `+${total_pnl:.4f} USDC`
+- **Trappole Limit Attive in Book:** `{active_orders}` (100% Post-Only Maker + Cost-Basis Floor)
+- **Fills Eseguiti nella Nuova Run v6.0:** `{total_fills}`
+- **P&L Netto Realizzato (Nuova Run v6.0):** `+${total_pnl:.4f} USDC`
 
 ---
 
@@ -123,13 +124,7 @@ def main():
 
 ---
 
-## 📌 NOTA SULLE POLVERI DI APERTURA (BTC / ETH)
-
-> **Nota:** Le micro-frazioni di BTC (~$0.27) ed ETH (~$1.96) presenti nei saldi di apertura sono **refusi di polvere storica non gestiti dalla strategia TRE OS v5.6** (focalizzata esclusivamente sull'universo Spot dei 8 token High-Beta: `NEAR`, `LINK`, `SOL`, `SUI`, `RENDER`, `AVAX`, `FET`, `SEI`). Tali valori sono del tutto **ininfluenti** sulla performance e sul calcolo del compounding.
-
----
-
-*Report generato ed integrato automaticamente ogni 24 ore dal daemon `daily_openrouter_sync.py` con OpenRouter AI.*
+*Report generato ed integrato automaticamente ogni 24 ore dal daemon `daily_openrouter_sync.py`.*
 """
     report_path = os.path.join(BASE_DIR, "docs/RUN_REPORT.md")
     os.makedirs(os.path.dirname(report_path), exist_ok=True)

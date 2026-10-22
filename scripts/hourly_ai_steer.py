@@ -34,18 +34,18 @@ def get_okx_orders():
         return []
 
 def query_openrouter_hourly_steering(nav, usdc_cash, orders_count, active_tokens_str, trigger_reason):
-    prompt = f"""Sei l AI Steering Co-Pilot per TRE OS v5.6 su OKX Spot.
+    prompt = f"""Sei l AI Steering Co-Pilot per TRE OS v6.0 Predator su OKX Spot EEA.
+REGOLA AUREA INVIOLABILE DEL SISTEMA: Obiettivo di compounding organico giornaliero obbligatorio tra +0.70% e +5.00% al giorno (Baseline Nuova Run v6.0 del 22/10/2026: $298.89 USDC).
 Evento Scatenante: {trigger_reason}
 Dati attuali:
-- NAV Live: ${nav:.2f} USDC
+- NAV Live: ${nav:.2f} USDC (Baseline v6.0 22/10: $298.89 USDC)
 - Cassa Liquida USDC: ${usdc_cash:.2f} USDC
-- Ordini Limit Attivi: {orders_count} trappole
+- Ordini Limit Attivi: {orders_count} trappole (100% Post-Only Maker + Cost-Basis Floor openAvgPx + 22 bps)
 - Token High-Beta Monitorati: {active_tokens_str}
 
 Fornisci una DIRETTIVA STRATEGICA TATTICA in italiano (max 3 frasi) indicando:
-1. Inclinazione di mercato post-evento.
-2. Rilevamento della volatilita: Se la volatilita 24h e bassa (<3.0%), abilita low_volatility_mode con grid_spread_buy_pct 0.25 e take_profit_sell_pct 0.35.
-2. Suggerimento d allocazione immediata sui 8 token.
+1. Inclinazione di mercato e rispetto della Regola Aurea (+0.70% <-> +5.00% giornaliero).
+2. Suggerimento d allocazione immediata sugli 8 token con Kronos + OFI/VPIN.
 3. Raccomandazione sugli spread Take-Profit e buy offsets."""
 
     api_key = load_openrouter_key()

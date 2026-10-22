@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-TRE OS v5.6 Interactive Telegram Bot Interactor (`telegram_bot.py`)
+TRE OS v6.0 (Predator Edition) Interactive Telegram Bot Interactor (`telegram_bot.py`)
 Read-Only Interactive Bot listening for commands:
-- /report or /status -> Full Financial Report + AI Narrative Market Analysis
-- /oggi -> Today 24h PnL & Fills
-- /settimana -> 7 Days PnL & Fills
-- /run -> Full Run PnL & Baseline Reconciliation
-- /portafoglio -> Asset Holdings & MTM Allocation
+- /report or /status -> Full Financial Report (New Run v6.0 from 22/10 $298.89 USDC) + AI Narrative
+- /oggi -> Today 24h PnL & Fills + Golden Rule Target (+0.70% <-> +5.00%)
+- /settimana -> 7 Days PnL & Fills (within v6.0 Run)
+- /run -> Full v6.0 Run PnL & Baseline Reconciliation (22/10/2026 21:00 CEST)
+- /portafoglio -> Asset Holdings & Cost-Basis Floor Protection
 - /mercato -> AI OpenRouter Market Narrative
 - /help -> List commands
 Runs in background with 0% write permissions (100% Read-Only Safety).
@@ -31,19 +31,19 @@ def query_openrouter_market_narrative(rep):
     env_vars = load_env_vars()
     api_key = env_vars.get("OPENROUTER_API_KEY", "")
     
-    prompt = f"""Sei l AI Chief Analyst per TRE OS v5.6 su OKX Spot.
-Dati Finanziari Deterministici:
-- NAV Live: ${rep['current_nav']:.2f} USDC (Capitale Iniziale: ${rep['baseline_nav']:.2f} USDC)
-- Profitto Netto Run: +${rep['net_pnl_run']:.2f} USDC (+{rep['pct_run']:.2f}%)
-- Trappole Limit Attive: {rep['active_orders_count']} ordini sul book
-- MTM Unrealized: ${rep['mtm_unrealized']:.2f} USDC
+    prompt = f"""Sei l AI Chief Analyst per TRE OS v6.0 Predator su OKX Spot EEA.
+REGOLA AUREA INVIOLABILE: Target Compounding Giornaliero +0.70% <-> +5.00% (+${rep['daily_target_min_usd']:.2f} <-> +${rep['daily_target_max_usd']:.2f} USDC/giorno).
+Dati Finanziari Deterministici (Nuova Run v6.0 dal 22/10/2026 21:00 CEST):
+- Baseline Iniziale Run v6.0 (22/10): ${rep['baseline_nav']:.2f} USDC
+- NAV Live: ${rep['current_nav']:.2f} USDC (Variazione: {rep['net_pnl_run']:+.2f} USDC / {rep['pct_run']:+.2f}%)
+- Trappole Limit Attive: {rep['active_orders_count']} ordini sul book (100% Post-Only Maker + Cost-Basis Floor)
 
-Scrivi un ANALISI DI MERCATO DISCORSIVA E PULITA in lingua italiana (max 4 frasi) spiegando:
-1. Lo stato del mercato attuale sui 8 token High-Beta (NEAR, LINK, SOL, SUI, RENDER, AVAX, FET, SEI).
-2. L operativita del regime Low-Vol Micro-Scalping (-0.25% Buy / +0.35% Sell) e la sicurezza totale del sistema (0% leva, rischio liquidazione zero, 0% fee Taker)."""
+Scrivi un ANALISI DI MERCATO DISCORSIVA E PULITA in lingua italiana (max 3 frasi) spiegando:
+1. Lo stato del mercato attuale sugli 8 token High-Beta (NEAR, LINK, SOL, SUI, RENDER, AVAX, FET, SEI) guidato da Kronos GPU + OFI/VPIN.
+2. Il rispetto della Regola Aurea (+0.70% / +5.00% giornaliero) e la protezione Cost-Basis Floor (openAvgPx + 22 bps, zero vendite in perdita)."""
 
     if not api_key:
-        return "💡 *Analisi di Mercato:* Mercato in consolidamento di weekend. Le 32 trappole limit Maker-Only mantengono posizioni sicure a leva zero."
+        return f"💡 *Analisi di Mercato (TRE OS v6.0):* Regola Aurea [+0.70% <-> +5.00%/giorno] attiva. Le {rep['active_orders_count']} trappole Post-Only presidiano il book con Cost-Basis Floor attivo."
 
     try:
         import urllib.request
@@ -63,19 +63,20 @@ Scrivi un ANALISI DI MERCATO DISCORSIVA E PULITA in lingua italiana (max 4 frasi
         with urllib.request.urlopen(req, timeout=10) as resp:
             res_data = json.loads(resp.read().decode("utf-8"))
             return "💡 *ANALISI DISCORSIVA DI MERCATO (AI):*\n" + res_data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        return "💡 *Analisi di Mercato:* Regime Micro-Scalping attivo su 8 token High-Beta in totale sicurezza (leva zero)."
+    except Exception:
+        return f"💡 *Analisi di Mercato (TRE OS v6.0):* Regola Aurea [+0.70% <-> +5.00%/giorno] attiva su 8 token High-Beta in totale sicurezza (leva zero, Cost-Basis Floor attivo)."
 
 def format_portfolio_view(rep):
-    msg = f"💼 *DETTAGLIO PORTAFOGLIO SPOT LIVE*\n📅 _{rep['timestamp']}_\n\n```\n"
-    msg += f"{'TOKEN':<8} {'QUANTITÀ':<12} {'VALORE ($)':<12} {'UNREALIZED MTM'}\n"
+    msg = f"💼 *DETTAGLIO PORTAFOGLIO SPOT LIVE (v6.0)*\n📅 _{rep['timestamp']}_\n\n```\n"
+    msg += f"{'TOKEN':<8} {'QUANTITÀ':<10} {'VALORE ($)':<11} {'COSTO MEDIO'}\n"
     msg += "-"*46 + "\n"
     for h in rep["holdings"]:
-        msg += f"{h['ccy']:<8} {h['qty']:<12.3f} ${h['eq_usd']:<11.2f} ${h['upl_usd']:.2f}\n"
+        msg += f"{h['ccy']:<8} {h['qty']:<10.3f} ${h['eq_usd']:<10.2f} ${h.get('open_avg_px', 0.0):.4f}\n"
     msg += "="*46 + "\n"
-    msg += f"Simple Earn (10% APR): ${rep['usdc_simple_earn']:.2f} USDC\n"
-    msg += f"Cassa Impegnata Dip:   ${rep['usdc_trading_frozen']:.2f} USDC\n"
-    msg += f"Cassa Libera:          ${rep['usdc_trading_free']:.2f} USDC\n"
+    msg += f"Baseline Run v6.0 (22/10): ${rep['baseline_nav']:.2f} USDC\n"
+    msg += f"Simple Earn (10% APR):     ${rep['usdc_simple_earn']:.2f} USDC\n"
+    msg += f"Cassa Impegnata Dip:       ${rep['usdc_trading_frozen']:.2f} USDC\n"
+    msg += f"Cassa Libera:              ${rep['usdc_trading_free']:.2f} USDC\n"
     msg += "```"
     return msg
 
@@ -85,11 +86,13 @@ def format_period_view(rep, period_key, label):
     pnl = st.get(f"pnl_{period_key}", 0.0)
     notional = st.get(f"notional_{period_key}", 0.0)
     
-    msg = f"📈 *PERFORMANCE {label.upper()}*\n📅 _{rep['timestamp']}_\n\n```\n"
-    msg += f"• Trades Eseguiti (Fills): {fills}\n"
-    msg += f"• Profitto Netto Incassato: +${pnl:.4f} USDC\n"
-    msg += f"• Notionale Scambiato:    ${notional:.2f} USDC\n"
-    msg += f"• Commissioni Taker:      $0.00 USDC (0.00% Fee)\n"
+    msg = f"📈 *PERFORMANCE {label.upper()} (RUN v6.0)*\n📅 _{rep['timestamp']}_\n\n```\n"
+    msg += f"• Baseline Run v6.0 (22/10): ${rep['baseline_nav']:.2f} USDC\n"
+    msg += f"• Regola Aurea Giornaliera:  +0.70% <-> +5.00% (+${rep['daily_target_min_usd']:.2f} / +${rep['daily_target_max_usd']:.2f})\n"
+    msg += f"• Trades Eseguiti (Fills):   {fills}\n"
+    msg += f"• Profitto Netto Incassato:  +${pnl:.4f} USDC\n"
+    msg += f"• Notionale Scambiato:      ${notional:.2f} USDC\n"
+    msg += f"• Commissioni Taker:        $0.00 USDC (100% Post-Only)\n"
     msg += "```"
     return msg
 
@@ -104,7 +107,7 @@ def process_command(cmd_text):
     elif cmd == "/oggi":
         return format_period_view(rep, "today", "Oggi (Ultime 24h)")
     elif cmd == "/settimana":
-        return format_period_view(rep, "7d", "Ultimi 7 Giorni")
+        return format_period_view(rep, "7d", "Ultimi 7 Giorni (Run v6.0)")
     elif cmd == "/run":
         table = format_telegram_monospace_table(rep)
         return table
@@ -113,13 +116,13 @@ def process_command(cmd_text):
     elif cmd == "/mercato":
         return query_openrouter_market_narrative(rep)
     elif cmd == "/help":
-        return """🤖 *COMANDI TELEGRAM DISPONIBILI (100% READ-ONLY):*
+        return """🤖 *COMANDI TELEGRAM TRE OS v6.0 PREDATOR (100% READ-ONLY):*
 
-• /report - Report Completo Finanziario + Analisi AI Mercato
-• /oggi - Performance ed operatività delle ultime 24 ore
+• /report - Report Completo Nuova Run v6.0 (dal 22/10) + Analisi AI
+• /oggi - Performance 24h e Target Regola Aurea (+0.70% <-> +5.00%)
 • /settimana - Performance e fills degli ultimi 7 giorni
-• /run - Riconciliazione contabile dal 11/10 ad oggi
-• /portafoglio - Dettaglio posizioni spot, MTM e cassa
+• /run - Riconciliazione contabile dalla sostituzione v6.0 (22/10 21:00)
+• /portafoglio - Dettaglio posizioni spot, Costo Medio e cassa
 • /mercato - Analisi discorsiva AI sullo stato del mercato
 • /help - Elenco dei comandi"""
     else:
@@ -136,7 +139,7 @@ def run_bot_polling():
 
     import urllib.request, urllib.parse
     offset = 0
-    print(f"[+] Telegram Read-Only Interactive Bot listening for commands...")
+    print(f"[+] Telegram Read-Only Interactive Bot (v6.0) listening for commands...")
     
     while True:
         try:
@@ -155,7 +158,6 @@ def run_bot_polling():
                             print(f"[+] Received command '{text}' from chat {chat_id}")
                             reply_text = process_command(text)
                             
-                            # Send response
                             send_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                             send_data = urllib.parse.urlencode({
                                 "chat_id": chat_id,
@@ -163,9 +165,9 @@ def run_bot_polling():
                                 "parse_mode": "Markdown"
                             }).encode("utf-8")
                             send_req = urllib.request.Request(send_url, data=send_data)
-                            with urllib.request.urlopen(send_req, timeout=8) as s_resp:
+                            with urllib.request.urlopen(send_req, timeout=8):
                                 pass
-        except Exception as e:
+        except Exception:
             time.sleep(3)
 
 if __name__ == "__main__":

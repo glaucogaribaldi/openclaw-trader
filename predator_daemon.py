@@ -48,8 +48,12 @@ DEFAULT_UNIVERSE: Dict[str, Dict[str, Any]] = {
     "SEI-USDC":    {"coin": "SEI",    "dec_px": 5, "dec_sz": 1},
 }
 
-BASELINE_NAV_USDC = 253.01
-SIMPLE_EARN_FALLBACK_USDC = 35.46
+BASELINE_NAV_USDC = 298.89  # Official TRE OS v6.0 Predator Run Start (22/10/2026 21:00 CEST)
+RUN_START_ISO = "2026-10-22T19:00:00Z"
+RUN_START_TS_MS = 1792695600000
+GOLDEN_RULE_DAILY_MIN_PCT = 0.70
+GOLDEN_RULE_DAILY_MAX_PCT = 5.00
+SIMPLE_EARN_FALLBACK_USDC = 35.48
 
 
 def load_dotenv(env_path: str) -> Dict[str, str]:

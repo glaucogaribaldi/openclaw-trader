@@ -15,7 +15,8 @@ BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
 DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 
-BASELINE_NAV = 253.01
+BASELINE_NAV = 298.89  # Official TRE OS v6.0 Predator Run Start (22/10/2026 21:00 CEST)
+RUN_START_ISO = "2026-10-22T19:00:00Z"
 
 def load_openrouter_key():
     try:
@@ -43,7 +44,7 @@ def get_db_ledger():
     try:
         conn = sqlite3.connect(DB_PATH, timeout=2.0)
         c = conn.cursor()
-        c.execute("SELECT trade_id, ord_id, inst_id, side, price, quantity, notional_usdc, fee_usdc, realized_pnl_usdc, created_at FROM trade_ledger ORDER BY created_at DESC LIMIT 50")
+        c.execute("SELECT trade_id, ord_id, inst_id, side, price, quantity, notional_usdc, fee_usdc, realized_pnl_usdc, created_at FROM trade_ledger WHERE created_at >= ? ORDER BY created_at DESC LIMIT 50", (RUN_START_ISO,))
         rows = c.fetchall()
         conn.close()
         return [{"trade_id": r[0], "ord_id": r[1], "inst_id": r[2], "side": r[3], "price": r[4], "quantity": r[5], "notional": r[6], "fee": r[7], "pnl": r[8], "timestamp": r[9]} for r in rows]
@@ -55,7 +56,7 @@ def get_today_pnl():
         conn = sqlite3.connect(DB_PATH, timeout=2.0)
         c = conn.cursor()
         today_prefix = datetime.datetime.now().strftime("%Y-%m-%d")
-        c.execute("SELECT SUM(realized_pnl_usdc) FROM trade_ledger WHERE created_at LIKE ?", (f"{today_prefix}%",))
+        c.execute("SELECT SUM(realized_pnl_usdc) FROM trade_ledger WHERE created_at >= ? AND created_at LIKE ?", (RUN_START_ISO, f"{today_prefix}%"))
         row = c.fetchone()
         conn.close()
         return float(row[0]) if row and row[0] is not None else 0.0
@@ -68,7 +69,13 @@ def api_data():
     db_runs = get_db_runs()
     today_pnl = get_today_pnl()
     
-    current_nav = 309.36
+    current_nav = 298.89
+    try:
+        with open(os.path.join(BASE_DIR, "config", "predator_audit_report.json"), "r") as f:
+            ar = json.load(f)
+            current_nav = float(ar.get("current_nav_usd") or 298.89)
+    except Exception:
+        pass
     realized_pnl = current_nav - BASELINE_NAV
     growth_pct = (realized_pnl / BASELINE_NAV) * 100
 
@@ -79,12 +86,13 @@ def api_data():
         "current_nav_usdc": round(current_nav, 2),
         "realized_pnl_usdc": round(realized_pnl, 2),
         "total_growth_pct": round(growth_pct, 2),
+        "golden_rule_channel": "+0.70% <-> +5.00% / day",
         "today_pnl_usdc": round(today_pnl, 2),
-        "usdc_cash_avail": 35.46,
-        "usdc_cash_frozen": 32.98,
+        "usdc_cash_avail": 35.48,
+        "usdc_cash_frozen": 30.80,
         "usdc_cash_total": 68.45,
         "active_tokens_count": 8,
-        "orders_count": 31,
+        "orders_count": 9,
         "db_runs": db_runs,
         "db_ledger": db_ledger
     })
