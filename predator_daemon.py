@@ -398,11 +398,12 @@ def run_predator_cycle(
                     active_ord_id = ord_id
                     active_ord_px = ord_px
                     active_ord_sz = ord_sz
-                    # Cancel stale BUY order if drifted > 95 bps away or if inventory exceeds 20% NAV cap
-                    if (drift_bps > 95.0 and pred.regime != "TOXIC_DIP_DEFENSE") or inv_weight >= 0.20:
+                    # Fast-Cycle Stale BUY Re-Pegging: cancel BUY order if drifted > 38 bps away (or > 95 bps in TOXIC_DIP_DEFENSE) or if inventory >= 20% NAV
+                    max_buy_drift_bps = 95.0 if pred.regime == "TOXIC_DIP_DEFENSE" else 38.0
+                    if drift_bps > max_buy_drift_bps or inv_weight >= 0.20:
                         client.cancel_order(inst_id, ord_id)
                         has_buy_order = False
-                        actions_taken.append({"action": "CANCEL_STALE_OR_CAPPED_BUY", "inst_id": inst_id, "ord_id": ord_id})
+                        actions_taken.append({"action": "CANCEL_STALE_OR_CAPPED_BUY", "inst_id": inst_id, "ord_id": ord_id, "drift_bps": round(drift_bps, 1)})
 
                 elif ord_side == "sell":
                     has_sell_order = True
@@ -450,7 +451,17 @@ def run_predator_cycle(
                             "old_px": ord_px,
                             "new_floor_px": cost_floor_px,
                         })
-                    # AUDIT SAFEGUARD 2: Dynamic Profit-Lock Re-Pegging
+                    # AUDIT SAFEGUARD 2: 100% Inventory Coverage Consolidation (absorb idle 20% Moonbag availBal into protected SELL order!)
+                    elif avail_token_qty * sig.mid_price >= 3.50 and not active_tranches_by_inst.get(inst_id):
+                        client.cancel_order(inst_id, ord_id)
+                        has_sell_order = False
+                        avail_token_qty = cash_token_qty
+                        actions_taken.append({
+                            "action": "CONSOLIDATE_IDLE_MOONBAG_INTO_SELL",
+                            "inst_id": inst_id,
+                            "added_avail_usd": round(avail_token_qty * sig.mid_price, 2),
+                        })
+                    # AUDIT SAFEGUARD 3: Dynamic Profit-Lock Re-Pegging
                     elif (
                         (unrealized_bps >= 180.0 and drift_bps > 8.0)
                         or (unrealized_bps >= 85.0 and drift_bps > 12.0 and pred.predicted_return_bps < 6.0)
@@ -504,11 +515,9 @@ def run_predator_cycle(
                             "ord_id": qtp_ord_id,
                         })
 
-        # 3A. Place Take-Profit SELL orders enforcing Cost-Basis Floor (80% primary TP / 20% Moonbag preserved)
-        if not has_sell_order and avail_token_qty * sig.mid_price >= 6.0:
-            # Sell 80% in primary TP (keeping 20% moonbag or selling 100% if small position < $15)
-            sell_ratio = 0.80 if (avail_token_qty * sig.mid_price >= 18.0) else 1.00
-            sell_sz = math.floor(avail_token_qty * sell_ratio * (10 ** dec_sz)) / (10 ** dec_sz)
+        # 3A. Place Take-Profit SELL orders enforcing Cost-Basis Floor (100% full inventory coverage to maximize free cash upon fill!)
+        if not has_sell_order and avail_token_qty * sig.mid_price >= 5.0:
+            sell_sz = math.floor(avail_token_qty * (10 ** dec_sz)) / (10 ** dec_sz)
             if unrealized_bps >= 180.0:
                 raw_tp_px = asks[0][0]
                 tp_style_tag = "PROFIT_LOCK_ASK_JOIN"
@@ -549,7 +558,9 @@ def run_predator_cycle(
                 })
 
         # 3B. Collect candidate for Opportunity-Ranked Cash Sweeper (evaluated after scanning all 8 pairs!)
-        if not has_buy_order and inv_weight < 0.20:
+        # Anti-Stacking Quick-Scalp Guard: skip if this token already has >= $16.00 USDC in active Quick-Scalp tranches!
+        active_qs_usd = sum(tr[1] * tr[2] for tr in active_tranches_by_inst.get(inst_id, []))
+        if not has_buy_order and inv_weight < 0.20 and active_qs_usd < 16.0:
             opp_score = (
                 pred.predicted_return_bps
                 + (sig.composite_alpha * 15.0)
@@ -585,7 +596,8 @@ def run_predator_cycle(
             base_lot_usd = (spot_equity_usd * 0.85) / len(DEFAULT_UNIVERSE)
             conv_boost = 1.0 + max(-0.25, min(0.45, cand["llm_bias"] * 0.4))
             alpha_boost = 1.0 + max(-0.15, min(0.15, cand["pred_bps"] / 100.0))
-            lot_usd = min(free_usdc * 0.98, max(10.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
+            # Cap single Quick-Scalp buy order at $17.50 USDC so ~$33 USDC always splits across at least 2 distinct pairs!
+            lot_usd = min(free_usdc * 0.98, 17.50, max(10.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
 
             target_buy_px = round(cand["mid_price"] * (1.0 - cand["buy_offset_bps"] / 10000.0), c_dec_px)
             if target_buy_px >= cand["best_ask"]:
