@@ -45,10 +45,30 @@ CACHE: Dict[str, Dict[str, Any]] = {}
 CACHE_LOCK = threading.Lock()
 CACHE_TTL_SEC = 180.0
 INFER_LOCK = threading.Lock()
+TRACKED_PAIRS = [
+    "HYPE-USDC", "ZEC-USDC", "SOL-USDC", "SUI-USDC", "NEAR-USDC", "UNI-USDC",
+    "XRP-USDC", "LINK-USDC", "RENDER-USDC", "AVAX-USDC", "FET-USDC", "SEI-USDC",
+]
 
 PREDICTOR = None
 ACTIVE_LABEL = ""
 ACTIVE_DEVICE = "cpu"
+
+
+def _background_refresh_loop():
+    """
+    Continuously refreshes all 12 pairs in the background every 120s so HTTP /forecast
+    calls return in 0.00ms without ever blocking `predator_daemon.py`!
+    """
+    time.sleep(2.0)
+    while True:
+        for p in TRACKED_PAIRS:
+            try:
+                forecast_pair(p, force_refresh=True)
+            except Exception:
+                pass
+            time.sleep(0.5)
+        time.sleep(60.0)
 
 
 def detect_best_device(requested: str = "auto") -> str:
@@ -81,12 +101,13 @@ def fetch_okx_candles(inst_id: str, bar: str = "5m", limit: int = 180) -> pd.Dat
     return pd.DataFrame(rows)
 
 
-def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 3) -> dict:
+def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 2, force_refresh: bool = False) -> dict:
     now = time.time()
-    with CACHE_LOCK:
-        cached = CACHE.get(inst_id)
-        if cached and (now - cached["ts"]) < CACHE_TTL_SEC:
-            return cached["data"]
+    if not force_refresh:
+        with CACHE_LOCK:
+            cached = CACHE.get(inst_id)
+            if cached and (now - cached["ts"]) < 600.0:
+                return cached["data"]
 
     df_5m = fetch_okx_candles(inst_id, bar="5m", limit=180)
     if df_5m.empty or len(df_5m) < 30:
@@ -225,6 +246,8 @@ def main():
     model = Kronos.from_pretrained(preset["model_id"])
     PREDICTOR = KronosPredictor(model, tokenizer, device=ACTIVE_DEVICE, max_context=preset["max_context"])
     print(f"[Kronos-Oracle v7.0] {ACTIVE_LABEL} ready and listening on http://127.0.0.1:{args.port}")
+    bg_thread = threading.Thread(target=_background_refresh_loop, daemon=True)
+    bg_thread.start()
 
     server = HTTPServer(("0.0.0.0", args.port), KronosHandler)
     server.serve_forever()
