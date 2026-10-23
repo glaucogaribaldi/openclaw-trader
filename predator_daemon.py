@@ -489,10 +489,17 @@ def run_predator_cycle(
                                         })
                         continue
                     # AUDIT SAFEGUARD 1: Never allow a legacy SELL order below openAvgPx * 1.0022 (Cost-Basis Floor Rescue!)
+                    tranche_locked_sz = sum(
+                        float(o.get("sz") or 0.0)
+                        for o in inst_orders
+                        if str(o.get("side") or "").lower() == "sell" and str(o.get("ordId") or "") in active_tranche_ord_ids
+                    )
+                    legacy_free_qty = max(0.0, cash_token_qty - tranche_locked_sz)
                     if cost_floor_px > 0 and ord_px < cost_floor_px:
-                        client.cancel_order(inst_id, ord_id)
+                        if not dry_run:
+                            client.cancel_order(inst_id, ord_id)
                         has_sell_order = False
-                        avail_token_qty = cash_token_qty
+                        avail_token_qty = legacy_free_qty
                         cost_basis_fixes += 1
                         actions_taken.append({
                             "action": "RESCUE_BELOW_COST_SELL",
@@ -502,16 +509,17 @@ def run_predator_cycle(
                         })
                     # AUDIT SAFEGUARD 2: 100% Inventory Coverage Consolidation (absorb idle 20% Moonbag availBal into protected SELL order!)
                     elif avail_token_qty * sig.mid_price >= 3.50 and not active_tranches_by_inst.get(inst_id):
-                        client.cancel_order(inst_id, ord_id)
+                        if not dry_run:
+                            client.cancel_order(inst_id, ord_id)
                         has_sell_order = False
-                        avail_token_qty = cash_token_qty
+                        avail_token_qty = legacy_free_qty
                         actions_taken.append({
                             "action": "CONSOLIDATE_IDLE_MOONBAG_INTO_SELL",
                             "inst_id": inst_id,
                             "added_avail_usd": round(avail_token_qty * sig.mid_price, 2),
                         })
-                    # AUDIT SAFEGUARD 3: Dynamic Profit-Lock Re-Pegging
-                    if (
+                    # AUDIT SAFEGUARD 3: Dynamic Profit-Lock & Ratchet Re-Pegging
+                    elif (
                         (unrealized_bps >= 180.0 and drift_bps > 8.0)
                         or (unrealized_bps >= 85.0 and drift_bps > 12.0 and pred.predicted_return_bps < 6.0)
                         or (cost_floor_px > 0 and ord_px > cost_floor_px * 1.0005 and -350.0 <= unrealized_bps < 0.0)
@@ -519,7 +527,7 @@ def run_predator_cycle(
                         if not dry_run:
                             client.cancel_order(inst_id, ord_id)
                         has_sell_order = False
-                        avail_token_qty = cash_token_qty
+                        avail_token_qty = legacy_free_qty
                         profit_lock_repegs += 1
                         actions_taken.append({
                             "action": "PROFIT_LOCK_OR_RATCHET_REPEG",
@@ -567,8 +575,14 @@ def run_predator_cycle(
                             "ord_id": qtp_ord_id,
                         })
 
+        # Check if there is a legacy SELL order (distinct from Quick-Scalp tranche orders)
+        has_legacy_sell_order = any(
+            str(o.get("side") or "").lower() == "sell" and str(o.get("ordId") or "") not in active_tranche_ord_ids
+            for o in inst_orders
+        ) and has_sell_order
+
         # 3A. Place Take-Profit SELL orders enforcing Cost-Basis Floor (100% full inventory coverage to maximize free cash upon fill!)
-        if not has_sell_order and avail_token_qty * sig.mid_price >= 5.0:
+        if not has_legacy_sell_order and avail_token_qty * sig.mid_price >= 5.0:
             sell_sz = math.floor(avail_token_qty * (10 ** dec_sz)) / (10 ** dec_sz)
             if unrealized_bps >= 180.0:
                 raw_tp_px = asks[0][0]
