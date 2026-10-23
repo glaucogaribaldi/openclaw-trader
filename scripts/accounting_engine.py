@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRE OS v6.0 (Predator Edition) Deterministic Accounting Engine (`scripts/accounting_engine.py`)
+TRE OS v7.0 (Sovereign Predator Edition) Deterministic Accounting Engine (`scripts/accounting_engine.py`)
 Computes strict 100% Penny Match financial metrics using native HMAC-SHA256 OKX REST API:
-- Official TRE OS v6.0 Predator Run Baseline: $298.89 USDC (22/10/2026 21:00 CEST)
+- Official TRE OS v7.0 Predator Run Baseline: $298.89 USDC (22/10/2026 21:00 CEST)
 - Enforces & tracks the GOLDEN RULE daily organic compounding target: [+0.70% <-> +5.00% / day]
 - Auto-syncs recent OKX Spot fills (since 22/10/2026 21:00 CEST) into `predator_fills_ledger` and `trade_ledger`
-- Realized FIFO PnL (24h, 7d, Full v6.0 Run)
+- Realized FIFO PnL (24h, 7d, Full Run)
 - Unrealized Mark-To-Market (MTM) PnL & Cost-Basis Floor (`openAvgPx * 1.0022`)
-- OKX Simple Earn 10% Yield Balance ($35.48 USDC)
+- 100% Active Spot Capital Allocation
 Zero AI calculations for numbers; 100% deterministic math.
 """
 import os
@@ -31,7 +31,6 @@ RUN_START_ISO = "2026-10-22T19:00:00Z"  # 22/10/2026 21:00 CEST
 RUN_START_TS_MS = 1792695600000
 GOLDEN_RULE_MIN_PCT = 0.70
 GOLDEN_RULE_MAX_PCT = 5.00
-SIMPLE_EARN_FALLBACK = 35.48
 
 
 def compute_financial_report():
@@ -77,15 +76,7 @@ def compute_financial_report():
                 })
 
     holdings.sort(key=lambda x: x["eq_usd"], reverse=True)
-
-    # Check Simple Earn balance
-    usdc_simple_earn = SIMPLE_EARN_FALLBACK
-    sav = client.get_savings_balances()
-    earn_sum = sum(float(s.get("amt") or 0.0) for s in sav if s.get("ccy") == "USDC")
-    if earn_sum > 0:
-        usdc_simple_earn = earn_sum
-
-    nav_current = total_spot_equity_usd + usdc_simple_earn
+    nav_current = total_spot_equity_usd
 
     stats = {
         "fills_today": 0, "pnl_today": 0.0, "notional_today": 0.0,
@@ -165,7 +156,6 @@ def compute_financial_report():
         "daily_target_max_usd": daily_target_max_usd,
         "usdc_trading_free": round(usdc_trading_free, 2),
         "usdc_trading_frozen": round(usdc_trading_frozen, 2),
-        "usdc_simple_earn": round(usdc_simple_earn, 2),
         "mtm_unrealized": round(mtm_unrealized, 2),
         "active_orders_count": len(orders),
         "stats": stats,
@@ -192,8 +182,7 @@ NAV Attuale Live:         ${rep['current_nav']:.2f} USDC
 Profitto Netto Run v6.0:  {pnl_sign}${abs(rep['net_pnl_run']):.2f} USDC ({pct_sign}{rep['pct_run']:.2f}%)
 Regola Aurea Giornaliera: +0.70% <-> +5.00% (+${rep['daily_target_min_usd']:.2f} / +${rep['daily_target_max_usd']:.2f})
 
-Ripartizione Cassa:
-- Simple Earn (10% APR):  ${rep['usdc_simple_earn']:.2f} USDC
+Ripartizione Cassa (100% Active Spot):
 - Cassa Impegnata Dip:    ${rep['usdc_trading_frozen']:.2f} USDC
 - Cassa Liquida Libera:   ${rep['usdc_trading_free']:.2f} USDC
 

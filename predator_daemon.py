@@ -10,7 +10,7 @@ Combines:
    - Cost-Basis Floor Protection (`max(openAvgPx, accAvgPx) * 1.0022` minimum SELL price — zero loss sells)
    - Dynamic Profit-Lock Re-Pegging (tightens SELL TP to Best Ask when unrealized gain >= +180 bps)
    - 20% NAV Hard Inventory Cap per asset + Automated Cash Sweeper
-   - Full integration with OKX Simple Earn ($35.46 USDC @ 10% APR) & `config/okx_trader.db`
+   - Full integration with `config/okx_trader.db` (100% Active Spot Allocation)
 """
 from __future__ import annotations
 
@@ -60,7 +60,6 @@ RUN_START_ISO = "2026-10-22T19:00:00Z"
 RUN_START_TS_MS = 1792695600000
 GOLDEN_RULE_DAILY_MIN_PCT = 0.70
 GOLDEN_RULE_DAILY_MAX_PCT = 5.00
-SIMPLE_EARN_FALLBACK_USDC = 35.48
 
 
 def load_dotenv(env_path: str) -> Dict[str, str]:
@@ -166,22 +165,12 @@ def run_predator_cycle(
     open_orders = client.get_open_orders() if client.is_authenticated else []
     kronos_forecasts = kronos_client.fetch_forecasts(list(DEFAULT_UNIVERSE.keys()))
 
-    # Query Simple Earn USDC balance (fallback to confirmed $35.46 USDC)
-    simple_earn_usdc = SIMPLE_EARN_FALLBACK_USDC
-    if client.is_authenticated and not client.simulated_demo:
-        sav = client.get_savings_balances()
-        earn_sum = sum(float(s.get("amt") or 0.0) for s in sav if s.get("ccy") == "USDC")
-        if earn_sum > 0:
-            simple_earn_usdc = earn_sum
-    elif client.simulated_demo:
-        simple_earn_usdc = 0.0
-
-    spot_equity_usd = sum(float(b.get("eqUsd") or 0.0) for b in balances) if balances else 263.50
-    nav_usdc = spot_equity_usd + simple_earn_usdc
+    spot_equity_usd = sum(float(b.get("eqUsd") or 0.0) for b in balances) if balances else 300.36
+    nav_usdc = spot_equity_usd
     free_usdc = (
         sum(float(b.get("availBal") or 0.0) for b in balances if b.get("ccy") == "USDC")
         if balances
-        else 32.97
+        else 5.98
     )
 
     tracked_ccys = {m["coin"] for m in DEFAULT_UNIVERSE.values()} | {"USDC"}
@@ -784,7 +773,6 @@ def run_predator_cycle(
         "timestamp": now_iso,
         "nav_usdc": round(nav_usdc, 2),
         "spot_equity_usd": round(spot_equity_usd, 2),
-        "simple_earn_usdc": round(simple_earn_usdc, 2),
         "free_usdc": round(free_usdc, 2),
         "btc_lead_lag_bps": btc_lead_lag_bps,
         "ratchet_pool_usd": ratchet_pool_usd,
@@ -847,7 +835,7 @@ def main() -> None:
         print("=== TRE OS v7.0 SOVEREIGN PREDATOR (12-PAIR UNIVERSE + LOCAL KRONOS-MINI 4.1M + BTC RADAR) ===")
         print(
             f"Timestamp: {summary['timestamp']} | Mode: {'DRY_RUN_TEST' if args.dry_run else ('DEMO' if summary['simulated_demo'] else 'PRODUCTION_LIVE')} | "
-            f"Total NAV: ${summary['nav_usdc']:.2f} USDC (Spot: ${summary['spot_equity_usd']:.2f} + Simple Earn: ${summary['simple_earn_usdc']:.2f}) | "
+            f"Total NAV: ${summary['nav_usdc']:.2f} USDC (100% Active Spot) | "
             f"Free Cash: ${summary['free_usdc']:.2f} | BTC Lead-Lag: {summary['btc_lead_lag_bps']:+.2f}bps | Ratchet Pool: ${summary['ratchet_pool_usd']:.4f}"
         )
         print("-" * 124)

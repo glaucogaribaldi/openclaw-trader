@@ -76,8 +76,7 @@ def format_portfolio_view(rep):
     for h in rep["holdings"]:
         msg += f"{h['ccy']:<8} {h['qty']:<10.3f} ${h['eq_usd']:<10.2f} ${h.get('open_avg_px', 0.0):.4f}\n"
     msg += "="*46 + "\n"
-    msg += f"Baseline Run v6.0 (22/10): ${rep['baseline_nav']:.2f} USDC\n"
-    msg += f"Simple Earn (10% APR):     ${rep['usdc_simple_earn']:.2f} USDC\n"
+    msg += f"Baseline Run (22/10):      ${rep['baseline_nav']:.2f} USDC\n"
     msg += f"Cassa Impegnata Dip:       ${rep['usdc_trading_frozen']:.2f} USDC\n"
     msg += f"Cassa Libera:              ${rep['usdc_trading_free']:.2f} USDC\n"
     msg += "```"

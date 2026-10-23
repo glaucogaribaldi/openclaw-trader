@@ -35,7 +35,7 @@ Dati di input (Nuova Run v6.0 iniziata il 22/10/2026 21:00 CEST):
 - Cassa Liquida Disponibile: ${usdc_cash:.2f} USDC
 - Fills Realizzati nella Nuova Run: {total_fills}
 - Trappole Limit Attive in Book: {active_orders} (100% Post-Only Maker + Cost-Basis Floor openAvgPx + 22 bps)
-- Modelli v6.0: Kronos GPU Foundation Model + Cont-Stoikov OFI + VPIN Toxicity + Online RLS + OKX Simple Earn 10% Tracker.
+- Modelli v6.0: Kronos GPU Foundation Model + Cont-Stoikov OFI + VPIN Toxicity + Online RLS.
 
 Fornisci una sintesi di 3 frasi in italiano con la valutazione del rischio, il rispetto della Regola Aurea (+0.70% <-> +5.00% giornaliero) e il controllo di gestione."""
     

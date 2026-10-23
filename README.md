@@ -82,14 +82,6 @@ Il servizio `kronos-oracle.service` mantiene pre-calcolate in RAM le previsioni 
 
 ---
 
-## 💰 ATTIVAZIONE OKX SIMPLE EARN (10.0% APR SULLA RISERVA USDC)
-
-1. Vai su OKX Web (`my.okx.com`) ➔ Menu **Earn** ➔ **Simple Earn**.
-2. Cerca **USDC** e clicca su **Sottoscrivi (Flessibile / Flexible)**.
-3. Spunta *"Ho letto e accetto il Contratto Utente"*, clicca **Sottoscrivi** e attiva **"Sottoscrizione Automatica" (Auto-subscribe)**.
-
----
-
 ## 🚀 INSTALLAZIONE 1-CLICK DELL'INTERO SISTEMA
 
 ```bash

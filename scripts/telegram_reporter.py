@@ -27,10 +27,10 @@ def generate_report():
     env_vars = load_env_vars()
     api_key = env_vars.get("OPENROUTER_API_KEY", "")
     
-    narrative = "💡 *ANALISI DISCORSIVA DI MERCATO (TRE OS v6.0 Predator):*\n"
-    narrative += f"• **Regola Aurea Attiva:** Obiettivo di compounding organico giornaliero fissato tra **+0.70% e +5.00%** (+${rep['daily_target_min_usd']:.2f} <-> +${rep['daily_target_max_usd']:.2f} USDC/giorno) a partire dalla Baseline v6.0 del 22/10 ($298.89 USDC).\n"
-    narrative += f"• **Motore Predittivo Kronos GPU + OFI/VPIN:** {rep['active_orders_count']} trappole limit 100% Post-Only Maker presidiano gli 8 token High-Beta con Cost-Basis Floor attivo (`openAvgPx + 22 bps`, zero vendite in perdita).\n"
-    narrative += f"• **Sicurezza Capitale:** Rischio liquidazione 0.00% (Spot Cash) + ${rep['usdc_simple_earn']:.2f} USDC in Simple Earn al 10% APR."
+    narrative = "💡 *ANALISI DISCORSIVA DI MERCATO (TRE OS v7.0 Sovereign Predator):*\n"
+    narrative += f"• **Regola Aurea Attiva:** Obiettivo di compounding organico giornaliero fissato tra **+0.70% e +5.00%** (+${rep['daily_target_min_usd']:.2f} <-> +${rep['daily_target_max_usd']:.2f} USDC/giorno) a partire dalla Baseline del 22/10 ($298.89 USDC).\n"
+    narrative += f"• **Motore Predittivo Kronos-mini Locale + OFI/VPIN:** {rep['active_orders_count']} trappole limit 100% Post-Only Maker presidiano il paniere a 12 coppie con Cost-Basis Floor attivo (`openAvgPx + 22 bps`, zero vendite in perdita).\n"
+    narrative += f"• **100% Allocazione Spot Attiva:** Rischio liquidazione 0.00% (Spot Cash) e 100% della liquidità impiegata nelle trappole di Quick-Scalp."
 
     if api_key:
         try:
