@@ -300,16 +300,44 @@ def run_predator_cycle(
         btc_sig = micro_engine.process_snapshot("BTC-USDC", btc_bids, btc_asks, btc_trades)
         btc_lead_lag_bps = round(btc_sig.composite_alpha * 18.0, 2)
 
-    # 0B. Ratchet Capital Recycler Pool: 20% of cumulative realized Quick-Scalp profits can subsidize the closest legacy TP
+    # 0B. Ratchet Capital Recycler Pool, Darwinian Velocity Map & Golden Rule Intraday Defender
     ratchet_pool_usd = 0.0
+    velocity_turns_map: Dict[str, int] = {}
+    golden_harvest_mode = False
     try:
         cur_r = conn.cursor()
         cur_r.execute("SELECT SUM(realized_pnl_usd) FROM predator_fills_ledger WHERE fill_time >= ? AND side='sell'", (RUN_START_ISO,))
         tot_realized_run = float((cur_r.fetchone() or (0.0,))[0] or 0.0)
         if tot_realized_run >= 0.50:
             ratchet_pool_usd = round(tot_realized_run * 0.20, 4)
+
+        # Darwinian Velocity Bonus: count closed profitable Quick-Scalps per instrument in the last 24h
+        cur_r.execute(
+            """
+            SELECT inst_id, COUNT(*)
+            FROM fresh_scalp_tranches
+            WHERE status='CLOSED_PROFIT' AND datetime(created_at) >= datetime('now', '-24 hours')
+            GROUP BY inst_id
+            """
+        )
+        for v_inst, v_cnt in cur_r.fetchall():
+            velocity_turns_map[str(v_inst)] = int(v_cnt or 0)
+
+        # Golden Rule Intraday Profit Defender: check if NAV rose >= +2.00% over 24h ago (or baseline)
+        cur_r.execute(
+            "SELECT current_nav_usd FROM predator_audit_history WHERE datetime(timestamp) <= datetime('now', '-20 hours') ORDER BY id DESC LIMIT 1"
+        )
+        row_nav_24h = cur_r.fetchone()
+        ref_nav_24h = float(row_nav_24h[0]) if row_nav_24h and float(row_nav_24h[0] or 0) > 0 else BASELINE_NAV_USDC
+        if nav_usdc >= ref_nav_24h * 1.020:
+            golden_harvest_mode = True
     except Exception:
         ratchet_pool_usd = 0.0
+
+    # Dynamic Compounding Cap (5.8% of current NAV; scales automatically as portfolio grows through Dec 31!)
+    dynamic_qs_cap_usd = round(max(17.50, nav_usdc * 0.058), 2)
+    quick_lock_trigger_bps = 20.0 if golden_harvest_mode else 28.0
+    quick_lock_floor_mult = 1.0018 if golden_harvest_mode else 1.0024
 
     # 1. Scan all 12 instruments in universe using prefetched parallel market snapshots
     for inst_id, meta in DEFAULT_UNIVERSE.items():
@@ -449,16 +477,16 @@ def run_predator_cycle(
                     active_ord_id = ord_id
                     active_ord_px = ord_px
                     active_ord_sz = ord_sz
-                    # Handle independent Fresh Tranche Quick-Scalp TP orders (Dynamic Profit-Lock at +28 bps!)
+                    # Handle independent Fresh Tranche Quick-Scalp TP orders (Dynamic Profit-Lock at +28 bps, or +20 bps in Golden Harvest Mode!)
                     if ord_id in active_tranche_ord_ids:
                         for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st in active_tranches_by_inst.get(inst_id, []):
                             if tr_oid == ord_id and tr_buy_px > 0:
                                 tr_unr_bps = ((sig.mid_price - tr_buy_px) / tr_buy_px) * 10000.0
-                                if tr_unr_bps >= 28.0 and drift_bps > 6.0 and pred.predicted_return_bps < 4.0:
+                                if tr_unr_bps >= quick_lock_trigger_bps and drift_bps > 5.0 and pred.predicted_return_bps < 4.0:
                                     client.cancel_order(inst_id, ord_id)
                                     profit_lock_repegs += 1
-                                    repeg_px = round(max(tr_buy_px * 1.0024, asks[0][0]), dec_px)
-                                    repeg_sz = math.floor(min(cash_token_qty, tr_buy_sz * 0.998) * (10 ** dec_sz)) / (10 ** dec_sz)
+                                    repeg_px = round(max(tr_buy_px * quick_lock_floor_mult, asks[0][0]), dec_px)
+                                    repeg_sz = math.floor(min(cash_token_qty, tr_buy_sz * 0.998 + avail_token_qty) * (10 ** dec_sz)) / (10 ** dec_sz)
                                     res_rp = client.place_spot_order(inst_id, "sell", repeg_sz, repeg_px, "PASSIVE_MAKER")
                                     new_rp_id = ""
                                     if isinstance(res_rp.get("data"), list) and res_rp["data"]:
@@ -528,11 +556,16 @@ def run_predator_cycle(
             except Exception:
                 pass
 
-        # 2B. Independent Fresh Tranche Quick-Scalp TP Placement!
-        # Places an immediate +35 bps to +55 bps Post-Only Maker TP for newly bought tranches without waiting for legacy openAvgPx!
+        # 2B. Independent Fresh Tranche Quick-Scalp TP Placement + Auto-Dust Sweeper!
+        # Sweeps any fractional base-currency fee dust (< $3.50) into the newly placed Quick-Scalp TP order so zero dust is stranded!
         for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st in active_tranches_by_inst.get(inst_id, []):
             if tr_st == "PENDING_TP" and avail_token_qty > 0:
-                scalp_sz = math.floor(min(avail_token_qty, tr_buy_sz * 0.998) * (10 ** dec_sz)) / (10 ** dec_sz)
+                extra_dust_qty = avail_token_qty - tr_buy_sz
+                if 0.0 < extra_dust_qty * sig.mid_price <= 3.50:
+                    target_tr_qty = avail_token_qty
+                else:
+                    target_tr_qty = min(avail_token_qty, tr_buy_sz * 0.999)
+                scalp_sz = math.floor(target_tr_qty * (10 ** dec_sz)) / (10 ** dec_sz)
                 if scalp_sz * sig.mid_price >= 4.90:
                     quick_tp_bps = max(35.0, min(65.0, pred.recommended_sell_tp_bps))
                     quick_tp_px = round(max(tr_buy_px * (1.0 + quick_tp_bps / 10000.0), asks[0][0]), dec_px)
@@ -613,13 +646,24 @@ def run_predator_cycle(
                 })
 
         # 3B. Collect candidate for Opportunity-Ranked Cash Sweeper (evaluated after scanning all 12 pairs!)
-        # Skip `harvest_only` pairs (SEI, FET) so freed cash rotates into ultra-liquid pairs (HYPE, ZEC, SUI, SOL, NEAR, UNI, XRP)!
+        # Skip `harvest_only` pairs (SEI, FET) and enforce Dynamic % NAV Anti-Stacking Cap (`dynamic_qs_cap_usd` = 5.8% NAV)!
         active_qs_usd = sum(tr[1] * tr[2] for tr in active_tranches_by_inst.get(inst_id, []))
-        if not harvest_only and not has_buy_order and inv_weight < 0.20 and active_qs_usd < 16.0 and btc_lead_lag_bps > -14.0:
+        vel_turns = velocity_turns_map.get(inst_id, 0)
+        vel_bonus = min(10.0, vel_turns * 2.5)  # Darwinian Velocity Multiplier (+2.5 pts per closed Quick-Scalp in 24h)
+        max_vpin_allowed = 0.55 if golden_harvest_mode else 0.99
+        if (
+            not harvest_only
+            and not has_buy_order
+            and inv_weight < 0.20
+            and active_qs_usd < (dynamic_qs_cap_usd * 0.92)
+            and btc_lead_lag_bps > -14.0
+            and sig.vpin_toxicity <= max_vpin_allowed
+        ):
             opp_score = (
                 pred.predicted_return_bps
                 + (sig.composite_alpha * 15.0)
                 + liq_bonus
+                + vel_bonus
                 + (4.0 if k_aligned and k_ret_bps > 0 else 0.0)
                 - (sig.vpin_toxicity * 20.0)
                 - (inv_weight * 50.0)
@@ -650,11 +694,11 @@ def run_predator_cycle(
             c_inst = cand["inst_id"]
             c_dec_px = cand["dec_px"]
             c_dec_sz = cand["dec_sz"]
-            base_lot_usd = (spot_equity_usd * 0.85) / len(DEFAULT_UNIVERSE)
+            base_lot_usd = (spot_equity_usd * 0.85) / 10.0
             conv_boost = 1.0 + max(-0.25, min(0.45, cand["llm_bias"] * 0.4))
             alpha_boost = 1.0 + max(-0.15, min(0.15, cand["pred_bps"] / 100.0))
-            # Cap single Quick-Scalp buy order at $17.50 USDC so ~$33 USDC always splits across at least 2 distinct pairs!
-            lot_usd = min(free_usdc * 0.98, 17.50, max(10.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
+            # Dynamic Compounding Lot Cap (`dynamic_qs_cap_usd` = 5.8% of current NAV, scaling up automatically through Dec 31!)
+            lot_usd = min(free_usdc * 0.98, dynamic_qs_cap_usd, max(10.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
 
             target_buy_px = round(cand["mid_price"] * (1.0 - cand["buy_offset_bps"] / 10000.0), c_dec_px)
             if target_buy_px >= cand["best_ask"]:
