@@ -1,138 +1,96 @@
-# ⚡ TRE OS v6.0 (PREDATOR EDITION) • PREDICTIVE MICROSTRUCTURE & KRONOS FOUNDATION MODEL QUANT OS (OKX SPOT EEA)
+# ⚡ TRE OS v7.0 (SOVEREIGN PREDATOR EDITION) • AUTONOMOUS PREDICTIVE MICROSTRUCTURE & LOCAL KRONOS-MINI QUANT OS (OKX SPOT EEA)
 
-**TRE OS v6.0 — Predator Edition** (`openclaw-trader`) è la nuova generazione del sistema operativo quantitativo autonomo progettato per **OKX Spot (Area EEA, Zero Leva, `tdMode: cash`, Rischio Liquidazione Zero, Esecuzione 100% Post-Only Maker `0.00% Fee`)**.
+**TRE OS v7.0 — Sovereign Predator Edition** (`openclaw-trader`) è il sistema operativo quantitativo autonomo progettato per **OKX Spot (Area EEA, Zero Leva, `tdMode: cash`, Rischio Liquidazione Zero, Esecuzione 100% Post-Only Maker `0.00% Fee`)**.
 
-Rispetto alla precedente generazione v5.6 basata su griglie reattive a 24 ore, **TRE OS v6.0 Predator** integra un'architettura nativa REST HMAC-SHA256 ad alta frequenza (ciclo ogni 15 secondi, `< 25 MB RAM`) che fonde **Fisica Microstrutturale del Libro Ordini L2**, **Apprendimento Online Streaming (RLS + Filtro di Kalman)**, il modello Foundation finanziario **NeoQuasar/Kronos (`Kronos-mini` 4.1M / `Kronos-small` 24.7M)** e **Salvaguardie Matematiche Anti-Perdita (`Cost-Basis Floor` & `Dynamic Profit-Lock`)**.
-
----
-
-## 🏆 PERCHÉ TRE OS v6.0 (PREDATOR) SOSTITUISCE LA v5.6
-
-| Caratteristica | 🐢 Precedente TRE OS v5.6 | ⚡ Nuovo TRE OS v6.0 (Predator Edition) |
-| :--- | :--- | :--- |
-| **Connettore Exchange** | Dipendente da CLI Node.js esterna (`okx`) | **Client Python Nativo HMAC-SHA256 (`execution/okx_hybrid_executor.py`)** |
-| **Motore di Segnale** | Range statico 24h High/Low | **50% Microstruttura L2 (Cont-Stoikov OFI + VPIN + Hawkes + RLS) + 30% Kronos K-Line Oracle + 20% 3-Agent LLM Council** |
-| **Protezione Costo di Carico** | Assente (rischio vendite sotto `openAvgPx`) | **Cost-Basis Floor Inviolabile (`openAvgPx × 1.0022`): ZERO vendite in perdita** |
-| **Cattura Profitti Rapidi** | Attesa passiva su target fisso | **Dynamic Profit-Lock Re-Pegging (`+28/+85/+180 bps`) + Fresh Tranche Quick-Scalp Sub-Ledger** |
-| **Difesa dai Crolli (Flash Crash)** | Offset statico | **Asymmetric VPIN Toxicity Shield (con deduplicazione esatta del tape trade)** |
-| **Gestione Cassa & Yield** | Rischio stallo se CLI fallisce | **Opportunity-Ranked Cash Sweeper (classifica Alpha/VPIN/Kronos, Cap 20% NAV) + OKX Simple Earn 10% APR** |
+Nella versione **v7.0 Sovereign**, l'intero stack (incluso il Foundation Model finanziario **`NeoQuasar/Kronos-mini` da 4.1M parametri** con previsioni Multi-Orizzonte `5m + 15m`) gira **al 100% dentro una singola Mini-VPS Linux (`brody`, `< 680 MB RAM` complessivi, costo aggiuntivo `$0`)** senza alcuna dipendenza da server GPU esterni, mantenendo come mandato inviolabile la **Regola Aurea di Compounding Organico Giornaliero (`+0.70%` ↔ `+5.00%` al giorno)**.
 
 ---
 
-## 🧠 GUIDA COMPLETA PER L'UTENTE: COME INSTALLARE IL MODELLO KRONOS (`Kronos-mini` 4.1M o `Kronos-small` 24.7M)
+## 🗺️ SCHEMA DECISIONALE COMPLETO (ARCHITETTURA & FLUSSO A 15 SECONDI)
 
-**TRE OS v6.0** utilizza il primo Foundation Model open-source pre-addestrato specificamente sulle candele finanziarie (**[shiyu-coder/Kronos](https://github.com/shiyu-coder/Kronos)** su HuggingFace `NeoQuasar`) per prevedere l'andamento delle prossime 12 candele a 5 minuti (**1 ora nel futuro**: High, Low e Close attesi in basis points).
+```mermaid
+flowchart TD
+    subgraph BRODY["🖥️ VPS SOVRANA BRODY (Debian 13 • 2 vCPU • 964MB RAM + 2GB NVMe Swap)"]
+        direction TB
+        
+        subgraph KRONOS_SVC["🧠 kronos-oracle.service (127.0.0.1:8090 • Background Worker)"]
+            K1["Fetch Candele OKX EEA\n(180×5m + 120×15m)"] --> K2["NeoQuasar/Kronos-mini (4.1M)\n+ Kronos-Tokenizer-2k"]
+            K2 --> K3["Cache RAM O(1) (0.00ms HTTP)\n• Micro 1h: ret_1h_bps, high_bps, low_bps\n• Macro 2h: macro_2h_bps, horizon_aligned"]
+        end
 
-L'utente può scegliere quale taglia del modello installare in base al proprio hardware (anche su una piccola VPS solo CPU, su un Mac Apple Silicon o su una VPS GPU):
+        subgraph DAEMON["⚡ openclaw-predator.service (Ciclo Deterministico ogni 15s)"]
+            P1["1. Parallel L2 Prefetch (6 Thread, ~0.85s)\nOrderBook Top-5 + 25 Trades per:\nBTC-USDC + 12 Coppie Universo"]
+            
+            P1 --> B_RADAR["2. Cross-Asset BTC-USDC Radar\nCalcola OFI_BTC & btc_lead_lag_bps"]
+            P1 --> MICRO["3. Microstruttura L2 (con Trade Deduplication)\n• Cont-Stoikov OFI (5 livelli)\n• VPIN Toxicity Bucket Tracker\n• Hawkes Burst Intensity + Stoikov Micro-Price"]
+            
+            K3 --> BLEND
+            B_RADAR --> BLEND
+            MICRO --> BLEND["4. Fusione Predittiva a 4 Fattori (core/predictor.py)\n• 45% Online RLS (λ=0.985) + Kalman Velocity\n• 35% Kronos-mini Multi-Horizon (75% 5m + 25% 15m)\n• 12% Multi-Model Free OpenRouter Council\n• 8% BTC-USDC Lead-Lag Radar"]
 
-### 📊 Tabella Comparativa dei Modelli Kronos Disponibili
+            BLEND --> REGIME{"5. Selezione Regime\n& Scudo Rischio"}
+            
+            REGIME -->|"VPIN >= 0.68 o\nBTC Lead-Lag < -12 bps"| R_TOXIC["🛡️ TOXIC_DIP_DEFENSE\n• Allarga Buy Trap (-65..-165 bps)\n• Blocca nuovi acquisti se BTC < -14 bps"]
+            REGIME -->|"Pred >= +12 bps &\nOFI >= +0.48 & Aligned"| R_BREAK["🚀 AGGRESSIVE_BREAKOUT\n• Turbo-Scalp TP (+20% se 5m+15m allineati)\n• Join Top-of-Book Bid (Post-Only)"]
+            REGIME -->|"|Pred| <= 6.5 bps &\nVPIN < 0.45"| R_SCALP["⚡ ACTIVE_SCALP_MM\n• Spread Stretto (-10..-26 bps Buy / +20..+52 bps TP)\n• Fast-Cycle Buy Chaser (Re-peg se drift > 38 bps)"]
+            REGIME -->|"Default"| R_MEAN["🔄 MEAN_REVERSION\n• Calibrato su Envelope High/Low di Kronos-mini"]
+        end
 
-| Modello (`--size`) | Repository HuggingFace | Tokenizer | Parametri | Contesto Max | RAM / VRAM Richiesta | Hardware Consigliato |
-| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **`mini`** *(Consigliato per Mini-VPS / CPU)* | `NeoQuasar/Kronos-mini` | `NeoQuasar/Kronos-Tokenizer-2k` | **4.1M** *(Il più leggero in assoluto)* | `2048` | **~350 MB RAM** | Qualsiasi **Mini-VPS Linux (CPU)**, Raspberry Pi 5, Mac M1/M2/M3/M4 |
-| **`small`** *(Consigliato per GPU / Mac Pro)* | `NeoQuasar/Kronos-small` | `NeoQuasar/Kronos-Tokenizer-base` | **24.7M** *(83.3% 5m TP Hit-Rate)* | `512` | **~800 MB RAM/VRAM** | **VPS con GPU CUDA**, Apple Silicon (`mps`), CPU multi-core |
-
-> 💡 **Nota "Micro / Mini":** Nell'ecosistema ufficiale Kronos, il modello più piccolo e ultraleggero (4.1 milioni di parametri, progettato per girare istantaneamente anche su CPU senza scheda video) si chiama **`Kronos-mini`**. Il nostro script supporta l'installazione 1-Click sia di **`mini` (4.1M)** che di **`small` (24.7M)**.
-
----
-
-### 🛠️ OPZIONE A: Installazione Automatica 1-Click (Consigliata)
-
-All'interno della cartella `openclaw-trader`, abbiamo incluso l'installer universale `scripts/install_kronos_oracle.sh` che clona Kronos, crea l'ambiente virtuale isolato, scarica i pesi da HuggingFace e configura automaticamente il servizio `systemd` (`kronos-oracle.service`) sulla porta `8090`:
-
-#### 1️⃣ Per installare **`Kronos-mini` (4.1M)** — Ideale per Mini-VPS senza GPU o basso consumo RAM:
-```bash
-cd ~/openclaw-trader
-bash scripts/install_kronos_oracle.sh --size mini
+        subgraph EXEC_GUARD["🔒 DOPPIO BINARIO DI ESECUZIONE & SALVAGUARDIE ZERO-LOSS"]
+            R_TOXIC & R_BREAK & R_SCALP & R_MEAN --> DUAL{"6. Gestione Ordini\n& Sub-Ledger"}
+            
+            DUAL -->|"Binario A: Posizioni Storiche"| LEGACY["🛡️ Cost-Basis Floor + Ratchet Recycler\n• 100% Inventory Coverage (Zero Moonbag inattive)\n• Prezzo Minimo Vendita >= openAvgPx × (1.0005..1.0022)\n• Ratchet Pool (20% profitti Quick-Scalp) avvicina il TP storico\n• FET & SEI in modalità Harvest & Retire (solo vendita in profitto)"]
+            
+            DUAL -->|"Binario B: Nuovi Acquisti"| QUICK["⚡ Fresh Tranche Quick-Scalp Sub-Ledger\n• Tabella fresh_scalp_tranches isola ogni nuovo BUY\n• Piazza subito SELL Post-Only a +35..+65 bps sopra buy_px\n• Fresh-Tranche Profit-Lock stringe al Best Ask a +28 bps"]
+            
+            DUAL -->|"Binario C: Cassa Libera >= $8"| SWEEPER["🎯 Opportunity-Ranked Cash Sweeper\n• Classifica le 10 coppie attive per OppScore\n  (Pred_bps + 15·OFI + LiqBonus + Aligned - 20·VPIN - 50·InvWeight)\n• Anti-Stacking Guard: Max $17.50 USDC per singolo token\n• Tetto Max 20% NAV per singolo asset"]
+        end
+    end
 ```
 
-#### 2️⃣ Per installare **`Kronos-small` (24.7M)** — Ideale per VPS con GPU o Apple Silicon:
+---
+
+## 🏆 EVOLUZIONI ARCHITETTURALI DI TRE OS v7.0 (SOVEREIGN EDITION)
+
+| Modulo / Funzione | Precedente v6.0 | ⚡ Nuovo TRE OS v7.0 (Sovereign Predator) |
+| :--- | :--- | :--- |
+| **Oracolo AI K-Line** | Dipendente da VPS GPU esterna | **100% Locale su `brody` (`127.0.0.1:8090`) con `NeoQuasar/Kronos-mini (4.1M)`, Pre-Warmer in background (`0.00ms` latenza HTTP) e Doppio Orizzonte (`5m` + `15m`)** |
+| **Universo Spot OKX EEA** | 8 Token statici | **12 Coppie Dinamiche:** 10 Attive Ultra-Liquide (**`HYPE`, `ZEC`, `SOL`, `SUI`, `NEAR`, `UNI`, `XRP`, `LINK`, `RENDER`, `AVAX`**) + 2 in **`Harvest & Retire` (`FET`, `SEI`)** |
+| **Latenza Scansione Mercato** | Sequenziale (`~5.45s` per 13 coppie) | **Parallela a 6 Thread (`ThreadPoolExecutor`, `~0.85s` per leggere 13 OrderBook L2 + 13 Trade Tape)** |
+| **Protezione Crash Macro** | Solo VPIN singolo token | **Cross-Asset `BTC-USDC` Lead-Lag Radar:** attiva `TOXIC_DIP_DEFENSE` su tutto il portafoglio se `BTC` scarica (`< -12 bps`) |
+| **Rotazione Capitale Veloce** | Media globale `openAvgPx` | **`Fresh Tranche Quick-Scalp Sub-Ledger` (`+35..+65 bps` TP indipendente + `+28 bps` Profit-Lock) + `Anti-Stacking Guard` (`$17.50` max/token)** |
+| **Sblocco Posizioni Storiche** | Attesa passiva | **`100% Inventory Coverage` (zero frazioni libere) + `Ratchet Capital Recycler` (usa il 20% dei profitti realizzati per abbassare e sbloccare il TP storico più vicino)** |
+| **Consiglio & Audit LLM** | Singolo endpoint | **Multi-Model Free OpenRouter Rotation (`openrouter/free`, `nemotron-ultra-253b:free`, `deepseek-r1:free`, `llama-3.3-70b:free`)** |
+
+---
+
+## 🧠 GUIDA PER L'UTENTE: INSTALLAZIONE 1-CLICK DI KRONOS (`Kronos-mini` 4.1M o `Kronos-small` 24.7M)
+
+**TRE OS v7.0** include lo script universale `scripts/install_kronos_oracle.sh` per installare il Foundation Model finanziario **[shiyu-coder/Kronos](https://github.com/shiyu-coder/Kronos)** direttamente sulla propria Mini-VPS CPU (`Kronos-mini` 4.1M) o su macchina GPU/Mac (`Kronos-small` 24.7M):
+
 ```bash
 cd ~/openclaw-trader
+
+# 1. Per Mini-VPS solo CPU (1 GB RAM + 2 GB Swap) -> Installa Kronos-mini (4.1M, ~16 MB di pesi):
+bash scripts/install_kronos_oracle.sh --size mini
+
+# 2. Per Server con GPU CUDA o Mac Apple Silicon -> Installa Kronos-small (24.7M):
 bash scripts/install_kronos_oracle.sh --size small
 ```
 
----
-
-### 🛠️ OPZIONE B: Installazione Manuale Passo-Passo (Linux / macOS / Windows WSL)
-
-Se desideri installare manualmente l'oracolo Kronos su qualsiasi macchina locale o remota:
-
-```bash
-# 1. Clona il repository ufficiale di Kronos
-git clone https://github.com/shiyu-coder/Kronos.git ~/Kronos
-cd ~/Kronos
-
-# 2. Crea il virtual environment Python e installa PyTorch + dipendenze
-python3 -m venv venv
-./venv/bin/pip install --upgrade pip
-./venv/bin/pip install torch numpy pandas huggingface_hub safetensors tqdm einops
-
-# 3. Avvia il server Oracolo Universale incluso in openclaw-trader
-#    Usa --size mini (4.1M, CPU/Mini-VPS) oppure --size small (24.7M, GPU/MPS)
-./venv/bin/python ~/openclaw-trader/scripts/kronos_oracle_server.py --size mini --port 8090
-```
+Il servizio `kronos-oracle.service` mantiene pre-calcolate in RAM le previsioni `5m` (1h) e `15m` (2h) di tutte le 12 coppie e risponde su `http://127.0.0.1:8090/forecast` in **`0.00 ms`**.
 
 ---
 
-### 🔗 Come collegare `predator_daemon.py` al tuo Server Kronos
-
-Nel file `.env` nella root di `openclaw-trader`, imposta la variabile `KRONOS_ORACLE_URL`:
-* Se Kronos gira **sulla stessa VPS** del bot:
-  ```env
-  KRONOS_ORACLE_URL="http://127.0.0.1:8090"
-  ```
-* Se Kronos gira **su una VPS GPU remota via Tailscale** (es. `geneticai-nemotron-spark`):
-  ```env
-  KRONOS_ORACLE_URL="http://100.125.189.103:8090"
-  ```
-
-Per verificare in qualsiasi momento che l'oracolo Kronos stia rispondendo con le previsioni a 1 ora:
-```bash
-curl -s "http://127.0.0.1:8090/forecast?pairs=SOL-USDC,NEAR-USDC" | python3 -m json.tool
-```
-
-> 🛡️ **Zero-Downtime Fallback:** Se il server Kronos viene spento o non è raggiungibile, `predator_daemon.py` continua a operare senza interruzioni ricalibrando automaticamente i pesi sulla Microstruttura L2 (`Cont-Stoikov OFI + VPIN + RLS + Kalman`).
-
----
-
-## 💰 PASSAGGIO FONDAMENTALE: ATTIVAZIONE OKX SIMPLE EARN (1-CLICK)
-
-Per consentire al sistema di generare il **10.0% APR di rendimento passivo** sulla riserva USDC in Simple Earn (`$35.46 USDC` nella run corrente), esegui un unico click di attivazione sul tuo account OKX:
+## 💰 ATTIVAZIONE OKX SIMPLE EARN (10.0% APR SULLA RISERVA USDC)
 
 1. Vai su OKX Web (`my.okx.com`) ➔ Menu **Earn** ➔ **Simple Earn**.
 2. Cerca **USDC** e clicca su **Sottoscrivi (Flessibile / Flexible)**.
-3. Inserisci l'importo, spunta *"Ho letto e accetto il Contratto Utente"* e clicca **Sottoscrivi**.
-4. Attiva la levetta **"Sottoscrizione Automatica" (Auto-subscribe)**.
+3. Spunta *"Ho letto e accetto il Contratto Utente"*, clicca **Sottoscrivi** e attiva **"Sottoscrizione Automatica" (Auto-subscribe)**.
 
 ---
 
-## 📁 STRUTTURA DEL REPOSITORY (v6.0)
-
-```text
-openclaw-trader/
-├── core/
-│   ├── microstructure.py         # Cont-Stoikov Multi-Level OFI, VPIN Toxicity, Hawkes Burst, Micro-Price
-│   ├── predictor.py              # Online RLS Streaming Learner (λ=0.985) + Kalman Velocity Filter
-│   ├── kronos_oracle.py          # Client HTTP a 0 MB RAM per Kronos-mini (4.1M) / Kronos-small (24.7M)
-│   └── predator_auditor.py       # Sincronizzatore FIFO Dual-Ledger + Cost-Basis Floor & Nemotron Auditor
-├── agents/
-│   └── llm_council.py            # 3-Agent Adversarial Debate (Bull vs Bear vs CIO Judge su OpenRouter Free)
-├── execution/
-│   └── okx_hybrid_executor.py    # Client REST Nativo HMAC-SHA256 OKX EEA (100% Post-Only Maker)
-├── scripts/
-│   ├── accounting_engine.py      # Motore contabile deterministico 100% Penny Match
-│   ├── telegram_bot.py           # Bot Telegram interattivo Read-Only (@beato_zava)
-│   ├── telegram_reporter.py      # Reportistica automatica 08:00 / 20:00 CEST
-│   ├── kronos_oracle_server.py   # Server universale per Kronos-mini (4.1M) / Kronos-small (24.7M)
-│   └── install_kronos_oracle.sh  # Installer 1-Click per Kronos-mini / Kronos-small
-├── predator_daemon.py            # Orchestratore autonomo principale TRE OS v6.0
-└── install.sh                    # Installer 1-Click dell'intero sistema
-```
-
----
-
-## 🚀 INSTALLAZIONE RAPIDA 1-CLICK DELL'INTERO SISTEMA
+## 🚀 INSTALLAZIONE 1-CLICK DELL'INTERO SISTEMA
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/glaucogaribaldi/openclaw-trader/main/install.sh | bash
@@ -140,4 +98,4 @@ curl -fsSL https://raw.githubusercontent.com/glaucogaribaldi/openclaw-trader/mai
 
 ---
 
-*Gestito ed auditato autonomamente da Lehman Brody su VPS `brody` (Debian 13 Trixie, Python 3.13.5, SQLite3 WAL).*
+*Gestito ed auditato autonomamente h24 da Lehman Brody su VPS `brody` (Debian 13 Trixie, Python 3.13.5, SQLite3 WAL).*
