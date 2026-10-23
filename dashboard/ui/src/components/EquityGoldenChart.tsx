@@ -16,20 +16,48 @@ export const EquityGoldenChart: React.FC<EquityGoldenChartProps> = ({
   v7Baseline,
   currentNav,
 }) => {
-  const [range, setRange] = useState<'ALL' | 'V7_RUN' | 'LIVE_15S'>('V7_RUN');
+  const [range, setRange] = useState<'24H' | '1W' | '1M' | '1Y' | 'YTD'>('24H');
   const [showGoldenCone, setShowGoldenCone] = useState<boolean>(true);
   const [activeSubTab, setActiveSubTab] = useState<'EQUITY_CURVE' | 'DAILY_ATTRIBUTION'>('EQUITY_CURVE');
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const filteredPoints = useMemo(() => {
-    if (range === 'V7_RUN') {
-      return history.slice(Math.max(0, history.length - 6));
+    if (!history || history.length === 0) return [];
+    const lastPt = history[history.length - 1];
+    const nowMs = Date.parse(lastPt.timestamp) || Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    if (range === '24H') {
+      // Show points from the last 26 hours (includes 22/10 21:00 CEST v7 Sovereign Cutover + all intraday points)
+      const pts24 = history.filter((pt) => {
+        const t = Date.parse(pt.timestamp);
+        return !Number.isNaN(t) && nowMs - t <= 28 * 3600 * 1000;
+      });
+      return pts24.length >= 2 ? pts24 : history.slice(Math.max(0, history.length - 12));
     }
-    if (range === 'LIVE_15S') {
-      return history.slice(Math.max(0, history.length - 4));
+    if (range === '1W') {
+      const pts1w = history.filter((pt) => {
+        const t = Date.parse(pt.timestamp);
+        return !Number.isNaN(t) && nowMs - t <= 7.5 * dayMs;
+      });
+      return pts1w.length >= 2 ? pts1w : history;
     }
+    if (range === '1M') {
+      const pts1m = history.filter((pt) => {
+        const t = Date.parse(pt.timestamp);
+        return !Number.isNaN(t) && nowMs - t <= 31 * dayMs;
+      });
+      return pts1m.length >= 2 ? pts1m : history;
+    }
+    // 1Y and YTD show full history since Genesis ($253.01 on 11/10/2026) through today
     return history;
   }, [history, range]);
+
+  const periodBaseline = useMemo(() => {
+    if (range === '24H') return v7Baseline;
+    if (filteredPoints.length > 0) return filteredPoints[0].nav_usdc;
+    return genesisBaseline;
+  }, [range, filteredPoints, v7Baseline, genesisBaseline]);
 
   const activePoint =
     hoveredIdx !== null && filteredPoints[hoveredIdx]
@@ -144,21 +172,29 @@ export const EquityGoldenChart: React.FC<EquityGoldenChartProps> = ({
           {activeSubTab === 'EQUITY_CURVE' && (
             <>
               <div className="flex items-center bg-[#07080A] border border-[#1E2530] p-0.5">
-                {(['ALL', 'V7_RUN', 'LIVE_15S'] as const).map((r) => (
+                {(
+                  [
+                    { id: '24H', label: '24h' },
+                    { id: '1W', label: '1 Sett' },
+                    { id: '1M', label: '1 Mese' },
+                    { id: '1Y', label: '1Y' },
+                    { id: 'YTD', label: 'YTD' },
+                  ] as const
+                ).map((r) => (
                   <button
-                    key={r}
+                    key={r.id}
                     type="button"
                     onClick={() => {
-                      setRange(r);
+                      setRange(r.id);
                       setHoveredIdx(null);
                     }}
                     className={`px-2.5 py-1.5 text-xs font-mono transition-colors whitespace-nowrap shrink-0 min-h-[36px] ${
-                      range === r
+                      range === r.id
                         ? 'bg-[#1E2530] text-[#FCD34D] font-semibold'
                         : 'text-[#8A94A6] hover:text-[#E6E8EC]'
                     }`}
                   >
-                    {r === 'ALL' ? 'Genesis ($253)' : r === 'V7_RUN' ? 'v7 Sovereign ($298.89)' : 'Intraday 15s'}
+                    {r.label}
                   </button>
                 ))}
               </div>
@@ -191,11 +227,14 @@ export const EquityGoldenChart: React.FC<EquityGoldenChartProps> = ({
             <span className="text-[#10B981] font-semibold text-sm">${activePoint.nav_usdc.toFixed(2)} USDC</span>
           </div>
           <div>
-            <span className="text-[#8A94A6] block">PNL NUOVA RUN (DA $298.89)</span>
+            <span className="text-[#8A94A6] block">
+              PNL PERIODO ({range === '24H' ? 'DA $298.89' : `DA $${periodBaseline.toFixed(2)}`})
+            </span>
             <span className="text-[#10B981] font-semibold">
-              {activePoint.nav_usdc - v7Baseline >= 0 ? '+' : ''}${(activePoint.nav_usdc - v7Baseline).toFixed(2)} (
-              {activePoint.nav_usdc - v7Baseline >= 0 ? '+' : ''}
-              {(((activePoint.nav_usdc - v7Baseline) / v7Baseline) * 100).toFixed(2)}%)
+              {activePoint.nav_usdc - periodBaseline >= 0 ? '+' : ''}$
+              {(activePoint.nav_usdc - periodBaseline).toFixed(2)} (
+              {activePoint.nav_usdc - periodBaseline >= 0 ? '+' : ''}
+              {(((activePoint.nav_usdc - periodBaseline) / Math.max(periodBaseline, 1)) * 100).toFixed(2)}%)
             </span>
           </div>
           <div>
