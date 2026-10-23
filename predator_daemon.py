@@ -387,36 +387,72 @@ def run_predator_cycle(
         # Calculate Cost-Basis Floor (+22 bps minimum net profit over openAvgPx, with Ratchet discount if within 3.5% of breakeven!)
         raw_floor_mult = 1.0022
         unrealized_bps = ((sig.mid_price - open_avg_px) / open_avg_px * 10000.0) if open_avg_px > 0 else 0.0
+        ratchet_sub_applied = 0.0
         if ratchet_pool_usd > 0.05 and -350.0 <= unrealized_bps < 0.0 and token_eq > 5.0:
             # Ratchet subsidy reduces required floor slightly (down to 1.0005) using already-banked Quick-Scalp profits
             ratchet_bps_relief = min(17.0, (ratchet_pool_usd / token_eq) * 10000.0)
             raw_floor_mult = max(1.0005, 1.0022 - (ratchet_bps_relief / 10000.0))
+            ratchet_sub_applied = round(ratchet_pool_usd, 4)
         cost_floor_px = round(open_avg_px * raw_floor_mult, dec_px) if open_avg_px > 0 else 0.0
+
+        active_qs_usd = sum(tr[1] * tr[2] for tr in active_tranches_by_inst.get(inst_id, []))
+        vel_turns = velocity_turns_map.get(inst_id, 0)
+        vel_bonus = min(10.0, vel_turns * 2.5)
+        calc_opp_score = round(
+            pred.predicted_return_bps
+            + (sig.composite_alpha * 15.0)
+            + liq_bonus
+            + vel_bonus
+            + (4.0 if k_aligned and k_ret_bps > 0 else 0.0)
+            - (sig.vpin_toxicity * 20.0)
+            - (inv_weight * 50.0),
+            2,
+        )
 
         row_dict = {
             "inst_id": inst_id,
+            "symbol": coin,
+            "universe_mode": "HARVEST_RETIRE" if harvest_only else "ACTIVE_ULTRA_LIQUID",
             "mid_price": round(sig.mid_price, dec_px),
             "micro_price": round(sig.micro_price, dec_px),
             "open_avg_px": round(open_avg_px, dec_px) if open_avg_px > 0 else 0.0,
+            "cost_basis_floor_px": cost_floor_px,
+            "holding_size": round(cash_token_qty, dec_sz),
+            "holding_eq_usd": round(token_eq, 2),
+            "inv_weight_pct": round(inv_weight * 100.0, 2),
             "unrealized_bps": round(unrealized_bps, 1),
-            "spread_bps": sig.spread_bps,
-            "obi_top5": sig.obi_top5,
-            "ofi_norm": sig.ofi_norm,
-            "vpin_toxicity": sig.vpin_toxicity,
-            "hawkes_net_burst": sig.hawkes_net_burst,
-            "composite_alpha": sig.composite_alpha,
+            "unrealized_usd": round((sig.mid_price - open_avg_px) * cash_token_qty, 2) if open_avg_px > 0 else 0.0,
+            "spread_bps": round(sig.spread_bps, 2),
+            "obi_top5": round(sig.obi_top5, 3),
+            "ofi_norm": round(sig.ofi_norm, 3),
+            "vpin_toxicity": round(sig.vpin_toxicity, 3),
+            "hawkes_intensity": round(sig.hawkes_net_burst, 3),
+            "hawkes_net_burst": round(sig.hawkes_net_burst, 3),
+            "composite_alpha": round(sig.composite_alpha, 3),
             "kronos_1h_bps": round(k_ret_bps, 2),
             "kronos_2h_bps": round(k_macro_2h_bps, 2),
+            "kronos_2h_macro_bps": round(k_macro_2h_bps, 2),
             "kronos_aligned": k_aligned,
+            "horizon_aligned": k_aligned,
             "kronos_high_bps": round(k_up_bps, 2),
             "kronos_low_bps": round(k_down_bps, 2),
+            "rls_kalman_bps": round(pred.kalman_velocity_bps, 2),
+            "kronos_blend_bps": round(0.75 * k_ret_bps + 0.25 * k_macro_2h_bps, 2),
+            "llm_council_bps": round(llm_bias * 12.0, 2),
+            "btc_lead_lag_contrib_bps": round(btc_lead_lag_bps, 2),
             "predicted_return_bps": pred.predicted_return_bps,
             "kalman_velocity_bps": pred.kalman_velocity_bps,
+            "opp_score": calc_opp_score,
+            "anti_stacking_locked": bool(active_qs_usd >= dynamic_qs_cap_usd * 0.92 or inv_weight >= 0.20),
             "confidence": pred.confidence,
             "regime": pred.regime,
             "buy_offset_bps": pred.recommended_buy_offset_bps,
             "sell_tp_bps": pred.recommended_sell_tp_bps,
+            "active_buy_px": None,
+            "active_sell_px": None,
+            "ratchet_subsidy_applied_usd": ratchet_sub_applied,
             "allow_sniper_IOC": allow_ioc,
+            "updated_at": now_iso,
         }
         telemetry_rows.append(row_dict)
 
@@ -684,6 +720,15 @@ def run_predator_cycle(
             })
 
         scalp_run_updates.append((inst_id, active_state, active_ord_sz, active_ord_px, active_ord_id, now_iso))
+        # Update active buy/sell order prices in row_dict for the Institutional Dashboard
+        buy_ords = [float(o.get("px") or 0) for o in inst_orders if str(o.get("side") or "").lower() == "buy" and float(o.get("px") or 0) > 0]
+        sell_ords = [float(o.get("px") or 0) for o in inst_orders if str(o.get("side") or "").lower() == "sell" and float(o.get("px") or 0) > 0]
+        if buy_ords:
+            row_dict["active_buy_px"] = max(buy_ords)
+        if sell_ords:
+            row_dict["active_sell_px"] = min(sell_ords)
+        elif active_state == "SELL_SUBMITTED" and active_ord_px > 0:
+            row_dict["active_sell_px"] = active_ord_px
 
     # 3C. Opportunity-Ranked Cash Sweeper: Deploy free USDC starting from the #1 highest-scoring pair!
     if free_usdc >= 8.0 and buy_candidates:
@@ -813,13 +858,19 @@ def run_predator_cycle(
             query_ai=False,
         )
 
-    return {
+    result_payload = {
         "timestamp": now_iso,
         "nav_usdc": round(nav_usdc, 2),
         "spot_equity_usd": round(spot_equity_usd, 2),
         "free_usdc": round(free_usdc, 2),
+        "frozen_usdc": round(max(0.0, total_usdc - free_usdc), 2),
+        "total_usdc_cash": round(total_usdc, 2),
+        "active_orders_count": len(open_orders),
+        "btc_mid_px": round(btc_bids[0][0], 2) if btc_bids else 68420.0,
+        "ofi_btc": round(btc_sig.ofi_norm, 3) if btc_bids and btc_asks else 0.0,
         "btc_lead_lag_bps": btc_lead_lag_bps,
         "ratchet_pool_usd": ratchet_pool_usd,
+        "dynamic_qs_cap_usd": dynamic_qs_cap_usd,
         "authenticated": client.is_authenticated,
         "simulated_demo": client.simulated_demo,
         "cost_basis_fixes": cost_basis_fixes,
@@ -829,6 +880,15 @@ def run_predator_cycle(
         "llm_debate": asdict(debate_res) if debate_res else None,
         "audit_report": asdict(audit_res) if audit_res else None,
     }
+    try:
+        live_snap_path = os.path.join(BASE_DIR, "config", "predator_live_snapshot.json")
+        tmp_snap_path = live_snap_path + ".tmp"
+        with open(tmp_snap_path, "w", encoding="utf-8") as f:
+            json.dump(result_payload, f, indent=2)
+        os.replace(tmp_snap_path, live_snap_path)
+    except Exception:
+        pass
+    return result_payload
 
 
 def main() -> None:
