@@ -172,6 +172,11 @@ def run_predator_cycle(
         if balances
         else 5.98
     )
+    total_usdc = (
+        sum(float(b.get("cashBal") or 0.0) for b in balances if b.get("ccy") == "USDC")
+        if balances
+        else free_usdc
+    )
 
     tracked_ccys = {m["coin"] for m in DEFAULT_UNIVERSE.values()} | {"USDC"}
 
