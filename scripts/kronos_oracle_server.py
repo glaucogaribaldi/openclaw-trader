@@ -204,11 +204,11 @@ class KronosHandler(BaseHTTPRequestHandler):
             pairs_raw = qs.get("pairs", ["SOL-USDC"])[0]
             pairs = [p.strip() for p in pairs_raw.split(",") if p.strip()]
             out = {}
-            for p in pairs:
-                try:
-                    out[p] = forecast_pair(p)
-                except Exception as e:
-                    out[p] = {"error": str(e)}
+            with CACHE_LOCK:
+                for p in pairs:
+                    cached = CACHE.get(p)
+                    if cached:
+                        out[p] = cached["data"]
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
