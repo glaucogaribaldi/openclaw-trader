@@ -212,6 +212,9 @@ class PredatorPredictiveEngine:
         kronos_return_1h_bps: float = 0.0,
         kronos_upside_bps: float = 0.0,
         kronos_downside_bps: float = 0.0,
+        kronos_macro_2h_bps: float = 0.0,
+        kronos_horizon_aligned: bool = False,
+        btc_lead_lag_bps: float = 0.0,
     ) -> PredictionOutput:
         inst = sig.inst_id
         if inst not in self.kalman_filters:
@@ -232,52 +235,61 @@ class PredatorPredictiveEngine:
         ]
         raw_pred_bps, hit_rate = self.rls_models[inst].update_and_predict(features, sig.mid_price)
 
-        # Blend online RLS microstructure prediction (50%) + Kronos-small K-line Transformer (30%) + LLM Council (20%)
+        # Blend online RLS microstructure prediction (45%) + Kronos Multi-Horizon (35%: 5m + 15m) + LLM Council + BTC Lead-Lag (20%)
+        kronos_combo_bps = (0.75 * kronos_return_1h_bps + 0.25 * kronos_macro_2h_bps) if kronos_macro_2h_bps != 0.0 else kronos_return_1h_bps
         blended_pred_bps = (
-            0.50 * raw_pred_bps
-            + 0.30 * kronos_return_1h_bps
-            + 0.20 * (llm_conviction_bias * 25.0)
+            0.45 * raw_pred_bps
+            + 0.35 * kronos_combo_bps
+            + 0.12 * (llm_conviction_bias * 25.0)
+            + 0.08 * btc_lead_lag_bps
         )
 
-        # Confidence combines model hit-rate, signal magnitude, and Kronos-microstructure directional agreement
+        # Confidence combines model hit-rate, signal magnitude, and Kronos Multi-Horizon directional agreement
         signal_strength = min(1.0, abs(sig.composite_alpha) * 1.35)
-        kronos_agreement = 0.08 if (raw_pred_bps * kronos_return_1h_bps > 0) else 0.0
-        confidence = round(min(0.98, max(0.35, 0.50 * hit_rate + 0.42 * signal_strength + kronos_agreement)), 4)
+        kronos_agreement = 0.12 if (kronos_horizon_aligned and (raw_pred_bps * kronos_return_1h_bps > 0)) else (
+            0.06 if (raw_pred_bps * kronos_return_1h_bps > 0) else 0.0
+        )
+        confidence = round(min(0.98, max(0.35, 0.50 * hit_rate + 0.40 * signal_strength + kronos_agreement)), 4)
 
         # Determine Regime & Dynamic Offsets (in bps; 100 bps = 1.00%)
         # Inventory skew penalty (Cartea-Jaimungal): high inventory lowers TP and widens buy offset
         inv_skew_bps = max(-15.0, min(35.0, (inventory_weight_nav - 0.10) * 180.0))
+        # BTC Shock Absorber: if BTC is dumping sharply (< -12 bps), widen buy traps automatically!
+        btc_shock_widen_bps = max(0.0, min(45.0, abs(btc_lead_lag_bps) * 1.8)) if btc_lead_lag_bps < -10.0 else 0.0
 
         allow_sniper_ioc = False
         if (
-            blended_pred_bps >= 14.0
-            and sig.composite_alpha >= 0.55
+            blended_pred_bps >= 12.0
+            and sig.composite_alpha >= 0.48
             and sig.vpin_toxicity < 0.72
-            and confidence >= 0.62
+            and confidence >= 0.60
             and inventory_weight_nav < 0.18
+            and btc_lead_lag_bps >= -6.0
         ):
             regime = "AGGRESSIVE_BREAKOUT"
-            buy_offset_bps = max(2.0, 6.0 + inv_skew_bps * 0.5)
-            base_tp = max(25.0, kronos_upside_bps * 0.85) if kronos_upside_bps > 0 else 42.0
-            sell_tp_bps = max(25.0, min(95.0, base_tp + blended_pred_bps * 0.8 - inv_skew_bps))
+            buy_offset_bps = max(3.0, 7.0 + inv_skew_bps * 0.5 + btc_shock_widen_bps)
+            base_tp = max(32.0, kronos_upside_bps * 0.85) if kronos_upside_bps > 0 else 48.0
+            if kronos_horizon_aligned and kronos_return_1h_bps > 0:
+                base_tp = min(90.0, base_tp * 1.20)  # Multi-Horizon Turbo-Scalp TP boost!
+            sell_tp_bps = max(28.0, min(95.0, base_tp + blended_pred_bps * 0.8 - inv_skew_bps))
             allow_sniper_ioc = True
-        elif sig.vpin_toxicity >= 0.68 and sig.composite_alpha < -0.30:
+        elif (sig.vpin_toxicity >= 0.68 and sig.composite_alpha < -0.30) or btc_lead_lag_bps < -12.0:
             regime = "TOXIC_DIP_DEFENSE"
             k_down = max(65.0, kronos_downside_bps * 1.15) if kronos_downside_bps > 0 else 85.0
-            buy_offset_bps = max(65.0, min(160.0, k_down + abs(blended_pred_bps) * 1.0 + inv_skew_bps))
+            buy_offset_bps = max(65.0, min(165.0, k_down + abs(blended_pred_bps) * 1.0 + inv_skew_bps + btc_shock_widen_bps))
             sell_tp_bps = max(18.0, 28.0 - inv_skew_bps * 0.6)
         elif abs(blended_pred_bps) <= 6.5 and sig.vpin_toxicity < 0.45:
             regime = "ACTIVE_SCALP_MM"
-            k_down = max(12.0, min(28.0, kronos_downside_bps * 0.65)) if kronos_downside_bps > 0 else 16.0
-            k_up = max(20.0, min(48.0, kronos_upside_bps * 0.80)) if kronos_upside_bps > 0 else 28.0
-            buy_offset_bps = max(10.0, k_down - blended_pred_bps * 0.4 + inv_skew_bps)
-            sell_tp_bps = max(18.0, k_up + blended_pred_bps * 0.4 - inv_skew_bps)
+            k_down = max(10.0, min(26.0, kronos_downside_bps * 0.60)) if kronos_downside_bps > 0 else 15.0
+            k_up = max(22.0, min(52.0, kronos_upside_bps * 0.80)) if kronos_upside_bps > 0 else 30.0
+            buy_offset_bps = max(9.0, k_down - blended_pred_bps * 0.4 + inv_skew_bps + btc_shock_widen_bps)
+            sell_tp_bps = max(20.0, k_up + blended_pred_bps * 0.4 - inv_skew_bps)
         else:
             regime = "MEAN_REVERSION"
-            k_down = max(16.0, min(55.0, kronos_downside_bps * 0.75)) if kronos_downside_bps > 0 else 28.0
-            k_up = max(22.0, min(70.0, kronos_upside_bps * 0.85)) if kronos_upside_bps > 0 else 38.0
-            buy_offset_bps = max(15.0, k_down - blended_pred_bps * 0.5 + inv_skew_bps)
-            sell_tp_bps = max(20.0, k_up + blended_pred_bps * 0.5 - inv_skew_bps)
+            k_down = max(15.0, min(55.0, kronos_downside_bps * 0.75)) if kronos_downside_bps > 0 else 26.0
+            k_up = max(24.0, min(72.0, kronos_upside_bps * 0.85)) if kronos_upside_bps > 0 else 38.0
+            buy_offset_bps = max(14.0, k_down - blended_pred_bps * 0.5 + inv_skew_bps + btc_shock_widen_bps)
+            sell_tp_bps = max(22.0, k_up + blended_pred_bps * 0.5 - inv_skew_bps)
 
         return PredictionOutput(
             inst_id=inst,

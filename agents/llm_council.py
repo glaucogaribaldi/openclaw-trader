@@ -50,18 +50,21 @@ class AgentDebateResult:
 
 
 class AdversarialLLMCouncil:
+    FREE_MODELS_ROTATION = [
+        "openrouter/free",
+        "nvidia/llama-3.1-nemotron-ultra-253b-v1:free",
+        "deepseek/deepseek-r1:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+    ]
+
     def __init__(
         self,
-        openrouter_api_key: str = "",
+        or_token: str = "",
         openrouter_model: str = "openrouter/free",
-        ollama_url: str = "http://100.125.189.103:11434/api/generate",
-        ollama_model: str = "nemotron-3.5-lightning:latest",
         directive_out_path: Optional[str] = None,
     ):
-        self.openrouter_api_key = openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        self.openrouter_api_key = or_token or os.environ.get("OPENROUTER_API_KEY", "")
         self.openrouter_model = openrouter_model
-        self.ollama_url = ollama_url
-        self.ollama_model = ollama_model
         self.directive_out_path = directive_out_path
 
     def _build_deterministic_debate(
@@ -128,34 +131,41 @@ class AdversarialLLMCouncil:
             token_convictions=convictions,
         )
 
-    def _call_openrouter(self, prompt: str, timeout: int = 12) -> Optional[str]:
+    def _call_openrouter(self, prompt: str, timeout: int = 12) -> Optional[Tuple[str, str]]:
         if not self.openrouter_api_key:
             return None
-        payload = {
-            "model": self.openrouter_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are the Chief Quantitative Judge of TRE PREDATOR v1.0, an ultra-aggressive "
-                        "predictive microstructure & multi-agent crypto trading OS. Respond ONLY with valid JSON."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-        }
-        req = urllib.request.Request(
-            "https://openrouter.ai/api/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=timeout, context=_build_ssl_context()) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data["choices"][0]["message"]["content"].strip()
+        for model_id in self.FREE_MODELS_ROTATION:
+            try:
+                payload = {
+                    "model": model_id,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are the Chief Quantitative Judge of TRE OS v7.0 Sovereign Predator, an autonomous "
+                                "predictive microstructure & Kronos-mini multi-horizon crypto trading OS. Respond ONLY with valid JSON."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.2,
+                }
+                req = urllib.request.Request(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {self.openrouter_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=timeout, context=_build_ssl_context()) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    txt = data["choices"][0]["message"]["content"].strip()
+                    if txt and "{" in txt:
+                        return txt, model_id
+            except Exception:
+                continue
+        return None
 
     def run_council_debate(
         self,
@@ -186,9 +196,10 @@ Return ONLY a raw JSON object with this exact schema:
         raw_resp = None
         model_used = fallback.model_used
         try:
-            raw_resp = self._call_openrouter(prompt)
-            if raw_resp:
-                model_used = f"openrouter:{self.openrouter_model}"
+            or_res = self._call_openrouter(prompt)
+            if or_res:
+                raw_resp, chosen_mod = or_res
+                model_used = f"openrouter:{chosen_mod}"
         except Exception:
             raw_resp = None
 

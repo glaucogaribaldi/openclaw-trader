@@ -45,18 +45,23 @@ class PredatorAuditSummary:
 
 
 class PredatorAuditor:
+    FREE_MODELS_ROTATION = [
+        "openrouter/free",
+        "nvidia/llama-3.1-nemotron-ultra-253b-v1:free",
+        "deepseek/deepseek-r1:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+    ]
+
     def __init__(
         self,
         db_path: str,
         report_out_path: str,
-        ollama_url: str = "http://100.125.189.103:11434/api/generate",
-        ollama_model: str = "nemotron-3.5-lightning:latest",
+        or_token: str = "",
         baseline_nav: float = 298.89,
     ):
         self.db_path = db_path
         self.report_out_path = report_out_path
-        self.ollama_url = os.environ.get("OLLAMA_URL") or ollama_url
-        self.ollama_model = os.environ.get("OLLAMA_MODEL") or ollama_model
+        self.openrouter_api_key = or_token or os.environ.get("OPENROUTER_API_KEY", "")
         self.baseline_nav = baseline_nav
 
     def ensure_tables(self, conn: sqlite3.Connection) -> None:
@@ -247,28 +252,34 @@ class PredatorAuditor:
         conn.commit()
         return inserted
 
-    def _call_nemotron_gpu(self, prompt: str, timeout: int = 18) -> Optional[str]:
-        try:
-            payload = {
-                "model": self.ollama_model,
-                "prompt": prompt,
-                "stream": False,
-                "think": False,
-                "options": {"temperature": 0.15, "num_predict": 320},
-            }
-            req = urllib.request.Request(
-                self.ollama_url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                txt = (data.get("response") or "").strip()
-                if "</think>" in txt:
-                    txt = txt.split("</think>", 1)[-1].strip()
-                return txt if txt else None
-        except Exception:
+    def _call_openrouter_auditor(self, prompt: str, timeout: int = 12) -> Optional[Tuple[str, str]]:
+        if not self.openrouter_api_key:
             return None
+        for mod_id in self.FREE_MODELS_ROTATION:
+            try:
+                payload = {
+                    "model": mod_id,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.15,
+                }
+                req = urllib.request.Request(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {self.openrouter_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    txt = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+                    if "</think>" in txt:
+                        txt = txt.split("</think>", 1)[-1].strip()
+                    if len(txt) > 40 and "user safety" not in txt.lower():
+                        return txt, mod_id
+            except Exception:
+                continue
+        return None
 
     def run_full_audit(
         self,
@@ -336,10 +347,10 @@ class PredatorAuditor:
                 f"Scrivi un VERDETTO DI AUDIT TECNICO E CONTABILE in italiano (massimo 3 frasi dense e rigorose) "
                 f"valutando la tenuta matematica, il rispetto della Regola Aurea (+0.7% / +5.0% giornaliero), l'efficacia di Kronos + OFI/VPIN e le salvaguardie anti-perdita."
             )
-            ai_resp = self._call_nemotron_gpu(prompt)
-            if ai_resp:
-                verdict_txt = ai_resp
-                auditor_model_used = f"gpu:{self.ollama_model}"
+            ai_res = self._call_openrouter_auditor(prompt)
+            if ai_res:
+                verdict_txt, chosen_mod = ai_res
+                auditor_model_used = f"openrouter:{chosen_mod}"
 
         now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         summary = PredatorAuditSummary(

@@ -36,16 +36,22 @@ from core.predictor import PredatorPredictiveEngine
 from execution.okx_hybrid_executor import OKXNativeClient
 
 
-# Official 8 High-Beta Spot Universe on OKX EEA with exact tickSz/lotSz decimals
+# Official 12-Pair Dynamic Liquidity Universe on OKX EEA Spot (v7.0 Sovereign Edition)
+# - Core & Ultra-Liquid Expansion: HYPE, ZEC, SOL, SUI, NEAR, UNI, XRP, LINK, RENDER, AVAX
+# - Harvest & Retire Mode (`harvest_only=True`): FET, SEI (sells existing inventory in profit above Cost-Basis Floor, then retires from new buys)
 DEFAULT_UNIVERSE: Dict[str, Dict[str, Any]] = {
-    "SOL-USDC":    {"coin": "SOL",    "dec_px": 2, "dec_sz": 3},
-    "SUI-USDC":    {"coin": "SUI",    "dec_px": 4, "dec_sz": 2},
-    "NEAR-USDC":   {"coin": "NEAR",   "dec_px": 3, "dec_sz": 2},
-    "LINK-USDC":   {"coin": "LINK",   "dec_px": 3, "dec_sz": 2},
-    "RENDER-USDC": {"coin": "RENDER", "dec_px": 3, "dec_sz": 2},
-    "AVAX-USDC":   {"coin": "AVAX",   "dec_px": 3, "dec_sz": 2},
-    "FET-USDC":    {"coin": "FET",    "dec_px": 4, "dec_sz": 1},
-    "SEI-USDC":    {"coin": "SEI",    "dec_px": 5, "dec_sz": 1},
+    "HYPE-USDC":   {"coin": "HYPE",   "dec_px": 3, "dec_sz": 3, "harvest_only": False, "liq_bonus": 8.0},
+    "ZEC-USDC":    {"coin": "ZEC",    "dec_px": 2, "dec_sz": 4, "harvest_only": False, "liq_bonus": 7.5},
+    "SOL-USDC":    {"coin": "SOL",    "dec_px": 2, "dec_sz": 3, "harvest_only": False, "liq_bonus": 5.0},
+    "SUI-USDC":    {"coin": "SUI",    "dec_px": 4, "dec_sz": 2, "harvest_only": False, "liq_bonus": 6.0},
+    "NEAR-USDC":   {"coin": "NEAR",   "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 5.5},
+    "UNI-USDC":    {"coin": "UNI",    "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 5.0},
+    "XRP-USDC":    {"coin": "XRP",    "dec_px": 4, "dec_sz": 2, "harvest_only": False, "liq_bonus": 4.5},
+    "LINK-USDC":   {"coin": "LINK",   "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 3.0},
+    "RENDER-USDC": {"coin": "RENDER", "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 2.0},
+    "AVAX-USDC":   {"coin": "AVAX",   "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 2.0},
+    "FET-USDC":    {"coin": "FET",    "dec_px": 4, "dec_sz": 1, "harvest_only": True,  "liq_bonus": -10.0},
+    "SEI-USDC":    {"coin": "SEI",    "dec_px": 5, "dec_sz": 1, "harvest_only": True,  "liq_bonus": -15.0},
 }
 
 BASELINE_NAV_USDC = 298.89  # Official TRE OS v6.0 Predator Run Start (22/10/2026 21:00 CEST)
@@ -153,6 +159,7 @@ def run_predator_cycle(
     conn: sqlite3.Connection,
     run_llm_debate: bool = False,
     run_audit: bool = False,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     balances = client.get_account_balances() if client.is_authenticated else []
     open_orders = client.get_open_orders() if client.is_authenticated else []
@@ -281,7 +288,29 @@ def run_predator_cycle(
     scalp_run_updates: List[tuple] = []
     buy_candidates: List[Dict[str, Any]] = []
 
-    # 1. Scan all 8 High-Beta instruments in universe
+    # 0A. Cross-Asset BTC-USDC Lead-Lag Radar (Shock Absorber & Breakout Boost)
+    btc_lead_lag_bps = 0.0
+    try:
+        btc_bids, btc_asks = client.get_orderbook("BTC-USDC", sz=5)
+        btc_trades = client.get_recent_trades("BTC-USDC", limit=20)
+        if btc_bids and btc_asks:
+            btc_sig = micro_engine.process_snapshot("BTC-USDC", btc_bids, btc_asks, btc_trades)
+            btc_lead_lag_bps = round(btc_sig.composite_alpha * 18.0, 2)
+    except Exception:
+        btc_lead_lag_bps = 0.0
+
+    # 0B. Ratchet Capital Recycler Pool: 20% of cumulative realized Quick-Scalp profits can subsidize the closest legacy TP
+    ratchet_pool_usd = 0.0
+    try:
+        cur_r = conn.cursor()
+        cur_r.execute("SELECT SUM(realized_pnl_usd) FROM predator_fills_ledger WHERE fill_time >= ? AND side='sell'", (RUN_START_ISO,))
+        tot_realized_run = float((cur_r.fetchone() or (0.0,))[0] or 0.0)
+        if tot_realized_run >= 0.50:
+            ratchet_pool_usd = round(tot_realized_run * 0.20, 4)
+    except Exception:
+        ratchet_pool_usd = 0.0
+
+    # 1. Scan all 12 instruments in universe
     for inst_id, meta in DEFAULT_UNIVERSE.items():
         try:
             bids, asks = client.get_orderbook(inst_id, sz=5)
@@ -312,6 +341,10 @@ def run_predator_cycle(
         k_ret_bps = k_fc.expected_return_1h_bps if k_fc else 0.0
         k_up_bps = k_fc.upside_high_bps if k_fc else 0.0
         k_down_bps = k_fc.downside_low_bps if k_fc else 0.0
+        k_macro_2h_bps = k_fc.macro_return_2h_bps if k_fc else 0.0
+        k_aligned = k_fc.horizon_aligned if k_fc else False
+        harvest_only = bool(meta.get("harvest_only", False))
+        liq_bonus = float(meta.get("liq_bonus", 0.0))
 
         pred = pred_engine.evaluate(
             sig,
@@ -320,14 +353,22 @@ def run_predator_cycle(
             kronos_return_1h_bps=k_ret_bps,
             kronos_upside_bps=k_up_bps,
             kronos_downside_bps=k_down_bps,
+            kronos_macro_2h_bps=k_macro_2h_bps,
+            kronos_horizon_aligned=k_aligned,
+            btc_lead_lag_bps=btc_lead_lag_bps,
         )
 
         # Enforce 100% Post-Only Maker in Production Live (0.00% Taker Fee Drag)
         allow_ioc = False
 
-        # Calculate Cost-Basis Floor (+22 bps minimum net profit over openAvgPx)
-        cost_floor_px = round(open_avg_px * 1.0022, dec_px) if open_avg_px > 0 else 0.0
+        # Calculate Cost-Basis Floor (+22 bps minimum net profit over openAvgPx, with Ratchet discount if within 3.5% of breakeven!)
+        raw_floor_mult = 1.0022
         unrealized_bps = ((sig.mid_price - open_avg_px) / open_avg_px * 10000.0) if open_avg_px > 0 else 0.0
+        if ratchet_pool_usd > 0.05 and -350.0 <= unrealized_bps < 0.0 and token_eq > 5.0:
+            # Ratchet subsidy reduces required floor slightly (down to 1.0005) using already-banked Quick-Scalp profits
+            ratchet_bps_relief = min(17.0, (ratchet_pool_usd / token_eq) * 10000.0)
+            raw_floor_mult = max(1.0005, 1.0022 - (ratchet_bps_relief / 10000.0))
+        cost_floor_px = round(open_avg_px * raw_floor_mult, dec_px) if open_avg_px > 0 else 0.0
 
         row_dict = {
             "inst_id": inst_id,
@@ -342,6 +383,8 @@ def run_predator_cycle(
             "hawkes_net_burst": sig.hawkes_net_burst,
             "composite_alpha": sig.composite_alpha,
             "kronos_1h_bps": round(k_ret_bps, 2),
+            "kronos_2h_bps": round(k_macro_2h_bps, 2),
+            "kronos_aligned": k_aligned,
             "kronos_high_bps": round(k_up_bps, 2),
             "kronos_low_bps": round(k_down_bps, 2),
             "predicted_return_bps": pred.predicted_return_bps,
@@ -530,7 +573,7 @@ def run_predator_cycle(
 
             target_sell_px = round(max(raw_tp_px, cost_floor_px, asks[0][0]), dec_px)
             if sell_sz > 0 and target_sell_px > 0:
-                res_sell = client.place_spot_order(
+                res_sell = {"data": []} if dry_run else client.place_spot_order(
                     inst_id=inst_id,
                     side="sell",
                     sz=sell_sz,
@@ -557,13 +600,15 @@ def run_predator_cycle(
                     "ord_id": ord_id_sell,
                 })
 
-        # 3B. Collect candidate for Opportunity-Ranked Cash Sweeper (evaluated after scanning all 8 pairs!)
-        # Anti-Stacking Quick-Scalp Guard: skip if this token already has >= $16.00 USDC in active Quick-Scalp tranches!
+        # 3B. Collect candidate for Opportunity-Ranked Cash Sweeper (evaluated after scanning all 12 pairs!)
+        # Skip `harvest_only` pairs (SEI, FET) so freed cash rotates into ultra-liquid pairs (HYPE, ZEC, SUI, SOL, NEAR, UNI, XRP)!
         active_qs_usd = sum(tr[1] * tr[2] for tr in active_tranches_by_inst.get(inst_id, []))
-        if not has_buy_order and inv_weight < 0.20 and active_qs_usd < 16.0:
+        if not harvest_only and not has_buy_order and inv_weight < 0.20 and active_qs_usd < 16.0 and btc_lead_lag_bps > -14.0:
             opp_score = (
                 pred.predicted_return_bps
                 + (sig.composite_alpha * 15.0)
+                + liq_bonus
+                + (4.0 if k_aligned and k_ret_bps > 0 else 0.0)
                 - (sig.vpin_toxicity * 20.0)
                 - (inv_weight * 50.0)
             )
@@ -607,7 +652,7 @@ def run_predator_cycle(
             if buy_sz * target_buy_px < 5.0:
                 continue
 
-            res_place = client.place_spot_order(
+            res_place = {"data": []} if dry_run else client.place_spot_order(
                 inst_id=c_inst,
                 side="buy",
                 sz=buy_sz,
@@ -714,6 +759,8 @@ def run_predator_cycle(
         "spot_equity_usd": round(spot_equity_usd, 2),
         "simple_earn_usdc": round(simple_earn_usdc, 2),
         "free_usdc": round(free_usdc, 2),
+        "btc_lead_lag_bps": btc_lead_lag_bps,
+        "ratchet_pool_usd": ratchet_pool_usd,
         "authenticated": client.is_authenticated,
         "simulated_demo": client.simulated_demo,
         "cost_basis_fixes": cost_basis_fixes,
@@ -726,10 +773,11 @@ def run_predator_cycle(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="TRE OS v6.0 (Predator Edition) — Predictive Microstructure & Kronos GPU Quant OS")
+    parser = argparse.ArgumentParser(description="TRE OS v7.0 (Sovereign Predator Edition) — Predictive Microstructure & Local Kronos-mini Quant OS")
     parser.add_argument("--once", action="store_true", help="Run a single predictive scan cycle and exit")
+    parser.add_argument("--dry-run", action="store_true", help="Pre-live test mode: reads live books/balances/Kronos without placing or cancelling orders")
     parser.add_argument("--debate", action="store_true", help="Run the 3-Agent LLM Adversarial Council debate")
-    parser.add_argument("--audit", action="store_true", help="Run the Deterministic + FIFO Ledger Audit")
+    parser.add_argument("--audit", action="store_true", help="Run the Deterministic + OpenRouter AI Ledger Audit")
     parser.add_argument("--interval", type=float, default=15.0, help="Loop interval in seconds (default: 15s)")
     parser.add_argument("--demo", action="store_true", help="Enable x-simulated-trading: 1 flag (OKX Demo account)")
     parser.add_argument("--live", action="store_true", help="Force Production Live Spot account (default)")
@@ -767,13 +815,13 @@ def main() -> None:
             conn=conn,
             run_llm_debate=args.debate,
             run_audit=args.audit,
+            dry_run=args.dry_run,
         )
-        print("=== TRE OS v6.0 PREDATOR EDITION (LIVE SPOT + KRONOS GPU + OFI/VPIN/RLS) ===")
+        print("=== TRE OS v7.0 SOVEREIGN PREDATOR (12-PAIR UNIVERSE + LOCAL KRONOS-MINI 4.1M + BTC RADAR) ===")
         print(
-            f"Timestamp: {summary['timestamp']} | Mode: {'DEMO' if summary['simulated_demo'] else 'PRODUCTION_LIVE'} | "
+            f"Timestamp: {summary['timestamp']} | Mode: {'DRY_RUN_TEST' if args.dry_run else ('DEMO' if summary['simulated_demo'] else 'PRODUCTION_LIVE')} | "
             f"Total NAV: ${summary['nav_usdc']:.2f} USDC (Spot: ${summary['spot_equity_usd']:.2f} + Simple Earn: ${summary['simple_earn_usdc']:.2f}) | "
-            f"Free Cash: ${summary['free_usdc']:.2f} USDC | "
-            f"Fixes: {summary['cost_basis_fixes']} Cost-Floor / {summary['profit_lock_repegs']} Profit-Lock"
+            f"Free Cash: ${summary['free_usdc']:.2f} | BTC Lead-Lag: {summary['btc_lead_lag_bps']:+.2f}bps | Ratchet Pool: ${summary['ratchet_pool_usd']:.4f}"
         )
         print("-" * 124)
         print(
