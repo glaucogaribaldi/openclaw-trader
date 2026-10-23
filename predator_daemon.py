@@ -219,9 +219,10 @@ def run_predator_cycle(
             cur_tr = conn.cursor()
             cur_tr.execute(
                 """
-                SELECT trade_id, inst_id, fill_px, fill_sz, fill_time
+                SELECT MIN(trade_id), inst_id, AVG(fill_px), SUM(fill_sz), MAX(fill_time)
                 FROM predator_fills_ledger
                 WHERE side='buy' AND fill_time >= ?
+                GROUP BY ord_id, inst_id
                 """,
                 (RUN_START_ISO,),
             )
@@ -472,7 +473,7 @@ def run_predator_cycle(
         for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st in active_tranches_by_inst.get(inst_id, []):
             if tr_st == "PENDING_TP" and avail_token_qty > 0:
                 scalp_sz = math.floor(min(avail_token_qty, tr_buy_sz * 0.998) * (10 ** dec_sz)) / (10 ** dec_sz)
-                if scalp_sz * sig.mid_price >= 5.0:
+                if scalp_sz * sig.mid_price >= 4.90:
                     quick_tp_bps = max(35.0, min(65.0, pred.recommended_sell_tp_bps))
                     quick_tp_px = round(max(tr_buy_px * (1.0 + quick_tp_bps / 10000.0), asks[0][0]), dec_px)
                     res_qtp = client.place_spot_order(

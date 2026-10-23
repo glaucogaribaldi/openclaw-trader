@@ -60,7 +60,9 @@ Scrivi un ANALISI DI MERCATO DISCORSIVA E PULITA in lingua italiana (max 3 frasi
             with urllib.request.urlopen(req, timeout=10) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
                 if "choices" in res_data and len(res_data["choices"]) > 0:
-                    narrative = "💡 *ANALISI DISCORSIVA DI MERCATO (AI):*\n" + res_data["choices"][0]["message"]["content"].strip()
+                    cand_txt = res_data["choices"][0]["message"]["content"].strip()
+                    if len(cand_txt) > 40 and "user safety" not in cand_txt.lower():
+                        narrative = "💡 *ANALISI DISCORSIVA DI MERCATO (AI):*\n" + cand_txt
         except Exception:
             pass
 

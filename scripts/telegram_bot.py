@@ -62,7 +62,10 @@ Scrivi un ANALISI DI MERCATO DISCORSIVA E PULITA in lingua italiana (max 3 frasi
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             res_data = json.loads(resp.read().decode("utf-8"))
-            return "💡 *ANALISI DISCORSIVA DI MERCATO (AI):*\n" + res_data["choices"][0]["message"]["content"].strip()
+            cand_txt = res_data["choices"][0]["message"]["content"].strip()
+            if len(cand_txt) > 40 and "user safety" not in cand_txt.lower():
+                return "💡 *ANALISI DISCORSIVA DI MERCATO (AI):*\n" + cand_txt
+            return f"💡 *Analisi di Mercato (TRE OS v6.0):* Regola Aurea [+0.70% <-> +5.00%/giorno] attiva su 8 token High-Beta in totale sicurezza (leva zero, Cost-Basis Floor attivo)."
     except Exception:
         return f"💡 *Analisi di Mercato (TRE OS v6.0):* Regola Aurea [+0.70% <-> +5.00%/giorno] attiva su 8 token High-Beta in totale sicurezza (leva zero, Cost-Basis Floor attivo)."
 
