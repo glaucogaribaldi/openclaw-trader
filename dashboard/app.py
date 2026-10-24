@@ -429,7 +429,7 @@ def build_live_predator_state() -> Dict[str, Any]:
         "vps_push_count": cycle_num,
         "cycle_num": cycle_num,
         "cycle_interval_sec": 15,
-        "latency_scan_ms": 845,
+        "latency_scan_ms": int(live_snap.get("latency_scan_ms") or 620),
         "kronos_http_ms": 0.0,
         "timestamp": now_cest,
         "genesis_baseline_usdc": GENESIS_BASELINE_NAV,

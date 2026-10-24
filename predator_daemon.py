@@ -145,6 +145,10 @@ def init_predator_db(db_path: str) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_micro_inst_ts ON microstructure_telemetry(inst_id, timestamp)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_micro_ts ON microstructure_telemetry(timestamp)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_fills_time_side ON predator_fills_ledger(fill_time, side)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tranches_status_created ON fresh_scalp_tranches(status, created_at)")
     conn.commit()
     return conn
 
@@ -161,9 +165,22 @@ def run_predator_cycle(
     run_audit: bool = False,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    balances = client.get_account_balances() if client.is_authenticated else []
-    open_orders = client.get_open_orders() if client.is_authenticated else []
-    kronos_forecasts = kronos_client.fetch_forecasts(list(DEFAULT_UNIVERSE.keys()))
+    t_cycle_start = time.perf_counter()
+    if client.is_authenticated:
+        with ThreadPoolExecutor(max_workers=4) as auth_pool:
+            fut_bal = auth_pool.submit(client.get_account_balances)
+            fut_ord = auth_pool.submit(client.get_open_orders)
+            fut_fil = auth_pool.submit(client.get_recent_fills, "SPOT", 50)
+            fut_kro = auth_pool.submit(kronos_client.fetch_forecasts, list(DEFAULT_UNIVERSE.keys()))
+            balances = fut_bal.result()
+            open_orders = fut_ord.result()
+            prefetched_raw_fills = fut_fil.result()
+            kronos_forecasts = fut_kro.result()
+    else:
+        balances = []
+        open_orders = []
+        prefetched_raw_fills = []
+        kronos_forecasts = kronos_client.fetch_forecasts(list(DEFAULT_UNIVERSE.keys()))
 
     spot_equity_usd = sum(float(b.get("eqUsd") or 0.0) for b in balances) if balances else 300.36
     nav_usdc = spot_equity_usd
@@ -209,9 +226,10 @@ def run_predator_cycle(
     # and register new BUY fills (>= RUN_START_ISO) in `fresh_scalp_tranches` for independent Quick-Scalp TPs!
     active_tranche_ord_ids: set[str] = set()
     active_tranches_by_inst: Dict[str, List[tuple]] = {}
+    recent_sell_cooldown_map: Dict[str, Tuple[float, float]] = {}  # inst_id -> (last_sell_px, minutes_ago)
     if client.is_authenticated:
         try:
-            raw_fills = client.get_recent_fills(limit=50)
+            raw_fills = prefetched_raw_fills
             auditor.sync_okx_fills(
                 conn=conn,
                 raw_fills=raw_fills,
@@ -219,6 +237,19 @@ def run_predator_cycle(
                 allowed_pairs=set(DEFAULT_UNIVERSE.keys()),
             )
             cur_tr = conn.cursor()
+            # Track recent SELL fills (< 45 mins ago) for Re-Entry Pullback Guard (-25 bps discount required)
+            cur_tr.execute(
+                """
+                SELECT inst_id, fill_px, (julianday('now') - julianday(fill_time)) * 1440.0 AS mins_ago
+                FROM predator_fills_ledger
+                WHERE side='sell' AND datetime(fill_time) >= datetime('now', '-45 minutes')
+                ORDER BY fill_time DESC
+                """
+            )
+            for s_inst, s_px, s_mins in cur_tr.fetchall():
+                if str(s_inst) not in recent_sell_cooldown_map:
+                    recent_sell_cooldown_map[str(s_inst)] = (float(s_px or 0.0), float(s_mins or 0.0))
+
             cur_tr.execute(
                 """
                 SELECT MIN(trade_id), inst_id, AVG(fill_px), SUM(fill_sz), MAX(fill_time)
@@ -241,9 +272,17 @@ def run_predator_cycle(
             conn.commit()
 
             open_ord_id_set = {str(o.get("ordId") or "") for o in open_orders}
-            cur_tr.execute("SELECT trade_id, inst_id, buy_px, buy_sz, tp_ord_id, tp_px, status FROM fresh_scalp_tranches WHERE status IN ('PENDING_TP', 'TP_PLACED')")
+            cur_tr.execute(
+                """
+                SELECT trade_id, inst_id, buy_px, buy_sz, tp_ord_id, tp_px, status,
+                       (julianday('now') - julianday(created_at)) * 24.0 AS age_hours
+                FROM fresh_scalp_tranches
+                WHERE status IN ('PENDING_TP', 'TP_PLACED')
+                """
+            )
             for tr_row in cur_tr.fetchall():
-                tr_id, tr_inst, tr_px, tr_sz, tr_oid, tr_tp_px, tr_st = tr_row
+                tr_id, tr_inst, tr_px, tr_sz, tr_oid, tr_tp_px, tr_st, tr_age_h = tr_row
+                age_h = float(tr_age_h or 0.0)
                 if tr_st == "TP_PLACED" and tr_oid and tr_oid not in open_ord_id_set:
                     # Quick-Scalp TP order was filled (or cancelled)! Check if filled in ledger
                     cur_tr.execute("SELECT 1 FROM predator_fills_ledger WHERE ord_id = ? AND side='sell'", (tr_oid,))
@@ -251,11 +290,11 @@ def run_predator_cycle(
                         cur_tr.execute("UPDATE fresh_scalp_tranches SET status='CLOSED_PROFIT' WHERE trade_id = ?", (tr_id,))
                     else:
                         cur_tr.execute("UPDATE fresh_scalp_tranches SET status='PENDING_TP', tp_ord_id='' WHERE trade_id = ?", (tr_id,))
-                        active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), "", 0.0, "PENDING_TP"))
+                        active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), "", 0.0, "PENDING_TP", age_h))
                 else:
                     if tr_oid:
                         active_tranche_ord_ids.add(str(tr_oid))
-                    active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), str(tr_oid), float(tr_tp_px), tr_st))
+                    active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), str(tr_oid), float(tr_tp_px), tr_st, age_h))
             conn.commit()
         except Exception as e:
             print(f"[!] Fresh tranche sync note: {e}")
@@ -404,14 +443,15 @@ def run_predator_cycle(
         # Enforce 100% Post-Only Maker in Production Live (0.00% Taker Fee Drag)
         allow_ioc = False
 
-        # Calculate Cost-Basis Floor (+22 bps minimum net profit over openAvgPx, with Ratchet discount if within 3.5% of breakeven!)
+        # Calculate Cost-Basis Floor (+22 bps minimum net profit over openAvgPx, with Micro-Slice Ratchet discount on $10 slice!)
         raw_floor_mult = 1.0022
         unrealized_bps = ((sig.mid_price - open_avg_px) / open_avg_px * 10000.0) if open_avg_px > 0 else 0.0
         ratchet_sub_applied = 0.0
-        if ratchet_pool_usd > 0.05 and -350.0 <= unrealized_bps < 0.0 and token_eq > 5.0:
-            # Ratchet subsidy reduces required floor slightly (down to 1.0005) using already-banked Quick-Scalp profits
-            ratchet_bps_relief = min(17.0, (ratchet_pool_usd / token_eq) * 10000.0)
-            raw_floor_mult = max(1.0005, 1.0022 - (ratchet_bps_relief / 10000.0))
+        if ratchet_pool_usd > 0.05 and -450.0 <= unrealized_bps < 0.0 and token_eq > 5.0:
+            # Micro-Slice Ratchet Unlock: calculate bps relief over a $10.00 slice (instead of diluting over a $50 bag!)
+            effective_slice_usd = min(token_eq, 10.0)
+            ratchet_bps_relief = min(19.0, (ratchet_pool_usd / effective_slice_usd) * 10000.0)
+            raw_floor_mult = max(1.0003, 1.0022 - (ratchet_bps_relief / 10000.0))
             ratchet_sub_applied = round(ratchet_pool_usd, 4)
         cost_floor_px = round(open_avg_px * raw_floor_mult, dec_px) if open_avg_px > 0 else 0.0
 
@@ -554,12 +594,36 @@ def run_predator_cycle(
                     active_ord_id = ord_id
                     active_ord_px = ord_px
                     active_ord_sz = ord_sz
-                    # Handle independent Fresh Tranche Quick-Scalp TP orders (Dynamic Profit-Lock at +28 bps, or +20 bps in Golden Harvest Mode!)
+                    # Handle independent Fresh Tranche Quick-Scalp TP orders (Dynamic Profit-Lock + Time-Decay Fast-Exit Ratchet!)
                     if ord_id in active_tranche_ord_ids:
-                        for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st in active_tranches_by_inst.get(inst_id, []):
+                        for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st, tr_age_h in active_tranches_by_inst.get(inst_id, []):
                             if tr_oid == ord_id and tr_buy_px > 0:
                                 tr_unr_bps = ((sig.mid_price - tr_buy_px) / tr_buy_px) * 10000.0
-                                if tr_unr_bps >= quick_lock_trigger_bps and drift_bps > 5.0 and pred.predicted_return_bps < 4.0:
+                                fast_exit_px = round(max(tr_buy_px * 1.0014, asks[0][0]), dec_px)
+                                # Time-Decay Fast-Exit Ratchet: if tranche is open >= 4.0h and currently underwater (> -35 bps),
+                                # lower TP from +35 bps down to +14 bps (still 100% net profit!) so the first rebound frees cash immediately!
+                                if tr_age_h >= 4.0 and tr_unr_bps < -35.0 and ord_px > fast_exit_px * 1.0006:
+                                    client.cancel_order(inst_id, ord_id)
+                                    profit_lock_repegs += 1
+                                    repeg_sz = math.floor(min(cash_token_qty, tr_buy_sz * 0.999 + avail_token_qty) * (10 ** dec_sz)) / (10 ** dec_sz)
+                                    res_rp = client.place_spot_order(inst_id, "sell", repeg_sz, fast_exit_px, "PASSIVE_MAKER")
+                                    new_rp_id = ""
+                                    if isinstance(res_rp.get("data"), list) and res_rp["data"]:
+                                        new_rp_id = str(res_rp["data"][0].get("ordId", ""))
+                                    if new_rp_id:
+                                        conn.execute(
+                                            "UPDATE fresh_scalp_tranches SET tp_ord_id = ?, tp_px = ? WHERE trade_id = ?",
+                                            (new_rp_id, fast_exit_px, tr_id),
+                                        )
+                                        conn.commit()
+                                        actions_taken.append({
+                                            "action": "TIME_DECAY_FAST_UNLOCK_REPEG",
+                                            "inst_id": inst_id,
+                                            "age_hours": round(tr_age_h, 1),
+                                            "old_px": ord_px,
+                                            "new_px": fast_exit_px,
+                                        })
+                                elif tr_unr_bps >= quick_lock_trigger_bps and drift_bps > 5.0 and pred.predicted_return_bps < 4.0:
                                     client.cancel_order(inst_id, ord_id)
                                     profit_lock_repegs += 1
                                     repeg_px = round(max(tr_buy_px * quick_lock_floor_mult, asks[0][0]), dec_px)
@@ -635,7 +699,7 @@ def run_predator_cycle(
 
         # 2B. Independent Fresh Tranche Quick-Scalp TP Placement + Auto-Dust Sweeper!
         # Sweeps any fractional base-currency fee dust (< $3.50) into the newly placed Quick-Scalp TP order so zero dust is stranded!
-        for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st in active_tranches_by_inst.get(inst_id, []):
+        for tr_id, tr_buy_px, tr_buy_sz, tr_oid, tr_tp_px, tr_st, tr_age_h in active_tranches_by_inst.get(inst_id, []):
             if tr_st == "PENDING_TP" and avail_token_qty > 0:
                 extra_dust_qty = avail_token_qty - tr_buy_sz
                 if 0.0 < extra_dust_qty * sig.mid_price <= 3.50:
@@ -644,7 +708,7 @@ def run_predator_cycle(
                     target_tr_qty = min(avail_token_qty, tr_buy_sz * 0.999)
                 scalp_sz = math.floor(target_tr_qty * (10 ** dec_sz)) / (10 ** dec_sz)
                 if scalp_sz * sig.mid_price >= 4.90:
-                    quick_tp_bps = max(35.0, min(65.0, pred.recommended_sell_tp_bps))
+                    quick_tp_bps = 14.0 if tr_age_h >= 4.0 else max(35.0, min(65.0, pred.recommended_sell_tp_bps))
                     quick_tp_px = round(max(tr_buy_px * (1.0 + quick_tp_bps / 10000.0), asks[0][0]), dec_px)
                     res_qtp = client.place_spot_order(
                         inst_id=inst_id,
@@ -723,11 +787,26 @@ def run_predator_cycle(
                 })
 
         # 3B. Collect candidate for Opportunity-Ranked Cash Sweeper (evaluated after scanning all 12 pairs!)
-        # Skip `harvest_only` pairs (SEI, FET) and enforce Dynamic % NAV Anti-Stacking Cap (`dynamic_qs_cap_usd` = 5.8% NAV)!
+        # Skip `harvest_only` pairs (SEI, FET), enforce Dynamic % NAV Anti-Stacking Cap & Re-Entry Pullback Guard (45m / -25 bps)!
         max_vpin_allowed = 0.55 if golden_harvest_mode else 0.99
+        cooldown_info = recent_sell_cooldown_map.get(inst_id)
+        reentry_blocked = False
+        if cooldown_info:
+            last_s_px, _ = cooldown_info
+            # Require at least -25 bps pullback below the recent SELL price within 45 minutes
+            if last_s_px > 0 and sig.mid_price > last_s_px * 0.9975:
+                reentry_blocked = True
+
+        # Deep-Dip Sniper Reserve: if free_usdc <= $10.50 (last bullet), require either Rebound Catcher, strong positive OppScore (>= 10), or >= 50 bps discount from 2h high!
+        last_bullet_ready = True
+        if free_usdc <= 10.50 and not (is_rebound_leader or calc_opp_score >= 10.0 or drop_from_high_bps >= 50.0):
+            last_bullet_ready = False
+
         if (
             not harvest_only
             and not has_buy_order
+            and not reentry_blocked
+            and last_bullet_ready
             and inv_weight < 0.20
             and active_qs_usd < (dynamic_qs_cap_usd * 0.92)
             and btc_lead_lag_bps > -14.0
@@ -866,6 +945,8 @@ def run_predator_cycle(
     except Exception as e:
         print(f"[!] SQLite commit warning: {e}")
 
+    cycle_latency_ms = int(round((time.perf_counter() - t_cycle_start) * 1000.0))
+
     pred_engine.save_state()
 
     debate_res = None
@@ -890,6 +971,7 @@ def run_predator_cycle(
 
     result_payload = {
         "timestamp": now_iso,
+        "latency_scan_ms": cycle_latency_ms,
         "nav_usdc": round(nav_usdc, 2),
         "spot_equity_usd": round(spot_equity_usd, 2),
         "free_usdc": round(free_usdc, 2),

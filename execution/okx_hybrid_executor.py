@@ -37,6 +37,19 @@ def _build_ssl_context() -> ssl.SSLContext:
         return ssl.create_default_context()
 
 
+_SHARED_SSL_CTX = _build_ssl_context()
+_SHARED_HTTP_SESSION: Any = None
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    _SHARED_HTTP_SESSION = requests.Session()
+    _adapter = HTTPAdapter(pool_connections=16, pool_maxsize=16, max_retries=0)
+    _SHARED_HTTP_SESSION.mount("https://", _adapter)
+    _SHARED_HTTP_SESSION.mount("http://", _adapter)
+except Exception:
+    _SHARED_HTTP_SESSION = None
+
+
 def _load_okx_toml_profile(profile_name: str = "democlaw") -> Dict[str, str]:
     toml_path = os.path.expanduser("~/.okx/config.toml")
     if not os.path.exists(toml_path):
@@ -125,9 +138,19 @@ class OKXNativeClient:
 
         for attempt in range(3):
             try:
+                if _SHARED_HTTP_SESSION is not None:
+                    resp = _SHARED_HTTP_SESSION.request(
+                        method=method.upper(),
+                        url=url,
+                        data=body_str.encode("utf-8") if body_str else None,
+                        headers=headers,
+                        timeout=timeout,
+                    )
+                    resp.raise_for_status()
+                    return resp.json()
                 data_bytes = body_str.encode("utf-8") if body_str else None
                 req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method.upper())
-                with urllib.request.urlopen(req, timeout=timeout, context=_build_ssl_context()) as resp:
+                with urllib.request.urlopen(req, timeout=timeout, context=_SHARED_SSL_CTX) as resp:
                     return json.loads(resp.read().decode("utf-8"))
             except Exception as e:
                 if attempt == 2:
