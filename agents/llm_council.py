@@ -84,24 +84,29 @@ class AdversarialLLMCouncil:
             alpha = float(item.get("composite_alpha", 0.0))
             vpin = float(item.get("vpin_toxicity", 0.25))
             pred_bps = float(item.get("predicted_return_bps", 0.0))
+            k1h = float(item.get("kronos_1h_bps", 0.0))
+            k2h = float(item.get("kronos_2h_bps", 0.0))
+            aligned = bool(item.get("kronos_aligned", False))
 
-            # Penalize conviction when VPIN toxicity is high and flow is negative
-            conv = max(-1.0, min(1.0, 0.6 * alpha + 0.4 * (pred_bps / 25.0)))
-            if vpin > 0.65 and alpha < 0:
-                conv = min(conv, -0.55)
+            # Combine L2 microstructure alpha, blended prediction, and 3-horizon Kronos alignment
+            kronos_boost = 0.25 if (aligned and k1h > 5.0 and k2h > 0.0) else (0.12 if k1h > 10.0 else (-0.20 if k2h < -25.0 else 0.0))
+            conv = max(-1.0, min(1.0, 0.50 * alpha + 0.35 * (pred_bps / 25.0) + kronos_boost))
+            if vpin > 0.72 and alpha < -0.15 and not (aligned and k1h > 10.0):
+                conv = min(conv, -0.45)
                 top_toxic.append(f"{inst}(VPIN={vpin:.2f})")
-            elif conv > 0.35:
+            elif conv > 0.25 or (aligned and k1h > 10.0):
+                conv = max(conv, 0.30)
                 top_bulls.append(f"{inst}(+{pred_bps:.1f}bps)")
 
             convictions[inst] = round(conv, 3)
 
         avg_conv = sum(convictions.values()) / max(len(convictions), 1)
-        if avg_conv > 0.20:
+        if avg_conv > 0.15 or len(top_bulls) >= 2:
             global_regime = "PREDATOR_OFFENSIVE_BREAKOUT"
-            agg_mult = 1.45
-        elif top_toxic:
+            agg_mult = 1.35
+        elif len(top_toxic) >= 5 and not top_bulls:
             global_regime = "DEFENSIVE_VPIN_SHIELD"
-            agg_mult = 0.75
+            agg_mult = 0.90
         else:
             global_regime = "HIGH_VELOCITY_SCALP_MM"
             agg_mult = 1.15

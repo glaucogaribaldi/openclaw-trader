@@ -6,21 +6,21 @@ BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
 DB_PATH = os.path.join(BASE_DIR, "config/okx_trader.db")
 SA_KEY_PATH = os.path.join(BASE_DIR, "config/gsheet_sa_key.json")
 SPREADSHEET_ID = "1gNr4yEpdynK4juTIzG5m5AJ365y8E5MzZ33AEDaUjwU"
+sys.path.insert(0, BASE_DIR)
+from execution.okx_hybrid_executor import OKXNativeClient
 
 def get_okx_balance():
     try:
-        res = subprocess.run(["okx", "--profile", "democlaw", "account", "balance", "--json"], capture_output=True, text=True)
-        data = json.loads(res.stdout)
-        if isinstance(data, list) and len(data) > 0 and 'details' in data[0]:
-            return data[0]['details']
+        client = OKXNativeClient(simulated_demo=False)
+        return client.get_account_balances()
     except Exception as e:
         print(f"Error fetching OKX balance: {e}")
     return []
 
 def get_okx_orders():
     try:
-        res = subprocess.run(["okx", "--profile", "democlaw", "spot", "orders", "--json"], capture_output=True, text=True)
-        return json.loads(res.stdout)
+        client = OKXNativeClient(simulated_demo=False)
+        return client.get_open_orders()
     except Exception as e:
         print(f"Error fetching OKX orders: {e}")
     return []
@@ -66,10 +66,10 @@ def main():
         if b.get('ccy') == 'USDC':
             usdc_cash = float(b.get('availBal') or 0.0) + float(b.get('frozenBal') or 0.0)
 
-    # 2. Fetch SQLite Ledger stats
+    # 2. Fetch SQLite Ledger stats (strictly since official Predator Run Start 2026-10-22T19:00:00Z)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT COUNT(*), SUM(realized_pnl_usdc) FROM trade_ledger")
+    c.execute("SELECT COUNT(*), SUM(realized_pnl_usd) FROM predator_fills_ledger WHERE fill_time >= '2026-10-22T19:00:00Z'")
     row = c.fetchone()
     total_fills = row[0] or 0
     total_pnl = row[1] or 0.0
@@ -132,14 +132,8 @@ def main():
         f.write(report_md)
     print(f"Updated {report_path} successfully!")
 
-    # 6. Commit and Push to GitHub
-    try:
-        subprocess.run(["git", "-C", BASE_DIR, "add", "docs/RUN_REPORT.md"], check=True)
-        subprocess.run(["git", "-C", BASE_DIR, "commit", "-m", f"auto: daily openrouter AI audit sync ({time.strftime('%Y-%m-%d')})"], check=True)
-        subprocess.run(["git", "-C", BASE_DIR, "push", "origin", "main"], check=True)
-        print("Pushed daily RUN_REPORT.md update to GitHub main branch!")
-    except Exception as e:
-        print(f"Git commit/push note: {e}")
+    # 6. Local Report Updated (GitHub push handled from sovereign Mac workspace to avoid dirty working tree on brody)
+    print("Local docs/RUN_REPORT.md and Google Sheet Summary updated cleanly!")
 
 if __name__ == "__main__":
     main()

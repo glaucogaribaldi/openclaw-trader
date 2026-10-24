@@ -4,6 +4,8 @@ import os, sys, json, time, sqlite3, subprocess, argparse
 BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
 DIRECTIVE_PATH = os.path.join(BASE_DIR, "config/ai_hourly_directive.json")
 ENV_PATH = os.path.join(BASE_DIR, ".env")
+sys.path.insert(0, BASE_DIR)
+from execution.okx_hybrid_executor import OKXNativeClient
 
 def load_openrouter_key():
     try:
@@ -18,18 +20,15 @@ def load_openrouter_key():
 
 def get_okx_balance():
     try:
-        res = subprocess.run(["okx", "--profile", "democlaw", "account", "balance", "--json"], capture_output=True, text=True, timeout=5)
-        data = json.loads(res.stdout)
-        if isinstance(data, list) and len(data) > 0 and 'details' in data[0]:
-            return data[0]['details']
+        client = OKXNativeClient(simulated_demo=False)
+        return client.get_account_balances()
     except Exception:
         return []
 
 def get_okx_orders():
     try:
-        res = subprocess.run(["okx", "--profile", "democlaw", "spot", "orders", "--json"], capture_output=True, text=True, timeout=5)
-        data = json.loads(res.stdout)
-        return data if isinstance(data, list) else []
+        client = OKXNativeClient(simulated_demo=False)
+        return client.get_open_orders()
     except Exception:
         return []
 

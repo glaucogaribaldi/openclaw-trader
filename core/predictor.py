@@ -117,39 +117,45 @@ class OnlineRLSPredictor:
         return sum(x * y for x, y in zip(a, b))
 
     def update_and_predict(self, features: List[float], current_price: float) -> Tuple[float, float]:
-        # 1. If we have a previous observation, update RLS weights with realized return in bps
+        # 1. If we have a previous observation and price moved meaningfully (>= 1.2 bps, filtering out 15s flat-tick noise!),
+        # update RLS weights with realized return in bps
         if self.last_features is not None and self.last_price is not None and self.last_price > 0 and current_price > 0:
             realized_bps = ((current_price - self.last_price) / self.last_price) * 10000.0
-            realized_bps = max(-200.0, min(200.0, realized_bps))
+            if abs(realized_bps) >= 1.2:
+                realized_bps = max(-200.0, min(200.0, realized_bps))
 
-            if (self.last_pred_bps > 0.5 and realized_bps > 0) or (self.last_pred_bps < -0.5 and realized_bps < 0):
-                self.directional_hits += 1
-            self.total_updates += 1
+                if (self.last_pred_bps > 0.5 and realized_bps > 0) or (self.last_pred_bps < -0.5 and realized_bps < 0):
+                    self.directional_hits += 1
+                self.total_updates += 1
 
-            x = self.last_features
-            # P * x
-            Px = [sum(self.P[i][j] * x[j] for j in range(self.d)) for i in range(self.d)]
-            denom = self.lam + self._dot(x, Px)
-            if denom > 1e-9:
-                gain = [px_i / denom for px_i in Px]
-                pred_prev = self._dot(self.w, x)
-                err = realized_bps - pred_prev
-                # Update weights
-                for i in range(self.d):
-                    self.w[i] += gain[i] * err
-                    # Clamp weights for numerical stability
-                    self.w[i] = max(-60.0, min(60.0, self.w[i]))
-                # Update P = (P - k * x^T * P) / lambda
-                for i in range(self.d):
-                    for j in range(self.d):
-                        self.P[i][j] = (self.P[i][j] - gain[i] * Px[j]) / self.lam
+                x = self.last_features
+                # P * x
+                Px = [sum(self.P[i][j] * x[j] for j in range(self.d)) for i in range(self.d)]
+                denom = self.lam + self._dot(x, Px)
+                if denom > 1e-9:
+                    gain = [px_i / denom for px_i in Px]
+                    pred_prev = self._dot(self.w, x)
+                    err = realized_bps - pred_prev
+                    # Update weights with L2 shrinkage toward microstructure theory priors [0, 6, 10, 6, 8, 5]
+                    priors = [0.0, 6.0, 10.0, 6.0, 8.0, 5.0]
+                    for i in range(self.d):
+                        self.w[i] = 0.995 * (self.w[i] + gain[i] * err) + 0.005 * priors[i]
+                        # Clamp weights to [-25.0, +25.0] to prevent single-feature saturation
+                        self.w[i] = max(-25.0, min(25.0, self.w[i]))
+                    # Update P = (P - k * x^T * P) / lambda with covariance cap
+                    for i in range(self.d):
+                        for j in range(self.d):
+                            self.P[i][j] = max(-50.0, min(50.0, (self.P[i][j] - gain[i] * Px[j]) / self.lam))
+
+                self.last_features = features
+                self.last_price = current_price
+        else:
+            self.last_features = features
+            self.last_price = current_price
 
         # 2. Predict next horizon return in bps
         pred_bps = self._dot(self.w, features)
-        pred_bps = max(-120.0, min(120.0, pred_bps))
-
-        self.last_features = features
-        self.last_price = current_price
+        pred_bps = max(-80.0, min(80.0, pred_bps))
         self.last_pred_bps = pred_bps
 
         hit_rate = (self.directional_hits / self.total_updates) if self.total_updates >= 5 else 0.58
@@ -176,7 +182,7 @@ class PredatorPredictiveEngine:
             for inst_id, mdata in data.get("models", {}).items():
                 mod = OnlineRLSPredictor()
                 if len(mdata.get("w", [])) == mod.d:
-                    mod.w = mdata["w"]
+                    mod.w = [max(-25.0, min(25.0, float(x))) for x in mdata["w"]]
                 mod.total_updates = int(mdata.get("total_updates", 0))
                 mod.directional_hits = int(mdata.get("directional_hits", 0))
                 self.rls_models[inst_id] = mod
