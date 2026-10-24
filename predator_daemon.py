@@ -305,9 +305,11 @@ def run_predator_cycle(
         btc_sig = micro_engine.process_snapshot("BTC-USDC", btc_bids, btc_asks, btc_trades)
         btc_lead_lag_bps = round(btc_sig.composite_alpha * 18.0, 2)
 
-    # 0B. Ratchet Capital Recycler Pool, Darwinian Velocity Map & Golden Rule Intraday Defender
+    # 0B. Ratchet Capital Recycler Pool, Darwinian Velocity Map, Intraday Rebound Catcher & Golden Rule Intraday Defender
     ratchet_pool_usd = 0.0
     velocity_turns_map: Dict[str, int] = {}
+    low_2h_map: Dict[str, float] = {}
+    high_2h_map: Dict[str, float] = {}
     golden_harvest_mode = False
     try:
         cur_r = conn.cursor()
@@ -327,6 +329,19 @@ def run_predator_cycle(
         )
         for v_inst, v_cnt in cur_r.fetchall():
             velocity_turns_map[str(v_inst)] = int(v_cnt or 0)
+
+        # Intraday Rebound Catcher: compute 2h rolling low/high per instrument from SQLite telemetry
+        cur_r.execute(
+            """
+            SELECT inst_id, MIN(mid_price), MAX(mid_price)
+            FROM microstructure_telemetry
+            WHERE datetime(timestamp) >= datetime('now', '-2 hours') AND mid_price > 0
+            GROUP BY inst_id
+            """
+        )
+        for r_inst, r_min, r_max in cur_r.fetchall():
+            low_2h_map[str(r_inst)] = float(r_min or 0.0)
+            high_2h_map[str(r_inst)] = float(r_max or 0.0)
 
         # Golden Rule Intraday Profit Defender: check if NAV rose >= +2.00% over 24h ago (or baseline)
         cur_r.execute(
@@ -403,11 +418,29 @@ def run_predator_cycle(
         active_qs_usd = sum(tr[1] * tr[2] for tr in active_tranches_by_inst.get(inst_id, []))
         vel_turns = velocity_turns_map.get(inst_id, 0)
         vel_bonus = min(10.0, vel_turns * 2.5)
+
+        # Intraday Rebound Catcher: detect V-reversal bounce off 2h low (+15..+120 bps from 2h low while still discounted from 2h high)
+        low_2h = low_2h_map.get(inst_id, sig.mid_price)
+        high_2h = high_2h_map.get(inst_id, sig.mid_price)
+        bounce_from_low_bps = ((sig.mid_price - low_2h) / low_2h * 10000.0) if low_2h > 0 else 0.0
+        drop_from_high_bps = ((high_2h - sig.mid_price) / high_2h * 10000.0) if high_2h > 0 else 0.0
+        is_rebound_leader = bool(
+            not harvest_only
+            and 12.0 <= bounce_from_low_bps <= 130.0
+            and drop_from_high_bps >= 25.0
+            and sig.ofi_norm >= 0.15
+            and sig.vpin_toxicity < 0.65
+            and (k_ret_bps > -15.0 or pred.kalman_velocity_bps > 0.0)
+        )
+        rebound_bonus = round(min(18.0, (bounce_from_low_bps * 0.22) + (sig.ofi_norm * 10.0)), 2) if is_rebound_leader else 0.0
+        eff_buy_offset_bps = round(max(4.0, pred.recommended_buy_offset_bps * 0.45), 1) if is_rebound_leader else pred.recommended_buy_offset_bps
+
         calc_opp_score = round(
             pred.predicted_return_bps
             + (sig.composite_alpha * 15.0)
             + liq_bonus
             + vel_bonus
+            + rebound_bonus
             + (4.0 if k_aligned and k_ret_bps > 0 else 0.0)
             - (sig.vpin_toxicity * 20.0)
             - (inv_weight * 50.0),
@@ -447,11 +480,14 @@ def run_predator_cycle(
             "btc_lead_lag_contrib_bps": round(btc_lead_lag_bps, 2),
             "predicted_return_bps": pred.predicted_return_bps,
             "kalman_velocity_bps": pred.kalman_velocity_bps,
+            "rebound_from_low_bps": round(bounce_from_low_bps, 1),
+            "rebound_bonus": rebound_bonus,
+            "is_rebound_leader": is_rebound_leader,
             "opp_score": calc_opp_score,
             "anti_stacking_locked": bool(active_qs_usd >= dynamic_qs_cap_usd * 0.92 or inv_weight >= 0.20),
             "confidence": pred.confidence,
-            "regime": pred.regime,
-            "buy_offset_bps": pred.recommended_buy_offset_bps,
+            "regime": "REBOUND_CATCHER" if is_rebound_leader else pred.regime,
+            "buy_offset_bps": eff_buy_offset_bps,
             "sell_tp_bps": pred.recommended_sell_tp_bps,
             "active_buy_px": None,
             "active_sell_px": None,
@@ -688,9 +724,6 @@ def run_predator_cycle(
 
         # 3B. Collect candidate for Opportunity-Ranked Cash Sweeper (evaluated after scanning all 12 pairs!)
         # Skip `harvest_only` pairs (SEI, FET) and enforce Dynamic % NAV Anti-Stacking Cap (`dynamic_qs_cap_usd` = 5.8% NAV)!
-        active_qs_usd = sum(tr[1] * tr[2] for tr in active_tranches_by_inst.get(inst_id, []))
-        vel_turns = velocity_turns_map.get(inst_id, 0)
-        vel_bonus = min(10.0, vel_turns * 2.5)  # Darwinian Velocity Multiplier (+2.5 pts per closed Quick-Scalp in 24h)
         max_vpin_allowed = 0.55 if golden_harvest_mode else 0.99
         if (
             not harvest_only
@@ -700,15 +733,7 @@ def run_predator_cycle(
             and btc_lead_lag_bps > -14.0
             and sig.vpin_toxicity <= max_vpin_allowed
         ):
-            opp_score = (
-                pred.predicted_return_bps
-                + (sig.composite_alpha * 15.0)
-                + liq_bonus
-                + vel_bonus
-                + (4.0 if k_aligned and k_ret_bps > 0 else 0.0)
-                - (sig.vpin_toxicity * 20.0)
-                - (inv_weight * 50.0)
-            )
+            opp_score = calc_opp_score
             buy_candidates.append({
                 "inst_id": inst_id,
                 "opp_score": round(opp_score, 3),
@@ -719,8 +744,8 @@ def run_predator_cycle(
                 "dec_sz": dec_sz,
                 "llm_bias": llm_bias,
                 "pred_bps": pred.predicted_return_bps,
-                "buy_offset_bps": pred.recommended_buy_offset_bps,
-                "regime": pred.regime,
+                "buy_offset_bps": eff_buy_offset_bps,
+                "regime": "REBOUND_CATCHER" if is_rebound_leader else pred.regime,
                 "has_sell_order": has_sell_order,
             })
 
