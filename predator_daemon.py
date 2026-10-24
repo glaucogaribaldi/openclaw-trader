@@ -696,11 +696,13 @@ def run_predator_cycle(
                             "inst_id": inst_id,
                             "added_avail_usd": round(avail_token_qty * sig.mid_price, 2),
                         })
-                    # AUDIT SAFEGUARD 3: Dynamic Profit-Lock & Ratchet Re-Pegging
+                    # AUDIT SAFEGUARD 3: Dynamic Profit-Lock, Ratchet & Cost-Basis Refresh Re-Pegging
+                    # Whenever Quick-Scalps lower a token's openAvgPx (e.g. SUI $1.0219 -> $0.9935, LINK $12.738 -> $12.270),
+                    # automatically pull down the legacy SELL order to the new lower `cost_floor_px` (`openAvgPx * 1.0022`)!
                     elif (
                         (unrealized_bps >= 180.0 and drift_bps > 8.0)
                         or (unrealized_bps >= 85.0 and drift_bps > 12.0 and pred.predicted_return_bps < 6.0)
-                        or (cost_floor_px > 0 and ord_px > cost_floor_px * 1.0005 and -350.0 <= unrealized_bps < 0.0)
+                        or (cost_floor_px > 0 and ord_px > cost_floor_px * 1.0005 and -1500.0 <= unrealized_bps < 0.0)
                     ):
                         if not dry_run:
                             client.cancel_order(inst_id, ord_id)
@@ -871,8 +873,10 @@ def run_predator_cycle(
             base_lot_usd = (spot_equity_usd * 0.85) / 10.0
             conv_boost = 1.0 + max(-0.25, min(0.45, cand["llm_bias"] * 0.4))
             alpha_boost = 1.0 + max(-0.15, min(0.15, cand["pred_bps"] / 100.0))
-            # Dynamic Compounding Lot Cap (`dynamic_qs_cap_usd` = 5.8% of current NAV, scaling up automatically through Dec 31!)
-            lot_usd = min(free_usdc * 0.995, dynamic_qs_cap_usd, max(6.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
+            # 2-Slot Parallel Split: when free_usdc is between $18.00 and $26.00 and at least 2 candidates exist,
+            # split into 2 equal ~$10.00 USDC bullets so 100% of cash works across 2 pairs simultaneously (zero $2.67 idle dust)!
+            slot_cap_usd = round(free_usdc * 0.50, 2) if (18.0 <= free_usdc <= 26.0 and len(buy_candidates) >= 2) else dynamic_qs_cap_usd
+            lot_usd = min(free_usdc * 0.995, slot_cap_usd, max(6.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
 
             target_buy_px = round(cand["mid_price"] * (1.0 - cand["buy_offset_bps"] / 10000.0), c_dec_px)
             if target_buy_px >= cand["best_ask"]:
