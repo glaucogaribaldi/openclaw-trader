@@ -213,6 +213,7 @@ class PredatorPredictiveEngine:
         kronos_upside_bps: float = 0.0,
         kronos_downside_bps: float = 0.0,
         kronos_macro_2h_bps: float = 0.0,
+        kronos_swing_12h_bps: float = 0.0,
         kronos_horizon_aligned: bool = False,
         btc_lead_lag_bps: float = 0.0,
     ) -> PredictionOutput:
@@ -235,8 +236,20 @@ class PredatorPredictiveEngine:
         ]
         raw_pred_bps, hit_rate = self.rls_models[inst].update_and_predict(features, sig.mid_price)
 
-        # Blend online RLS microstructure prediction (45%) + Kronos Multi-Horizon (35%: 5m + 15m) + LLM Council + BTC Lead-Lag (20%)
-        kronos_combo_bps = (0.75 * kronos_return_1h_bps + 0.25 * kronos_macro_2h_bps) if kronos_macro_2h_bps != 0.0 else kronos_return_1h_bps
+        # Blend online RLS microstructure prediction (45%) + Kronos 3-Horizon (35%: 5m + 15m + 1H with Macro Trend Veto!) + LLM Council + BTC Lead-Lag (20%)
+        eff_k1h = kronos_return_1h_bps
+        # Macro Trend Veto: if 2h macro trend is strongly bearish (< -20 bps) or 12h swing is bearish (< -30 bps),
+        # discount 5m counter-trend mean-reversion noise by 80% so it never fools us into buying a falling knife!
+        if eff_k1h > 0 and (kronos_macro_2h_bps < -20.0 or kronos_swing_12h_bps < -30.0) and not kronos_horizon_aligned:
+            eff_k1h = eff_k1h * 0.20
+
+        if kronos_swing_12h_bps != 0.0:
+            kronos_combo_bps = 0.50 * eff_k1h + 0.30 * kronos_macro_2h_bps + 0.20 * (kronos_swing_12h_bps * 0.35)
+        elif kronos_macro_2h_bps != 0.0:
+            kronos_combo_bps = 0.65 * eff_k1h + 0.35 * kronos_macro_2h_bps
+        else:
+            kronos_combo_bps = eff_k1h
+
         blended_pred_bps = (
             0.45 * raw_pred_bps
             + 0.35 * kronos_combo_bps

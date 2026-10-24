@@ -101,7 +101,7 @@ def fetch_okx_candles(inst_id: str, bar: str = "5m", limit: int = 180) -> pd.Dat
     return pd.DataFrame(rows)
 
 
-def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 2, force_refresh: bool = False) -> dict:
+def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 3, force_refresh: bool = False) -> dict:
     now = time.time()
     if not force_refresh:
         with CACHE_LOCK:
@@ -114,6 +114,7 @@ def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 2, force
         raise ValueError(f"Insufficient 5m candles for {inst_id}")
 
     df_15m = fetch_okx_candles(inst_id, bar="15m", limit=120)
+    df_1h = fetch_okx_candles(inst_id, bar="1H", limit=120)
 
     last_close = float(df_5m["close"].iloc[-1])
     last_ts_5m = df_5m["timestamps"].iloc[-1]
@@ -126,8 +127,8 @@ def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 2, force
             x_timestamp=df_5m["timestamps"],
             y_timestamp=y_ts_5m,
             pred_len=pred_len,
-            T=0.6,
-            top_p=0.9,
+            T=0.35,
+            top_p=0.85,
             sample_count=sample_count,
             verbose=False,
         )
@@ -141,14 +142,33 @@ def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 2, force
                 x_timestamp=df_15m["timestamps"],
                 y_timestamp=y_ts_15m,
                 pred_len=8,
-                T=0.6,
-                top_p=0.9,
-                sample_count=2,
+                T=0.35,
+                top_p=0.85,
+                sample_count=3,
                 verbose=False,
             )
             pred_close_2h = float(pred_df_15m["close"].iloc[-1])
             if last_close_15m > 0:
                 macro_ret_2h_bps = ((pred_close_2h - last_close_15m) / last_close_15m) * 10000.0
+
+        swing_ret_12h_bps = 0.0
+        if not df_1h.empty and len(df_1h) >= 30:
+            last_close_1h = float(df_1h["close"].iloc[-1])
+            last_ts_1h = df_1h["timestamps"].iloc[-1]
+            y_ts_1h = pd.Series([last_ts_1h + pd.Timedelta(hours=i + 1) for i in range(12)])
+            pred_df_1h = PREDICTOR.predict(
+                df=df_1h[["open", "high", "low", "close", "volume", "amount"]],
+                x_timestamp=df_1h["timestamps"],
+                y_timestamp=y_ts_1h,
+                pred_len=12,
+                T=0.35,
+                top_p=0.85,
+                sample_count=2,
+                verbose=False,
+            )
+            pred_close_12h = float(pred_df_1h["close"].iloc[-1])
+            if last_close_1h > 0:
+                swing_ret_12h_bps = ((pred_close_12h - last_close_1h) / last_close_1h) * 10000.0
 
     infer_ms = round((time.time() - t0) * 1000.0, 1)
 
@@ -174,6 +194,7 @@ def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 2, force
         "downside_low_bps": round(downside_bps, 2),
         "expected_return_1h_bps": round(net_return_bps, 2),
         "macro_return_2h_bps": round(macro_ret_2h_bps, 2),
+        "swing_return_12h_bps": round(swing_ret_12h_bps, 2),
         "horizon_aligned": horizon_aligned,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }

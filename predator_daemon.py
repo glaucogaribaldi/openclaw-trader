@@ -442,6 +442,7 @@ def run_predator_cycle(
         k_up_bps = k_fc.upside_high_bps if k_fc else 0.0
         k_down_bps = k_fc.downside_low_bps if k_fc else 0.0
         k_macro_2h_bps = k_fc.macro_return_2h_bps if k_fc else 0.0
+        k_swing_12h_bps = k_fc.swing_return_12h_bps if k_fc else 0.0
         k_aligned = k_fc.horizon_aligned if k_fc else False
         harvest_only = bool(meta.get("harvest_only", False))
         liq_bonus = float(meta.get("liq_bonus", 0.0))
@@ -454,6 +455,7 @@ def run_predator_cycle(
             kronos_upside_bps=k_up_bps,
             kronos_downside_bps=k_down_bps,
             kronos_macro_2h_bps=k_macro_2h_bps,
+            kronos_swing_12h_bps=k_swing_12h_bps,
             kronos_horizon_aligned=k_aligned,
             btc_lead_lag_bps=btc_lead_lag_bps,
         )

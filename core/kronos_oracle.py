@@ -32,6 +32,7 @@ class KronosForecast:
     downside_low_bps: float
     expected_return_1h_bps: float
     macro_return_2h_bps: float = 0.0
+    swing_return_12h_bps: float = 0.0
     horizon_aligned: bool = False
     infer_ms: float = 0.0
 
@@ -63,6 +64,7 @@ class KronosOracleClient:
                         downside_low_bps=float(item.get("downside_low_bps", 25.0)),
                         expected_return_1h_bps=float(item.get("expected_return_1h_bps", 0.0)),
                         macro_return_2h_bps=float(item.get("macro_return_2h_bps", 0.0)),
+                        swing_return_12h_bps=float(item.get("swing_return_12h_bps", 0.0)),
                         horizon_aligned=bool(item.get("horizon_aligned", False)),
                         infer_ms=float(item.get("infer_ms", 0.0)),
                     )
