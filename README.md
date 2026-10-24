@@ -1,49 +1,49 @@
-# ⚡ TRE OS v7.0 (SOVEREIGN PREDATOR EDITION) • AUTONOMOUS PREDICTIVE MICROSTRUCTURE & LOCAL KRONOS-MINI QUANT OS (OKX SPOT EEA)
+# ⚡ TRE OS v7.7 (SOVEREIGN PREDATOR EDITION) • AUTONOMOUS FLUID MULTI-HORIZON MICROSTRUCTURE & LOCAL KRONOS-MINI QUANT OS (OKX SPOT EEA)
 
-**TRE OS v7.0 — Sovereign Predator Edition** (`openclaw-trader`) è il sistema operativo quantitativo autonomo progettato per **OKX Spot (Area EEA, Zero Leva, `tdMode: cash`, Rischio Liquidazione Zero, Esecuzione 100% Post-Only Maker `0.00% Fee`)**.
+**TRE OS v7.7 — Sovereign Predator Edition** (`openclaw-trader`) è il sistema operativo quantitativo autonomo progettato per **OKX Spot (Area EEA, Zero Leva, `tdMode: cash`, Rischio Liquidazione Zero, Esecuzione 100% Post-Only Maker `0.00% Fee`)**.
 
-Nella versione **v7.0 Sovereign**, l'intero stack (incluso il Foundation Model finanziario **`NeoQuasar/Kronos-mini` da 4.1M parametri** con previsioni Multi-Orizzonte `5m + 15m`) gira **al 100% dentro una singola Mini-VPS Linux (`brody`, `< 680 MB RAM` complessivi, costo aggiuntivo `$0`)** senza alcuna dipendenza da server GPU esterni, mantenendo come mandato inviolabile la **Regola Aurea di Compounding Organico Giornaliero (`+0.70%` ↔ `+5.00%` al giorno)**.
+Nella versione **v7.7 Sovereign**, l'intero stack (incluso il Foundation Model finanziario **`NeoQuasar/Kronos-mini` da 4.1M parametri** con previsioni **Triplo-Orizzonte `5m + 15m + 1H`** a bassa varianza `T=0.35`, il **Cervello Fluido Multi-Orizzonte** e il nuovo **Institutional Web Terminal React/TypeScript/Tailwind**) gira **al 100% dentro una singola Mini-VPS Linux (`brody`, `< 680 MB RAM` complessivi, costo aggiuntivo `$0`)** senza alcuna dipendenza da server GPU esterni, mantenendo come mandato inviolabile la **Regola Aurea di Compounding Organico Giornaliero (`+0.70%` ↔ `+5.00%` al giorno)** fino al **31 Dicembre 2026**.
 
 ---
 
-## 🗺️ SCHEMA DECISIONALE COMPLETO (ARCHITETTURA & FLUSSO A 15 SECONDI)
+## 🗺️ SCHEMA DECISIONALE COMPLETO (ARCHITETTURA & CERVELLO FLUIDO A 15 SECONDI)
 
 ```mermaid
 flowchart TD
     subgraph BRODY["🖥️ VPS SOVRANA BRODY (Debian 13 • 2 vCPU • 964MB RAM + 2GB NVMe Swap)"]
         direction TB
         
-        subgraph KRONOS_SVC["🧠 kronos-oracle.service (127.0.0.1:8090 • Background Worker)"]
-            K1["Fetch Candele OKX EEA\n(180×5m + 120×15m)"] --> K2["NeoQuasar/Kronos-mini (4.1M)\n+ Kronos-Tokenizer-2k"]
-            K2 --> K3["Cache RAM O(1) (0.00ms HTTP)\n• Micro 1h: ret_1h_bps, high_bps, low_bps\n• Macro 2h: macro_2h_bps, horizon_aligned"]
+        subgraph KRONOS_SVC["🧠 kronos-oracle.service (127.0.0.1:8090 • 3-Horizon Worker)"]
+            K1["Fetch Candele OKX EEA\n(180×5m + 120×15m + 120×1H)"] --> K2["NeoQuasar/Kronos-mini (4.1M)\nT=0.35, sample_count=3"]
+            K2 --> K3["Cache RAM O(1) (0.00ms HTTP)\n• Micro 1h (5m): ret_1h_bps, high/low\n• Macro 2h (15m): macro_2h_bps\n• Swing 12h (1H): swing_12h_bps"]
         end
 
-        subgraph DAEMON["⚡ openclaw-predator.service (Ciclo Deterministico ogni 15s)"]
-            P1["1. Parallel L2 Prefetch (6 Thread, ~0.85s)\nOrderBook Top-5 + 25 Trades per:\nBTC-USDC + 12 Coppie Universo"]
+        subgraph DAEMON["⚡ openclaw-predator.service (Ciclo Deterministico ogni 15s • Keep-Alive TLS Pool)"]
+            P1["1. Parallel Prefetch (4-Thread Auth + 6-Thread L2)\nBalances, OpenOrders, Fills, Kronos +\nOrderBook Top-5 & 25 Trades per BTC + 12 Coppie"]
             
             P1 --> B_RADAR["2. Cross-Asset BTC-USDC Radar\nCalcola OFI_BTC & btc_lead_lag_bps"]
-            P1 --> MICRO["3. Microstruttura L2 (con Trade Deduplication)\n• Cont-Stoikov OFI (5 livelli)\n• VPIN Toxicity Bucket Tracker\n• Hawkes Burst Intensity + Stoikov Micro-Price"]
+            P1 --> MICRO["3. Microstruttura L2 + Rebound Catcher (2h Low/High)\n• Cont-Stoikov OFI (5 livelli) + VPIN + Hawkes Burst\n• Rileva inversioni a V dai minimi 2h (+12..+130 bps)"]
             
             K3 --> BLEND
             B_RADAR --> BLEND
-            MICRO --> BLEND["4. Fusione Predittiva a 4 Fattori (core/predictor.py)\n• 45% Online RLS (λ=0.985) + Kalman Velocity\n• 35% Kronos-mini Multi-Horizon (75% 5m + 25% 15m)\n• 12% Multi-Model Free OpenRouter Council\n• 8% BTC-USDC Lead-Lag Radar"]
+            MICRO --> BLEND["4. Fusione Predittiva a 4 Fattori + Macro Trend Veto (core/predictor.py)\n• 45% Online RLS (Noise Gate >=1.2bps + L2 Prior Shrinkage) + Kalman\n• 35% Kronos-mini 3-Horizon (5m + 15m + 1H con Veto se 2h<-20bps)\n• 12% Multi-Model Free OpenRouter Council (Kronos-aware)\n• 8% BTC-USDC Lead-Lag Radar"]
 
-            BLEND --> REGIME{"5. Selezione Regime\n& Scudo Rischio"}
+            BLEND --> REGIME{"5. Selezione Regime\n& Cervello Fluido"}
             
             REGIME -->|"VPIN >= 0.68 o\nBTC Lead-Lag < -12 bps"| R_TOXIC["🛡️ TOXIC_DIP_DEFENSE\n• Allarga Buy Trap (-65..-165 bps)\n• Blocca nuovi acquisti se BTC < -14 bps"]
-            REGIME -->|"Pred >= +12 bps &\nOFI >= +0.48 & Aligned"| R_BREAK["🚀 AGGRESSIVE_BREAKOUT\n• Turbo-Scalp TP (+20% se 5m+15m allineati)\n• Join Top-of-Book Bid (Post-Only)"]
-            REGIME -->|"|Pred| <= 6.5 bps &\nVPIN < 0.45"| R_SCALP["⚡ ACTIVE_SCALP_MM\n• Spread Stretto (-10..-26 bps Buy / +20..+52 bps TP)\n• Fast-Cycle Buy Chaser (Re-peg se drift > 38 bps)"]
-            REGIME -->|"Default"| R_MEAN["🔄 MEAN_REVERSION\n• Calibrato su Envelope High/Low di Kronos-mini"]
+            REGIME -->|"Bounce 2h +12..+130 bps &\nOFI >= +0.15 & Sconto >= 25 bps"| R_REB["🎯 REBOUND_CATCHER\n• Boost OppScore fino a +18.0 pts\n• Stringe Buy Offset (* 0.45) per catturare il minimo"]
+            REGIME -->|"Pred >= +8 bps & OFI >= +0.25 &\n(Kronos 2h >= +15 o 12h >= +60)"| R_RUN["🚀 ADAPTIVE UPSIDE RUNNER\n• Espande TP Quick-Scalp fino a +115 bps\n• Trailing 78% Profit-Lock sopra +55 bps\n• Bull-Wave Legacy Runner (+45..+95 bps)"]
+            REGIME -->|"Default / Range"| R_SCALP["⚡ ACTIVE_SCALP_MM & MEAN_REVERSION\n• Spread calibrato su Envelope Kronos-mini\n• Fast-Cycle Buy Chaser (Re-peg se drift > 38 bps)"]
         end
 
-        subgraph EXEC_GUARD["🔒 DOPPIO BINARIO DI ESECUZIONE & SALVAGUARDIE ZERO-LOSS"]
-            R_TOXIC & R_BREAK & R_SCALP & R_MEAN --> DUAL{"6. Gestione Ordini\n& Sub-Ledger"}
+        subgraph EXEC_GUARD["🔒 DOPPIO BINARIO, FAST-UNLOCK & COMPOUNDING ESPONENZIALE"]
+            R_TOXIC & R_REB & R_RUN & R_SCALP --> DUAL{"6. Gestione Ordini,\nSub-Ledger & Dashboard"}
             
-            DUAL -->|"Binario A: Posizioni Storiche"| LEGACY["🛡️ Cost-Basis Floor + Ratchet Recycler\n• 100% Inventory Coverage (Zero Moonbag inattive)\n• Prezzo Minimo Vendita >= openAvgPx × (1.0005..1.0022)\n• Ratchet Pool (20% profitti Quick-Scalp) avvicina il TP storico\n• FET & SEI in modalità Harvest & Retire (solo vendita in profitto)"]
+            DUAL -->|"Binario A: Posizioni Storiche"| LEGACY["🛡️ Cost-Basis Floor + Auto-Refresh + Micro-Slice Ratchet\n• 100% Inventory Coverage (Zero Moonbag inattive)\n• Cost-Basis Refresh: abbassa subito il TP storico quando un Quick-Scalp riduce openAvgPx\n• Micro-Slice Ratchet ($10 slice) + Bull-Wave Legacy Runner\n• FET & SEI in modalità Harvest & Retire"]
             
-            DUAL -->|"Binario B: Nuovi Acquisti"| QUICK["⚡ Fresh Tranche Quick-Scalp Sub-Ledger\n• Tabella fresh_scalp_tranches isola ogni nuovo BUY\n• Piazza subito SELL Post-Only a +35..+65 bps sopra buy_px\n• Fresh-Tranche Profit-Lock stringe al Best Ask a +28 bps"]
+            DUAL -->|"Binario B: Nuovi Acquisti"| QUICK["⚡ Fresh Tranche Quick-Scalp Sub-Ledger + Auto-Dust Sweeper\n• Isola ogni nuovo BUY in fresh_scalp_tranches (+35..+115 bps TP)\n• Time-Decay Fast-Exit Ratchet: dopo 4h abbassa il TP a +14 bps (sempre in utile!) per liberare cassa al primo rimbalzo\n• Auto-Dust Sweeper: raccoglie tutte le frazioni decimali residue"]
             
-            DUAL -->|"Binario C: Cassa Libera >= $8"| SWEEPER["🎯 Opportunity-Ranked Cash Sweeper\n• Classifica le 10 coppie attive per OppScore\n  (Pred_bps + 15·OFI + LiqBonus + Aligned - 20·VPIN - 50·InvWeight)\n• Anti-Stacking Guard: Max $17.50 USDC per singolo token\n• Tetto Max 20% NAV per singolo asset"]
+            DUAL -->|"Binario C: Cassa Libera >= $6"| SWEEPER["🎯 Opportunity-Ranked Cash Sweeper (2-Slot Split)\n• OppScore = Pred + 15·OFI + Liq + DarwinianVel + Rebound + MacroSwing12h - 20·VPIN - 50·Inv\n• 2-Slot Parallel Split ($10 + $10) + Dynamic 5.8% NAV Cap\n• Re-Entry Pullback Guard (45m / -25 bps) + Deep-Dip Sniper Reserve"]
         end
     end
 ```
