@@ -289,8 +289,26 @@ def run_predator_cycle(
                     if cur_tr.fetchone():
                         cur_tr.execute("UPDATE fresh_scalp_tranches SET status='CLOSED_PROFIT' WHERE trade_id = ?", (tr_id,))
                     else:
-                        cur_tr.execute("UPDATE fresh_scalp_tranches SET status='PENDING_TP', tp_ord_id='' WHERE trade_id = ?", (tr_id,))
-                        active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), "", 0.0, "PENDING_TP", age_h))
+                        # Before resetting to PENDING_TP, check if there is already a live SELL order on OKX matching this tranche's size/price!
+                        matched_live_ord = next(
+                            (
+                                o for o in open_orders
+                                if o.get("instId") == tr_inst
+                                and str(o.get("side") or "").lower() == "sell"
+                                and float(o.get("px") or 0) > float(tr_px)
+                                and abs(float(o.get("sz") or 0) - float(tr_sz)) / max(float(tr_sz), 0.0001) <= 0.15
+                            ),
+                            None,
+                        )
+                        if matched_live_ord:
+                            m_oid = str(matched_live_ord.get("ordId") or "")
+                            m_px = float(matched_live_ord.get("px") or tr_tp_px)
+                            cur_tr.execute("UPDATE fresh_scalp_tranches SET status='TP_PLACED', tp_ord_id=?, tp_px=? WHERE trade_id = ?", (m_oid, m_px, tr_id))
+                            active_tranche_ord_ids.add(m_oid)
+                            active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), m_oid, m_px, "TP_PLACED", age_h))
+                        else:
+                            cur_tr.execute("UPDATE fresh_scalp_tranches SET status='PENDING_TP', tp_ord_id='' WHERE trade_id = ?", (tr_id,))
+                            active_tranches_by_inst.setdefault(tr_inst, []).append((tr_id, float(tr_px), float(tr_sz), "", 0.0, "PENDING_TP", age_h))
                 else:
                     if tr_oid:
                         active_tranche_ord_ids.add(str(tr_oid))
