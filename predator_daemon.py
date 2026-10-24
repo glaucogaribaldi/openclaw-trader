@@ -736,10 +736,10 @@ def run_predator_cycle(
             row_dict["active_sell_px"] = active_ord_px
 
     # 3C. Opportunity-Ranked Cash Sweeper: Deploy free USDC starting from the #1 highest-scoring pair!
-    if free_usdc >= 8.0 and buy_candidates:
+    if free_usdc >= 6.0 and buy_candidates:
         buy_candidates.sort(key=lambda x: x["opp_score"], reverse=True)
         for cand in buy_candidates:
-            if free_usdc < 8.0:
+            if free_usdc < 6.0:
                 break
             c_inst = cand["inst_id"]
             c_dec_px = cand["dec_px"]
@@ -748,7 +748,7 @@ def run_predator_cycle(
             conv_boost = 1.0 + max(-0.25, min(0.45, cand["llm_bias"] * 0.4))
             alpha_boost = 1.0 + max(-0.15, min(0.15, cand["pred_bps"] / 100.0))
             # Dynamic Compounding Lot Cap (`dynamic_qs_cap_usd` = 5.8% of current NAV, scaling up automatically through Dec 31!)
-            lot_usd = min(free_usdc * 0.98, dynamic_qs_cap_usd, max(10.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
+            lot_usd = min(free_usdc * 0.995, dynamic_qs_cap_usd, max(6.0, round(base_lot_usd * agg_mult * conv_boost * alpha_boost, 2)))
 
             target_buy_px = round(cand["mid_price"] * (1.0 - cand["buy_offset_bps"] / 10000.0), c_dec_px)
             if target_buy_px >= cand["best_ask"]:
