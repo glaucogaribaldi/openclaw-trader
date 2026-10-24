@@ -495,12 +495,27 @@ def run_predator_cycle(
         rebound_bonus = round(min(18.0, (bounce_from_low_bps * 0.22) + (sig.ofi_norm * 10.0)), 2) if is_rebound_leader else 0.0
         eff_buy_offset_bps = round(max(4.0, pred.recommended_buy_offset_bps * 0.45), 1) if is_rebound_leader else pred.recommended_buy_offset_bps
 
+        # Multi-Horizon Perspective Score (12h Swing + 2h Macro): bridges micro-tactics with macro perspective!
+        macro_swing_bonus = round(
+            max(-12.0, min(14.0, (k_swing_12h_bps * 0.04) + (k_macro_2h_bps * 0.08))),
+            2,
+        )
+
+        # Adaptive Upside Runner Multiplier: when 1h/2h/12h horizons and L2 OFI all point strongly up,
+        # let winners run up to +85..+125 bps instead of cutting them off at +28..+35 bps!
+        is_upside_runner = bool(
+            pred.predicted_return_bps >= 8.0
+            and sig.ofi_norm >= 0.25
+            and (k_macro_2h_bps >= 15.0 or k_swing_12h_bps >= 60.0)
+        )
+
         calc_opp_score = round(
             pred.predicted_return_bps
             + (sig.composite_alpha * 15.0)
             + liq_bonus
             + vel_bonus
             + rebound_bonus
+            + macro_swing_bonus
             + (4.0 if k_aligned and k_ret_bps > 0 else 0.0)
             - (sig.vpin_toxicity * 20.0)
             - (inv_weight * 50.0),
@@ -622,6 +637,9 @@ def run_predator_cycle(
                                 fast_exit_px = round(max(tr_buy_px * 1.0014, asks[0][0]), dec_px)
                                 # Time-Decay Fast-Exit Ratchet: if tranche is open >= 4.0h and currently underwater (> -35 bps),
                                 # lower TP from +35 bps down to +14 bps (still 100% net profit!) so the first rebound frees cash immediately!
+                                # Dynamic Trailing Profit-Lock: in Upside Runner mode, let profit run to +55 bps (locking at -12 bps below peak)
+                                # instead of cutting early at +28 bps!
+                                eff_lock_trigger = 55.0 if is_upside_runner else quick_lock_trigger_bps
                                 if tr_age_h >= 4.0 and tr_unr_bps < -35.0 and ord_px > fast_exit_px * 1.0006:
                                     client.cancel_order(inst_id, ord_id)
                                     profit_lock_repegs += 1
@@ -643,10 +661,12 @@ def run_predator_cycle(
                                             "old_px": ord_px,
                                             "new_px": fast_exit_px,
                                         })
-                                elif tr_unr_bps >= quick_lock_trigger_bps and drift_bps > 5.0 and pred.predicted_return_bps < 4.0:
+                                elif tr_unr_bps >= eff_lock_trigger and drift_bps > 5.0 and (pred.predicted_return_bps < 4.0 or sig.ofi_norm < -0.15):
                                     client.cancel_order(inst_id, ord_id)
                                     profit_lock_repegs += 1
-                                    repeg_px = round(max(tr_buy_px * quick_lock_floor_mult, asks[0][0]), dec_px)
+                                    # Lock in 75% of current unrealized move (or at least quick_lock_floor_mult)
+                                    trail_mult = max(quick_lock_floor_mult, 1.0 + (tr_unr_bps * 0.78) / 10000.0)
+                                    repeg_px = round(max(tr_buy_px * trail_mult, asks[0][0]), dec_px)
                                     repeg_sz = math.floor(min(cash_token_qty, tr_buy_sz * 0.998 + avail_token_qty) * (10 ** dec_sz)) / (10 ** dec_sz)
                                     res_rp = client.place_spot_order(inst_id, "sell", repeg_sz, repeg_px, "PASSIVE_MAKER")
                                     new_rp_id = ""
@@ -730,7 +750,9 @@ def run_predator_cycle(
                     target_tr_qty = min(avail_token_qty, tr_buy_sz * 0.999)
                 scalp_sz = math.floor(target_tr_qty * (10 ** dec_sz)) / (10 ** dec_sz)
                 if scalp_sz * sig.mid_price >= 4.90:
-                    quick_tp_bps = 14.0 if tr_age_h >= 4.0 else max(35.0, min(65.0, pred.recommended_sell_tp_bps))
+                    max_tp_cap = 115.0 if is_upside_runner else 65.0
+                    base_rec_tp = pred.recommended_sell_tp_bps * (1.35 if is_upside_runner else 1.0)
+                    quick_tp_bps = 14.0 if tr_age_h >= 4.0 else max(35.0, min(max_tp_cap, base_rec_tp))
                     quick_tp_px = round(max(tr_buy_px * (1.0 + quick_tp_bps / 10000.0), asks[0][0]), dec_px)
                     res_qtp = client.place_spot_order(
                         inst_id=inst_id,
@@ -766,10 +788,10 @@ def run_predator_cycle(
             for o in inst_orders
         ) and has_sell_order
 
-        # 3A. Place Take-Profit SELL orders enforcing Cost-Basis Floor (100% full inventory coverage to maximize free cash upon fill!)
+        # 3A. Place Take-Profit SELL orders enforcing Cost-Basis Floor (with Bull-Wave Legacy Runner so we don't cap rallies at +22 bps!)
         if not has_legacy_sell_order and avail_token_qty * sig.mid_price >= 5.0:
             sell_sz = math.floor(avail_token_qty * (10 ** dec_sz)) / (10 ** dec_sz)
-            if unrealized_bps >= 180.0:
+            if unrealized_bps >= 180.0 and (pred.predicted_return_bps < 4.0 or sig.ofi_norm < 0.0):
                 raw_tp_px = asks[0][0]
                 tp_style_tag = "PROFIT_LOCK_ASK_JOIN"
             elif unrealized_bps >= 85.0 and pred.predicted_return_bps < 6.0:
@@ -779,7 +801,15 @@ def run_predator_cycle(
                 raw_tp_px = sig.mid_price * (1.0 + pred.recommended_sell_tp_bps / 10000.0)
                 tp_style_tag = "PASSIVE_MAKER_TP"
 
-            target_sell_px = round(max(raw_tp_px, cost_floor_px, asks[0][0]), dec_px)
+            # Bull-Wave Legacy Runner: if price is recovering near breakeven (> -120 bps) AND 3-horizon Kronos + OFI signal a strong rally,
+            # expand the legacy target above openAvgPx by +45..+85 bps instead of selling flat at +22 bps!
+            effective_floor_px = cost_floor_px
+            if is_upside_runner and unrealized_bps >= -120.0 and open_avg_px > 0:
+                runner_tp_bps = max(45.0, min(95.0, pred.recommended_sell_tp_bps * 1.25))
+                effective_floor_px = round(max(cost_floor_px, open_avg_px * (1.0 + runner_tp_bps / 10000.0)), dec_px)
+                tp_style_tag = "BULL_WAVE_LEGACY_RUNNER_TP"
+
+            target_sell_px = round(max(raw_tp_px, effective_floor_px, asks[0][0]), dec_px)
             if sell_sz > 0 and target_sell_px > 0:
                 res_sell = {"data": []} if dry_run else client.place_spot_order(
                     inst_id=inst_id,
