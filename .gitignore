@@ -1,0 +1,43 @@
+# Secrets & Environment
+.env
+.env.*
+!config/.env.example
+config/config.toml
+config/openclaw_aibox.json
+config/openrouter_key.txt
+config/protected.json
+config/ai_hourly_directive.json
+config/purified_run_config.json
+config/purified_run_ready_notified.json
+config/predator_live_snapshot.json
+config/predator_llm_directive.json
+config/predator_audit_report.json
+config/rls_model_state.json
+config/*.db
+config/*.db-*
+*.db
+*.db-*
+*.sqlite*
+
+# Personal / Workspace state excluded from public repo
+memory/
+non_trader_operations/
+state/
+.clawhub/
+SOUL.md
+USER.md
+IDENTITY.md
+MEMORY.md
+DREAMS.md
+AGENTS.md
+openclaw-workspace-state.json*
+
+# Python & Node artifacts
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+node_modules/
+logs/
+exports/
+.DS_Store

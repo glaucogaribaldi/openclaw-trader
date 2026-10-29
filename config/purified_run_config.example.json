@@ -1,0 +1,14 @@
+{
+  "baseline_nav_usdc": "AUTO_DETECT_ON_FIRST_RUN",
+  "run_start_iso": "AUTO_DETECT_ON_FIRST_RUN",
+  "run_start_ts_ms": 0,
+  "purified_two_chamber_mode": true,
+  "expiry_iso": "NONE",
+  "cashout_taper_days": 6,
+  "chamber1_assault_pct": 0.63,
+  "chamber2_shield_pct": 0.37,
+  "max_loss_cap_bps": -400,
+  "fast_shield_trigger_bps": 38,
+  "daily_min_pct": 0.7,
+  "daily_max_pct": 5
+}

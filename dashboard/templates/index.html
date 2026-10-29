@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRE OS v5.6 • OPENTERMINAL QUANT DASHBOARD</title>
+    <!-- Inter & JetBrains Mono Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-base: #0a0d12;
+            --bg-card: #121721;
+            --bg-card-hover: #18202e;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #f0f4f8;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-cyan: #00f2fe;
+            --accent-blue: #38ef7d;
+            --accent-green: #00e676;
+            --accent-green-bg: rgba(0, 230, 118, 0.12);
+            --accent-red: #ff1744;
+            --accent-red-bg: rgba(255, 23, 68, 0.12);
+            --accent-purple: #7c4dff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Top Bar Header */
+        header {
+            background: rgba(18, 23, 33, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-logo {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            color: #000;
+            font-size: 18px;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
+        }
+
+        .brand-title {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        .brand-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-pills {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .pill {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-secondary);
+        }
+
+        .dot-green {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .btn-action {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-action:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .btn-accent {
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            color: #000;
+            border: none;
+            font-weight: 600;
+        }
+
+        .btn-accent:hover {
+            opacity: 0.9;
+            color: #000;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.4);
+        }
+
+        /* Container Layout */
+        .dashboard-container {
+            padding: 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Notice Banner */
+        .notice-banner {
+            background: rgba(0, 242, 254, 0.05);
+            border: 1px solid rgba(0, 242, 254, 0.2);
+            border-radius: 12px;
+            padding: 12px 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .notice-banner i {
+            color: var(--accent-cyan);
+            font-size: 16px;
+        }
+
+        /* KPI Cards Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .kpi-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .kpi-value {
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .kpi-sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .badge-pos {
+            background: var(--accent-green-bg);
+            color: var(--accent-green);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 11px;
+        }
+
+        /* Main Grid: Chart + Assets */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 1100px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-title {
+            font-size: 15px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-title i {
+            color: var(--accent-cyan);
+        }
+
+        /* Chart Canvas */
+        .chart-container {
+            height: 280px;
+            width: 100%;
+            position: relative;
+        }
+
+        /* Tables */
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            text-align: left;
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.02);
+            color: var(--text-muted);
+            font-weight: 500;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border-color);
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+            color: var(--text-primary);
+        }
+
+        .side-buy {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .side-sell {
+            color: var(--accent-red);
+            font-weight: 600;
+        }
+
+        /* Tabs Container */
+        .tabs-header {
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .tab-btn.active {
+            color: var(--accent-cyan);
+            background: rgba(0, 242, 254, 0.1);
+            font-weight: 600;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* AI Chat Side Panel / Modal */
+        .chat-drawer {
+            position: fixed;
+            top: 0;
+            right: -420px;
+            width: 420px;
+            height: 100vh;
+            background: #10141d;
+            border-left: 1px solid var(--border-color);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .chat-drawer.open {
+            right: 0;
+        }
+
+        .chat-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(18, 23, 33, 0.9);
+        }
+
+        .chat-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .msg-bubble {
+            max-width: 85%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .msg-user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            color: #000;
+            font-weight: 500;
+        }
+
+        .msg-ai {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .chat-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 10px 20px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .chip-btn {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 11px;
+            padding: 6px 10px;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .chip-btn:hover {
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .chat-input-area {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+            background: var(--bg-card);
+        }
+
+        .chat-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .chat-input:focus {
+            border-color: var(--accent-cyan);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Top Header -->
+    <header>
+        <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+                <div class="brand-title">TRE OS v5.6 • QUANT TERMINAL</div>
+                <div class="brand-sub">OKX SPOT MULTI-MICROSTRUCTURE ENGINE</div>
+            </div>
+        </div>
+
+        <div class="status-pills">
+            <div class="pill">
+                <div class="dot-green"></div>
+                <span>BRODY VPS LIVE</span>
+            </div>
+            <div class="pill">
+                <i class="fa-regular fa-clock"></i>
+                <span id="countdown-timer" class="mono">Next refresh: 19:59</span>
+            </div>
+            <div class="pill">
+                <i class="fa-solid fa-globe"></i>
+                <span id="system-time">Europe/Rome (CEST)</span>
+            </div>
+            <button class="btn-action" onclick="downloadCSV('/api/export/summary.csv')">
+                <i class="fa-solid fa-download"></i> Summary CSV
+            </button>
+            <button class="btn-action" onclick="downloadCSV('/api/export/ledger.csv')">
+                <i class="fa-solid fa-file-csv"></i> Ledger CSV
+            </button>
+            <button class="btn-action btn-accent" onclick="toggleChat()">
+                <i class="fa-solid fa-robot"></i> OpenRouter AI Assistant
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="dashboard-container">
+
+        <!-- Notice Banner -->
+        <div class="notice-banner">
+            <i class="fa-solid fa-circle-info"></i>
+            <div>
+                <strong>Nota Registro Posizioni:</strong> BTC (~$0,27) ed ETH (~$1,96) sono polveri residue storiche non gestite dalla strategia TRE OS v5.6 (focalizzata esclusivamente sui 8 token High-Beta dell'universo Spot OKX) e sono del tutto ininfluenti sul rendimento del portafoglio.
+            </div>
+        </div>
+
+        <!-- Top KPI Cards -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Net Asset Value (NAV)</div>
+                <div class="kpi-value mono" id="kpi-nav">$312.03</div>
+                <div class="kpi-sub">
+                    <span class="badge-pos" id="kpi-growth">+23.33%</span>
+                    <span>vs $253.01 Baseline</span>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-label">Cassa Liquida USDC</div>
+                <div class="kpi-value mono" id="kpi-cash">$101.43</div>
+                <div class="kpi-sub">
+                    <span>Libera: <strong id="kpi-cash-avail" class="mono">$35.46</strong></span> | 
+                    <span>In Limits: <strong id="kpi-cash-frozen" class="mono">$65.96</strong></span>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-label">PnL Realizzato Fills</div>
+                <div class="kpi-value mono" id="kpi-pnl">+$3.9602</div>
+                <div class="kpi-sub">
+                    <span class="badge-pos">56 Fills</span>
+                    <span>100% Maker-Only (0% Fee)</span>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-label">Trappole Limit Attive</div>
+                <div class="kpi-value mono" id="kpi-orders">30</div>
+                <div class="kpi-sub">
+                    <span>Lot Size: <strong class="mono">$17.73 USDC</strong></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Chart & Assets Grid -->
+        <div class="main-grid">
+            <!-- Compounding Chart Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="fa-solid fa-chart-line"></i> Curva di Compounding NAV Organico ($ USDC)
+                    </div>
+                    <div class="pill">Target Daily: [+0.7% <-> +5.0%]</div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="compoundingChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Asset Allocation Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="fa-solid fa-wallet"></i> Allocazione Portafoglio Live
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Asset</th>
+                                <th>Equity</th>
+                                <th>Valutazione ($)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="balances-table-body">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Tabs Panel -->
+        <div class="panel">
+            <div class="tabs-header">
+                <button class="tab-btn active" onclick="switchTab('orders-tab')"><i class="fa-solid fa-list-check"></i> Trappole Limit Attive (<span id="orders-count-badge">30</span>)</button>
+                <button class="tab-btn" onclick="switchTab('ledger-tab')"><i class="fa-solid fa-receipt"></i> Registro Fills Realizzati (56)</button>
+            </div>
+
+            <!-- Tab 1: Orders -->
+            <div id="orders-tab" class="tab-content active">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>Instrument</th>
+                                <th>Side</th>
+                                <th>Type</th>
+                                <th>Prezzo ($)</th>
+                                <th>Quantità</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-table-body">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab 2: Ledger -->
+            <div id="ledger-tab" class="tab-content">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Trade ID</th>
+                                <th>Instrument</th>
+                                <th>Side</th>
+                                <th>Prezzo ($)</th>
+                                <th>Quantità</th>
+                                <th>Notional ($)</th>
+                                <th>Realized PnL ($)</th>
+                                <th>Timestamp (CEST)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ledger-table-body">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- AI Chat Drawer Panel -->
+    <div class="chat-drawer" id="chat-drawer">
+        <div class="chat-header">
+            <div class="brand">
+                <i class="fa-solid fa-robot" style="color: var(--accent-cyan); font-size: 20px;"></i>
+                <div>
+                    <div class="brand-title">OpenRouter AI Assistant</div>
+                    <div class="brand-sub">TRE OS v5.6 CO-AUDITOR</div>
+                </div>
+            </div>
+            <button class="btn-action" onclick="toggleChat()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="chat-body" id="chat-messages">
+            <div class="msg-bubble msg-ai">
+                Ciao Giacomo! Sono il tuo assistente IA collegato live a TRE OS v5.6 su OpenRouter. Chiedimi qualsiasi spiegazione sulla performance, la cassa, le trappole limit o la gestione del rischio.
+            </div>
+        </div>
+
+        <div class="chat-chips">
+            <button class="chip-btn" onclick="sendChip('Spiegami la performance del NAV di oggi')">📊 Performance Oggi</button>
+            <button class="chip-btn" onclick="sendChip('Analizza la cassa e le trappole limit attive')">💵 Cassa & Trappole</button>
+            <button class="chip-btn" onclick="sendChip('Come funziona l Avellaneda-Stoikov Inventory Skew?')">📐 Inventory Skew</button>
+        </div>
+
+        <div class="chat-input-area">
+            <input type="text" class="chat-input" id="chat-user-input" placeholder="Chiedi spiegazioni all'IA..." onkeypress="if(event.key==='Enter') sendChatMessage()">
+            <button class="btn-action btn-accent" onclick="sendChatMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+
+    <!-- JS Logic -->
+    <script>
+        let chartInstance = null;
+        let countdownSeconds = 1200; // 20 minutes = 1200s
+
+        function initChart(labels, dataPoints) {
+            const ctx = document.getElementById('compoundingChart').getContext('2d');
+            
+            const gradient = ctx.createLinearGradient(0, 0, 0, 280);
+            gradient.addColorStop(0, 'rgba(0, 242, 254, 0.3)');
+            gradient.addColorStop(1, 'rgba(0, 242, 254, 0.0)');
+
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'NAV ($ USDC)',
+                        data: dataPoints,
+                        borderColor: '#00f2fe',
+                        borderWidth: 3,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.3,
+                        pointBackgroundColor: '#00f2fe',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8', font: { family: 'Inter', size: 11 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function fetchDashboardData() {
+            try {
+                const res = await fetch('/api/data');
+                const data = await res.json();
+
+                if (data.status === 'ok') {
+                    // Update KPIs
+                    document.getElementById('kpi-nav').innerText = '$' + data.current_nav_usdc.toFixed(2);
+                    document.getElementById('kpi-growth').innerText = (data.total_growth_pct >= 0 ? '+' : '') + data.total_growth_pct.toFixed(2) + '%';
+                    document.getElementById('kpi-cash').innerText = '$' + data.usdc_cash_total.toFixed(2);
+                    document.getElementById('kpi-cash-avail').innerText = '$' + data.usdc_cash_avail.toFixed(2);
+                    document.getElementById('kpi-cash-frozen').innerText = '$' + data.usdc_cash_frozen.toFixed(2);
+                    document.getElementById('kpi-pnl').innerText = (data.realized_pnl_usdc >= 0 ? '+' : '') + '$' + data.realized_pnl_usdc.toFixed(2);
+                    document.getElementById('kpi-orders').innerText = data.orders_count;
+                    document.getElementById('orders-count-badge').innerText = data.orders_count;
+
+                    // Update Chart
+                    if (data.compounding_curve) {
+                        initChart(data.compounding_curve.labels, data.compounding_curve.points);
+                    }
+
+                    // Update Asset Balances Table
+                    const balTbody = document.getElementById('balances-table-body');
+                    balTbody.innerHTML = '';
+                    if (data.balance) {
+                        data.balance.sort((a,b) => (parseFloat(b.eqUsd)||0) - (parseFloat(a.eqUsd)||0));
+                        data.balance.forEach(b => {
+                            const ccy = b.ccy || b.currency;
+                            const eq = parseFloat(b.eq || 0);
+                            const val = parseFloat(b.eqUsd || 0);
+                            if (eq > 0 || val > 0) {
+                                balTbody.innerHTML += `
+                                    <tr>
+                                        <td><strong>${ccy}</strong></td>
+                                        <td class="mono">${eq.toFixed(4)}</td>
+                                        <td class="mono">$${val.toFixed(2)}</td>
+                                    </tr>
+                                `;
+                            }
+                        });
+                    }
+
+                    // Update Orders Table
+                    const ordTbody = document.getElementById('orders-table-body');
+                    ordTbody.innerHTML = '';
+                    if (data.orders) {
+                        data.orders.forEach(o => {
+                            const sideClass = o.side.toUpperCase() === 'BUY' ? 'side-buy' : 'side-sell';
+                            ordTbody.innerHTML += `
+                                <tr>
+                                    <td class="mono">${o.ordId}</td>
+                                    <td><strong>${o.instId}</strong></td>
+                                    <td class="${sideClass}">${o.side.toUpperCase()}</td>
+                                    <td>${o.ordType.toUpperCase()}</td>
+                                    <td class="mono">$${parseFloat(o.px).toFixed(4)}</td>
+                                    <td class="mono">${parseFloat(o.sz).toFixed(2)}</td>
+                                </tr>
+                            `;
+                        });
+                    }
+
+                    // Update Ledger Table
+                    const ledgerTbody = document.getElementById('ledger-table-body');
+                    ledgerTbody.innerHTML = '';
+                    if (data.db_ledger) {
+                        data.db_ledger.forEach(l => {
+                            const sideClass = l.side.toUpperCase() === 'BUY' ? 'side-buy' : 'side-sell';
+                            ledgerTbody.innerHTML += `
+                                <tr>
+                                    <td class="mono">${l.trade_id}</td>
+                                    <td><strong>${l.inst_id}</strong></td>
+                                    <td class="${sideClass}">${l.side.toUpperCase()}</td>
+                                    <td class="mono">$${parseFloat(l.price).toFixed(4)}</td>
+                                    <td class="mono">${parseFloat(l.quantity).toFixed(4)}</td>
+                                    <td class="mono">$${parseFloat(l.notional).toFixed(2)}</td>
+                                    <td class="mono" style="color:var(--accent-green)">+$${parseFloat(l.pnl).toFixed(4)}</td>
+                                    <td class="mono">${l.timestamp}</td>
+                                </tr>
+                            `;
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching dashboard data:', err);
+            }
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+        }
+
+        function toggleChat() {
+            document.getElementById('chat-drawer').classList.toggle('open');
+        }
+
+        function sendChip(text) {
+            document.getElementById('chat-user-input').value = text;
+            sendChatMessage();
+        }
+
+        async function sendChatMessage() {
+            const inputEl = document.getElementById('chat-user-input');
+            const msg = inputEl.value.strip ? inputEl.value.strip() : inputEl.value.trim();
+            if (!msg) return;
+
+            const messagesContainer = document.getElementById('chat-messages');
+            messagesContainer.innerHTML += `<div class="msg-bubble msg-user">${msg}</div>`;
+            inputEl.value = '';
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            const loadingId = 'ai-loading-' + Date.now();
+            messagesContainer.innerHTML += `<div class="msg-bubble msg-ai" id="${loadingId}"><i class="fa-solid fa-spinner fa-spin"></i> Elaborazione risposta OpenRouter AI...</div>`;
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg })
+                });
+                const data = await res.json();
+                const aiEl = document.getElementById(loadingId);
+
+                if (data.status === 'ok') {
+                    aiEl.innerHTML = data.response.replace(/\n/g, '<br>');
+                } else {
+                    aiEl.innerHTML = 'Errore risposta AI: ' + (data.error || 'Risposta non valida');
+                }
+            } catch (e) {
+                const aiEl = document.getElementById(loadingId);
+                if (aiEl) aiEl.innerHTML = 'Errore connessione AI Chat.';
+            }
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function downloadCSV(url) {
+            window.location.href = url;
+        }
+
+        // Countdown Timer for 20m refresh
+        setInterval(() => {
+            countdownSeconds--;
+            if (countdownSeconds <= 0) {
+                countdownSeconds = 1200;
+                fetchDashboardData();
+            }
+            const m = Math.floor(countdownSeconds / 60);
+            const s = countdownSeconds % 60;
+            document.getElementById('countdown-timer').innerText = `Next refresh: ${m}:${s < 10 ? '0' : ''}${s}`;
+        }, 1000);
+
+        // System Time
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('system-time').innerText = now.toLocaleTimeString('it-IT') + ' CEST';
+        }, 1000);
+
+        // Initial Load
+        fetchDashboardData();
+    </script>
+</body>
+</html>

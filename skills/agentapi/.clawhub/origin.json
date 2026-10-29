@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "agentapi",
+  "ownerHandle": "gizmo-dev",
+  "installedAt": 1789832400857,
+  "artifact": {
+    "kind": "archive",
+    "sha256": "c32eb58c1271e1f086c502eb0528329f48009a41f744d6e9c75438fe75f221dd",
+    "integrity": "sha256-wy61jBJx4fCGxQLrBSgyn0gAmkH3RNbpx1Q4/nXyId0="
+  },
+  "skillFile": {
+    "path": "SKILL.md",
+    "sha256": "03cac69f4438bd0b9deae69515ccb970ff258856ba0e88df66e7c1e6ea9bb406"
+  },
+  "fileTreeSha256": "sha256:a1054de0816cd69aa10a07087a9fa17ee53bcafe92ac2edb767159f94ea29c85",
+  "installedVersion": "1.0.8"
+}

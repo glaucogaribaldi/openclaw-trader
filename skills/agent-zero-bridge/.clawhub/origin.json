@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "agent-zero-bridge",
+  "ownerHandle": "dowingard",
+  "installedVersion": "1.0.0",
+  "installedAt": 1788884695567,
+  "artifact": {
+    "kind": "archive",
+    "sha256": "e454ad16397af4a73c1dd9b56b5f7bcaeeb262f5111c8033902a39550a9e50f9",
+    "integrity": "sha256-5FStFjl69Kc8Hdm1a197yu6yYvURHIAzkCo5VQqeUPk="
+  },
+  "skillFile": {
+    "path": "SKILL.md",
+    "sha256": "e8a13dba2fe9e7708e940666314e9c7cd333b633792e82872c74166869f93574"
+  }
+}

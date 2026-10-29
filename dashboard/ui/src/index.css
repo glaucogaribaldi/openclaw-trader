@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'JetBrains Mono', 'Orbitron', monospace;
+    --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #04070D;
+    background-image:
+      radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.08) 0%, transparent 60%),
+      linear-gradient(rgba(14, 165, 233, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(14, 165, 233, 0.025) 1px, transparent 1px);
+    background-size: 100% 100%, 32px 32px, 32px 32px;
+    color: #E2F1FF;
+    overflow-x: hidden;
+  }
+
+  h1, h2, .font-editorial {
+    font-family: var(--font-display);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-wrap: balance;
+  }
+
+  .font-mono, .tabular-nums {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes holoPulse {
+  0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.45)); }
+  50% { opacity: 1; filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.85)); }
+}
+
+@keyframes synapseFlow {
+  to { stroke-dashoffset: -120; }
+}
+
+@keyframes scanlineSweep {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(400%); }
+}
+
+.holo-glow {
+  box-shadow: 0 0 18px rgba(14, 165, 233, 0.12), inset 0 0 12px rgba(14, 165, 233, 0.05);
+}
+
+.holo-synapse {
+  stroke-dasharray: 6 5;
+  animation: synapseFlow 8s linear infinite;
+}
+
+/* Star Wars HoloNet Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #04070D;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #0E3A5A;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #38BDF8;
+}

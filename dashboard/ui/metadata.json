@@ -1,0 +1,6 @@
+{
+  "name": "TRE OS v7.0 — Sovereign Predator Terminal",
+  "description": "Terminale quantitativo istituzionale in tempo reale per openclaw-trader (TRE OS v7.0 Sovereign Predator) su OKX Spot EEA. Telemetria microstrutturale L2, Oracolo AI locale Kronos-mini (4.1M), Doppio Binario Sub-Ledger e connessione push a 15s con la VPS brody.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
