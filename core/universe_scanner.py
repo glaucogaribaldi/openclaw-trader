@@ -113,6 +113,8 @@ class PredatorUniverseScanner:
             for cand in candidates:
                 iid = cand["inst_id"]
                 if iid in base_universe:
+                    base_universe[iid]["chg_24h_pct"] = cand["chg_24h_pct"]
+                    base_universe[iid]["range_24h_pct"] = cand["range_24h_pct"]
                     continue
                 if len(new_explorers) >= self.max_dynamic_explorers and cand["coin"] not in held_coins:
                     continue
@@ -125,6 +127,7 @@ class PredatorUniverseScanner:
                     "liq_bonus": round(min(8.5, max(2.0, cand["pred_rank"] * 0.45)), 2),
                     "is_dynamic_explorer": True,
                     "range_24h_pct": cand["range_24h_pct"],
+                    "chg_24h_pct": cand["chg_24h_pct"],
                     "vol_usd_24h": cand["vol_usd_24h"],
                 }
 

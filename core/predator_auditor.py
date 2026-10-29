@@ -336,6 +336,13 @@ class PredatorAuditor:
         self.ensure_tables(conn)
         cur = conn.cursor()
 
+        run_cfg_p = os.path.join(os.path.dirname(self.db_path), 'purified_run_config.json')
+        eff_start_iso = '2026-10-22T19:00:00Z'
+        if os.path.exists(run_cfg_p):
+            try:
+                eff_start_iso = str(json.load(open(run_cfg_p)).get('run_start_iso') or eff_start_iso)
+            except Exception:
+                pass
         cur.execute(
             """
             SELECT
@@ -345,8 +352,9 @@ class PredatorAuditor:
                 SUM(realized_pnl_usd),
                 SUM(CASE WHEN exec_type='M' THEN 1 ELSE 0 END)
             FROM predator_fills_ledger
-            WHERE fill_time >= '2026-10-22T19:00:00Z'
-            """
+            WHERE fill_time >= ?
+            """,
+            (eff_start_iso,),
         )
         row = cur.fetchone() or (0, 0, 0, 0.0, 0)
         total_fills = int(row[0] or 0)

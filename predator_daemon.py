@@ -848,7 +848,11 @@ def run_predator_cycle(
 
         # Speculative Bubble / Parabolic Blow-Off Guard: if token is already at the very top of its 2h range (< 8 bps from 2h high)
         # AND has surged > +180 bps from 2h low, block chasing the top unless all 3 Kronos horizons are aligned!
-        is_bubble_top = bool(bounce_from_low_bps >= 180.0 and drop_from_high_bps < 8.0 and not k_aligned)
+        # Anti-FOMO 24h Pump Guard: if coin already pumped >= +10.0% in 24h (or bounced >= +180 bps in 2h),
+        # block buying unless it has pulled back at least -350 bps (-3.50%) from its 2h high!
+        chg_24h_pct = float(meta.get("chg_24h_pct") or 0.0)
+        is_fomo_24h_pump = bool(chg_24h_pct >= 10.0 and drop_from_high_bps < 350.0)
+        is_bubble_top = bool(is_fomo_24h_pump or (bounce_from_low_bps >= 180.0 and drop_from_high_bps < 8.0 and not k_aligned))
 
         # Adaptive Upside Runner Multiplier: when 1h/2h/12h horizons and L2 OFI all point strongly up,
         # let winners run up to +85..+140 bps (and up to +160 bps in speculative bubble rallies)!

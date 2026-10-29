@@ -14,7 +14,7 @@ Runs in background with 0% write permissions (100% Read-Only Safety).
 import os, sys, json, sqlite3, subprocess, time
 from accounting_engine import compute_financial_report, format_telegram_monospace_table
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 
 def load_env_vars():
@@ -133,6 +133,7 @@ def process_command(cmd_text):
 def run_bot_polling():
     env_vars = load_env_vars()
     bot_token = env_vars.get("TELEGRAM_BOT_TOKEN", "")
+    allowed_chat_id = str(env_vars.get("TELEGRAM_CHAT_ID", "")).strip()
     
     if not bot_token:
         print("[i] TELEGRAM_BOT_TOKEN non configurato in .env. Esecuzione test generatore report in console:")
@@ -157,7 +158,10 @@ def run_bot_polling():
                         chat_id = message.get("chat", {}).get("id")
                         
                         if text and chat_id:
-                            print(f"[+] Received command '{text}' from chat {chat_id}")
+                            if not allowed_chat_id or str(chat_id).strip() != allowed_chat_id:
+                                print(f"[!] Ignored unauthorized Telegram chat_id: {chat_id}")
+                                continue
+                            print(f"[+] Received authorized command '{text}' from chat {chat_id}")
                             reply_text = process_command(text)
                             
                             send_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"

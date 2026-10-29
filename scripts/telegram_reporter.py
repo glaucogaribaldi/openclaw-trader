@@ -7,7 +7,7 @@ Generates clean, deterministic Telegram Markdown reports based on the new TRE OS
 import os, sys, json, sqlite3, subprocess, time
 from accounting_engine import compute_financial_report, format_telegram_monospace_table
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 
 def load_env_vars():
