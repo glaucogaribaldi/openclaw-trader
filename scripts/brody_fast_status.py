@@ -11,7 +11,7 @@ import os
 import sqlite3
 import subprocess
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
 SNAP_PATH = os.path.join(BASE_DIR, "config", "predator_live_snapshot.json")
 AUDIT_PATH = os.path.join(BASE_DIR, "config", "predator_audit_report.json")

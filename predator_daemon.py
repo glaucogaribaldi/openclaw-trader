@@ -367,7 +367,7 @@ def run_predator_cycle(
         fut_bal = _GLOBAL_IO_POOL.submit(client.get_account_balances)
         fut_ord = _GLOBAL_IO_POOL.submit(client.get_open_orders)
         fut_fil = _GLOBAL_IO_POOL.submit(client.get_recent_fills, "SPOT", 50)
-        fut_kro = _GLOBAL_IO_POOL.submit(kronos_client.fetch_forecasts, list(DEFAULT_UNIVERSE.keys()))
+        fut_kro = _GLOBAL_IO_POOL.submit(kronos_client.fetch_forecasts, ["BTC-USDC"] + list(DEFAULT_UNIVERSE.keys()))
         balances = fut_bal.result()
         open_orders = fut_ord.result()
         prefetched_raw_fills = fut_fil.result()
@@ -802,11 +802,8 @@ def run_predator_cycle(
         rem_modo3_hours = (
             datetime.datetime.fromisoformat(MODO3_24H_DEADLINE_ISO.replace("Z", "+00:00")) - now_utc_dt
         ).total_seconds() / 3600.0
-        is_modo3_legacy_unwind = bool(
-            modo3_rally_px > 0.0
-            and token_eq >= 3.0
-            and (sig.mid_price >= modo3_rally_px or rem_modo3_hours <= 4.0)
-        )
+        # Audit 3.2 Fix: Modo 3 legacy unwind completed; disabled by default so expired dates never force sales
+        is_modo3_legacy_unwind = False
         if (is_macro_overweight_deconcentrate or is_macro_liquidity_unlock or is_modo3_legacy_unwind) and cost_floor_px > 0:
             cost_floor_px = min(cost_floor_px, round(asks[0][0], dec_px))
 
@@ -1045,12 +1042,11 @@ def run_predator_cycle(
                                 tr_unr_bps = ((sig.mid_price - tr_buy_px) / tr_buy_px) * 10000.0
                                 # Fee-Aware Fast-Exit Floor: +24 bps gross = +4 bps guaranteed net profit after 10 bps BUY + 10 bps SELL OKX Maker fees!
                                 fast_exit_px = max(_ceil_px(tr_buy_px * 1.0024, dec_px), round(asks[0][0], dec_px))
-                                # TRE OS v12.0 — User-Calibrated Kronos + AI Cognitive Risk Engine (Default Hard Cap: -400 bps = -4.00%):
+                                # Audit 4.1 Fix: Hard -4.0% Stop & Cognitive Early Stop NEVER expire after 10h (active 24/7 for the entire life of the position!)
                                 cfg_max_loss_bps = -abs(float(user_run_cfg.get("max_loss_cap_bps") or -400.0))
-                                is_hard_4pct_stop = bool(tr_unr_bps <= cfg_max_loss_bps and tr_age_h <= 10.0)
+                                is_hard_4pct_stop = bool(tr_unr_bps <= cfg_max_loss_bps)
                                 is_cognitive_early_stop = bool(
-                                    -400.0 < tr_unr_bps <= -180.0
-                                    and tr_age_h <= 10.0
+                                    cfg_max_loss_bps < tr_unr_bps <= -180.0
                                     and k_macro_2h_bps <= -25.0
                                     and (k_6h_bps <= -25.0 or k_swing_12h_bps <= -30.0 or k_24h_bps <= -40.0)
                                     and k_ret_bps <= -10.0
@@ -1478,9 +1474,14 @@ def run_predator_cycle(
     # - In Full Purified Mode (is_purified_mode=True, starting from X USDC), Camera 1 deploys up to 63% of NAV in Heavy Sniper Bullets (~$30 each),
     #   while Camera 2 keeps 37% of NAV in 100% pure USDC Cash Shield (deployable ONLY on deep flash-crashes <= -180 bps)!
     has_deep_flash_crash = any(float(t.get("unrealized_bps") or 0.0) <= -180.0 and float(t.get("ofi_norm") or 0.0) >= 0.20 for t in telemetry_rows)
+    # Audit 4.2 & 4.7 Fix: Strictly enforce Chamber 1 cap (63%) without dipping into the 37% Cash Shield during drawdowns,
+    # and enforce Global Portfolio Drawdown Circuit Breaker (-8.0% from baseline stops all new BUY orders!)
     c1_pct_cfg = float(user_run_cfg.get("chamber1_assault_pct") or 0.63)
+    max_portfolio_dd_pct = -abs(float(user_run_cfg.get("max_portfolio_drawdown_pct") or -8.0))
+    current_portfolio_dd_pct = ((nav_usdc - eff_baseline_nav) / max(1.0, eff_baseline_nav)) * 100.0 if eff_baseline_nav > 0 else 0.0
+    circuit_breaker_tripped = bool(eff_baseline_nav > 0 and current_portfolio_dd_pct <= max_portfolio_dd_pct)
     if is_purified_mode:
-        chamber1_cap_usd = round(nav_usdc * (min(0.90, c1_pct_cfg + 0.22) if has_deep_flash_crash else c1_pct_cfg), 2)
+        chamber1_cap_usd = 0.0 if circuit_breaker_tripped else round(nav_usdc * c1_pct_cfg, 2)
         parallel_scalp_cap_usd = max(0.0, chamber1_cap_usd - fresh_qs_under_6h_usd)
     else:
         parallel_scalp_cap_usd = max(0.0, 95.0 - fresh_qs_under_6h_usd)
@@ -1506,7 +1507,7 @@ def run_predator_cycle(
             import urllib.parse
             import urllib.request
             tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-            tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "6554816075").strip()
+            tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
             if tg_token and tg_chat:
                 msg = (
                     f"🚨🎯 *OBIETTIVO LIQUIDITÀ MODO 3 RAGGIUNTO!*\n\n"

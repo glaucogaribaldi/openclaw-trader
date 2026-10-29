@@ -1,6 +1,5 @@
-# TikTok Fleet Daemon Dependencies
-openai>=1.0.0
-requests>=2.32.0
-yt-dlp>=2025.1.0
-python-dotenv>=1.0.0
-ffmpeg-python>=0.2.0  # for ffmpeg integration
+requests>=2.31.0
+certifi>=2024.2.2
+flask>=3.0.0
+gunicorn>=21.2.0
+python-dotenv>=1.0.1
