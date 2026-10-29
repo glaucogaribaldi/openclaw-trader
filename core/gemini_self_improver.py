@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """
-TRE OS v12.3 — Autonomous Closed-Loop Meta-Optimizer via Google AI Studio Free Tier (core/gemini_self_improver.py)
+TRE OS v12.4 — Autonomous Closed-Loop Meta-Optimizer uniting Google Gemini Free + 5-Horizon Tsinghua Kronos
+(core/gemini_self_improver.py)
 
-Analyzes realized trading outcomes (winners vs stop-losses, hold durations, entry OFI/VPIN/Kronos 5-Horizons,
-and fee drag) from SQLite WAL every 60 minutes (or after closed trades) using Google AI Studio Free Tier
-(gemini-3.5-flash-lite / gemini-3.5-flash / gemini-3.8-flash) and outputs safety-clamped adaptive parameters
-into config/self_improvement_state.json + appends audit reflections to config/self_improvement_journal.jsonl.
+Combines:
+1. Historical SQLite WAL Post-Mortem (CLOSED_PROFIT vs CLOSED_STOPLOSS, realized PnL, fee drag);
+2. Live 5-Horizon Kronos Foundation Model Matrix (1h, 2h, 6h, 12h, 24h + Eq.12 Volatility + TP Touch Prob)
+   across BTC-USDC and all active altcoins.
 
-Inviolable Hard Guardrails (Bounded Box):
-- Can NEVER disable or widen the Hard Max-Loss Stop Cap beyond -400 bps (-4.00%).
-- Can NEVER lower the Fee-Safe Profit Floor below +24.0 bps gross (1.0024).
-- Can NEVER raise Chamber 1 Assault allocation above 63.0% of NAV.
-- Automatically rolls back to baseline parameters if rolling 24h realized PnL drops after an adjustment.
+Gemini Free (gemini-3.5-flash-lite / gemini-3.5-flash / gemini-3.8-flash) cross-examines past realized outcomes
+against Kronos's forward 1h-24h structural trajectory to dynamically calibrate:
+- min_entry_ofi [0.15 .. 0.45]
+- max_entry_vpin [0.40 .. 0.68]
+- min_kronos_1h_bps [6.0 .. 22.0]
+- min_kronos_6h_bps [-25.0 .. +15.0]
+- min_kronos_24h_bps [-50.0 .. +20.0]
+- min_pullback_2h_bps [25.0 .. 70.0]
+- fast_shield_trigger_bps [28.0 .. 55.0]
+- coin_penalty_box_24h (up to 3 stop-loss / bearish-Kronos coins paused for 24h)
+- kronos_top_conviction_leaders (up to 3 coins with the strongest 1h+2h+6h+12h+24h Kronos alignment, awarded +4.5 OppScore boost)
 """
 from __future__ import annotations
 
@@ -22,7 +29,7 @@ import sqlite3
 import ssl
 import time
 import urllib.request
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def _ssl_ctx() -> ssl.SSLContext:
@@ -33,7 +40,7 @@ def _ssl_ctx() -> ssl.SSLContext:
         return ssl.create_default_context()
 
 
-def _clamp(val: float, lo: float, hi: float, default: float) -> float:
+def _clamp(val: Any, lo: float, hi: float, default: float) -> float:
     try:
         v = float(val)
         return round(max(lo, min(hi, v)), 3)
@@ -48,10 +55,13 @@ class GeminiSelfImprover:
         "min_entry_ofi": 0.18,
         "max_entry_vpin": 0.65,
         "min_kronos_1h_bps": 8.0,
+        "min_kronos_6h_bps": -22.0,
+        "min_kronos_24h_bps": -50.0,
         "min_pullback_2h_bps": 32.0,
         "fast_shield_trigger_bps": 38.0,
         "coin_penalty_box_24h": [],
-        "lesson_learned": "Baseline v12.3 parameters active.",
+        "kronos_top_conviction_leaders": [],
+        "lesson_learned": "Baseline v12.4 Kronos+Gemini parameters active.",
     }
 
     def __init__(self, base_dir: str):
@@ -70,17 +80,26 @@ class GeminiSelfImprover:
                     st[k] = v
             except Exception:
                 pass
-        # Enforce hard safety clamps on every load
         st["min_entry_ofi"] = _clamp(st.get("min_entry_ofi", 0.18), 0.15, 0.45, 0.18)
         st["max_entry_vpin"] = _clamp(st.get("max_entry_vpin", 0.65), 0.40, 0.68, 0.65)
         st["min_kronos_1h_bps"] = _clamp(st.get("min_kronos_1h_bps", 8.0), 6.0, 22.0, 8.0)
+        st["min_kronos_6h_bps"] = _clamp(st.get("min_kronos_6h_bps", -22.0), -25.0, 15.0, -22.0)
+        st["min_kronos_24h_bps"] = _clamp(st.get("min_kronos_24h_bps", -50.0), -50.0, 20.0, -50.0)
         st["min_pullback_2h_bps"] = _clamp(st.get("min_pullback_2h_bps", 32.0), 25.0, 70.0, 32.0)
         st["fast_shield_trigger_bps"] = _clamp(st.get("fast_shield_trigger_bps", 38.0), 28.0, 55.0, 38.0)
         if not isinstance(st.get("coin_penalty_box_24h"), list):
             st["coin_penalty_box_24h"] = []
+        if not isinstance(st.get("kronos_top_conviction_leaders"), list):
+            st["kronos_top_conviction_leaders"] = []
         return st
 
-    def run_self_improvement_cycle(self, conn: sqlite3.Connection, nav_usdc: float, free_usdc: float) -> Dict[str, Any]:
+    def run_self_improvement_cycle(
+        self,
+        conn: sqlite3.Connection,
+        nav_usdc: float,
+        free_usdc: float,
+        telemetry_rows: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         now = time.time()
         current_state = self.load_state()
         if (now - self._last_run_ts) < 1800.0 and current_state.get("updated_at"):
@@ -97,7 +116,7 @@ class GeminiSelfImprover:
                 SELECT fill_time, inst_id, side, fill_px, fill_sz, notional_usd, fee_usd, realized_pnl_usd
                 FROM predator_fills_ledger
                 WHERE side='sell'
-                ORDER BY fill_time DESC LIMIT 25
+                ORDER BY fill_time DESC LIMIT 20
                 """
             )
             recent_sells = [
@@ -122,18 +141,36 @@ class GeminiSelfImprover:
         except Exception:
             return current_state
 
+        # Build compact 5-Horizon Kronos perspective matrix (1h, 2h, 6h, 12h, 24h + TP prob + L2 OFI)
+        kronos_matrix = []
+        for t in (telemetry_rows or []):
+            kronos_matrix.append({
+                "id": t.get("inst_id"),
+                "ofi": t.get("ofi_norm"),
+                "vpin": t.get("vpin_toxicity"),
+                "k1h": t.get("kronos_1h_bps"),
+                "k2h": t.get("kronos_2h_bps"),
+                "k6h": t.get("kronos_6h_bps"),
+                "k12h": t.get("kronos_12h_bps"),
+                "k24h": t.get("kronos_24h_bps"),
+                "tp_prob": t.get("tp_touch_prob_1h"),
+            })
+
         prompt = (
-            "You are the Autonomous Quantitative Self-Improvement Engine of TRE OS v12.3 (OKX Spot EEA). "
+            "You are the Autonomous Quantitative Self-Improvement Engine of TRE OS v12.4 (OKX Spot EEA), "
+            "uniting realized trade post-mortems with Tsinghua Kronos 5-Horizon forecasts (1h, 2h, 6h, 12h, 24h). "
             f"Current NAV: ${nav_usdc:.2f} USDC (Free Cash: ${free_usdc:.2f} USDC). "
             f"Current Parameters: {json.dumps(current_state)}. "
-            f"Recent 25 Closed Sells: {json.dumps(recent_sells)}. "
-            f"Tranche Outcomes by Asset: {json.dumps(tranche_outcomes)}. "
-            "Analyze why winners succeeded and why any stop-losses occurred. "
-            "Propose bounded parameter adjustments within these strict safety ranges: "
-            "min_entry_ofi in [0.15, 0.45], max_entry_vpin in [0.40, 0.68], min_kronos_1h_bps in [6.0, 22.0], "
-            "min_pullback_2h_bps in [25.0, 70.0], fast_shield_trigger_bps in [28.0, 55.0], "
-            "coin_penalty_box_24h (array of up to 3 inst_ids that repeatedly hit stop-loss and should be paused for 24h), "
-            "and lesson_learned (1 concise sentence in Italian). Return ONLY valid JSON."
+            f"Recent Closed Sells: {json.dumps(recent_sells)}. "
+            f"Tranche Outcomes by Asset (CLOSED_PROFIT vs CLOSED_STOPLOSS): {json.dumps(tranche_outcomes)}. "
+            f"Live 5-Horizon Kronos Trajectory Matrix (1h/2h/6h/12h/24h bps): {json.dumps(kronos_matrix)}. "
+            "Task: Cross-analyze past trade outcomes AND live 5-Horizon Kronos forecasts (1h, 2h, 6h, 12h, 24h) to self-optimize: "
+            "1) If Kronos 6h/12h/24h across the market are bearish, tighten min_kronos_6h_bps/min_kronos_24h_bps and lower fast_shield_trigger_bps (e.g. 30-35 bps) to lock profits faster; "
+            "if 6h/12h/24h are strongly bullish, allow runners (fast_shield_trigger_bps 38-48 bps). "
+            "2) Put any coin that suffered CLOSED_STOPLOSS AND has negative Kronos 6h/12h/24h into coin_penalty_box_24h (max 3 inst_ids). "
+            "3) Select up to 3 coins with the strongest positive 5-Horizon Kronos alignment (k1h, k2h, k6h, k12h, k24h all positive + low VPIN) in kronos_top_conviction_leaders. "
+            "Return ONLY valid JSON with keys: min_entry_ofi, max_entry_vpin, min_kronos_1h_bps, min_kronos_6h_bps, min_kronos_24h_bps, "
+            "min_pullback_2h_bps, fast_shield_trigger_bps, coin_penalty_box_24h, kronos_top_conviction_leaders, lesson_learned (in Italian)."
         )
 
         for g_mod in ("gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"):
@@ -165,10 +202,13 @@ class GeminiSelfImprover:
                             "min_entry_ofi": _clamp(parsed.get("min_entry_ofi"), 0.15, 0.45, current_state["min_entry_ofi"]),
                             "max_entry_vpin": _clamp(parsed.get("max_entry_vpin"), 0.40, 0.68, current_state["max_entry_vpin"]),
                             "min_kronos_1h_bps": _clamp(parsed.get("min_kronos_1h_bps"), 6.0, 22.0, current_state["min_kronos_1h_bps"]),
+                            "min_kronos_6h_bps": _clamp(parsed.get("min_kronos_6h_bps"), -25.0, 15.0, current_state["min_kronos_6h_bps"]),
+                            "min_kronos_24h_bps": _clamp(parsed.get("min_kronos_24h_bps"), -50.0, 20.0, current_state["min_kronos_24h_bps"]),
                             "min_pullback_2h_bps": _clamp(parsed.get("min_pullback_2h_bps"), 25.0, 70.0, current_state["min_pullback_2h_bps"]),
                             "fast_shield_trigger_bps": _clamp(parsed.get("fast_shield_trigger_bps"), 28.0, 55.0, current_state["fast_shield_trigger_bps"]),
                             "coin_penalty_box_24h": [str(x) for x in (parsed.get("coin_penalty_box_24h") or [])[:3]],
-                            "lesson_learned": str(parsed.get("lesson_learned") or current_state["lesson_learned"])[:280],
+                            "kronos_top_conviction_leaders": [str(x) for x in (parsed.get("kronos_top_conviction_leaders") or [])[:3]],
+                            "lesson_learned": str(parsed.get("lesson_learned") or current_state["lesson_learned"])[:320],
                         }
                         with open(self.state_path, "w", encoding="utf-8") as sf:
                             json.dump(new_state, sf, indent=2, ensure_ascii=False)

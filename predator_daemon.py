@@ -1414,22 +1414,27 @@ def run_predator_cycle(
         # 2) Kronos 1h >= +8.0 bps, TP probability >= 0.58, AND Kronos 2h Macro NOT crashing (>= -12.0 bps);
         # 3) OpenRouter Chief Quant Judge Veto: llm_bias >= -0.05 (blocks entry if OpenRouter flags negative conviction);
         # 4) Positive L2 Order Flow Imbalance (OFI >= +0.18) and non-toxic VPIN (<= 0.65).
-        # Load Self-Improving Gemini Free adaptive parameters (bounded safety box)
+        # Load Self-Improving Gemini Free + 5-Horizon Kronos adaptive parameters (bounded safety box)
         si_state = GeminiSelfImprover(BASE_DIR).load_state()
         si_min_ofi = float(si_state.get("min_entry_ofi", 0.18))
         si_max_vpin = float(si_state.get("max_entry_vpin", 0.65))
         si_min_k1h = float(si_state.get("min_kronos_1h_bps", 8.0))
+        si_min_k6h = float(si_state.get("min_kronos_6h_bps", -22.0))
+        si_min_k24h = float(si_state.get("min_kronos_24h_bps", -50.0))
         si_min_pullback = float(si_state.get("min_pullback_2h_bps", 32.0))
         si_penalty_box = set(si_state.get("coin_penalty_box_24h") or [])
+        si_kronos_leaders = set(si_state.get("kronos_top_conviction_leaders") or [])
+        if inst_id in si_kronos_leaders:
+            calc_opp_score = round(calc_opp_score + 4.5, 2)
 
         # Require genuine non-zero Kronos forecast in RAM (never treat uncached 0.0 as safe!) + 5-Horizon Crash Shield
         has_valid_kronos = bool(k_fc is not None and (abs(k_ret_bps) > 0.05 or abs(k_macro_2h_bps) > 0.05))
         has_5h_perspective_safety = bool(
             has_valid_kronos
             and k_macro_2h_bps >= -12.0
-            and k_6h_bps >= -22.0
+            and k_6h_bps >= si_min_k6h
             and k_swing_12h_bps >= -35.0
-            and k_24h_bps >= -50.0
+            and k_24h_bps >= si_min_k24h
         )
         has_positive_edge = bool(
             inst_id not in si_penalty_box
@@ -1673,7 +1678,7 @@ def run_predator_cycle(
     debate_res = None
     if run_llm_debate and telemetry_rows:
         try:
-            macro_equilibrium_summary["self_improvement"] = GeminiSelfImprover(BASE_DIR).run_self_improvement_cycle(conn, nav_usdc, free_usdc)
+            macro_equilibrium_summary["self_improvement"] = GeminiSelfImprover(BASE_DIR).run_self_improvement_cycle(conn, nav_usdc, free_usdc, telemetry_rows=telemetry_rows)
         except Exception:
             pass
         debate_res = council.run_council_debate(
