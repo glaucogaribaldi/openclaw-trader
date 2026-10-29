@@ -30,6 +30,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
 from agents.llm_council import AdversarialLLMCouncil
+from core.gemini_self_improver import GeminiSelfImprover
 from core.kronos_oracle import KronosOracleClient
 from core.microstructure import MicrostructureEngine
 from core.predator_auditor import PredatorAuditor
@@ -520,10 +521,13 @@ def run_predator_cycle(
                     cur_tr.execute("UPDATE fresh_scalp_tranches SET buy_px = ? WHERE trade_id = ?", (float(tr_px), tr_id))
                 if tr_st == "TP_PLACED" and tr_oid and tr_oid not in open_ord_id_set:
                     # Quick-Scalp TP order was filled (or partially filled and cancelled)! Check total sold quantity
-                    cur_tr.execute("SELECT COALESCE(SUM(fill_sz), 0.0) FROM predator_fills_ledger WHERE ord_id = ? AND side='sell'", (tr_oid,))
-                    sold_sz = float((cur_tr.fetchone() or (0.0,))[0] or 0.0)
+                    cur_tr.execute("SELECT COALESCE(SUM(fill_sz), 0.0), COALESCE(SUM(realized_pnl_usd), 0.0) FROM predator_fills_ledger WHERE ord_id = ? AND side='sell'", (tr_oid,))
+                    s_row = cur_tr.fetchone() or (0.0, 0.0)
+                    sold_sz = float(s_row[0] or 0.0)
+                    sold_pnl = float(s_row[1] or 0.0)
                     if sold_sz >= float(tr_sz) * 0.985:
-                        cur_tr.execute("UPDATE fresh_scalp_tranches SET status='CLOSED_PROFIT' WHERE trade_id = ?", (tr_id,))
+                        closed_st = "CLOSED_PROFIT" if (sold_pnl >= 0.0 and float(tr_tp_px or 0.0) >= float(tr_px) * 1.0015) else "CLOSED_STOPLOSS"
+                        cur_tr.execute("UPDATE fresh_scalp_tranches SET status = ? WHERE trade_id = ?", (closed_st, tr_id))
                     elif sold_sz > 0.0:
                         rem_sz = max(0.0, float(tr_sz) - sold_sz)
                         cur_tr.execute(
@@ -618,12 +622,12 @@ def run_predator_cycle(
         if tot_realized_run >= 0.25:
             ratchet_pool_usd = round(tot_realized_run * float(lifecycle["ratchet_pool_share"]), 4)
 
-        # Darwinian Velocity Bonus: count closed profitable Quick-Scalps per instrument in the last 24h
+        # Darwinian Velocity Bonus & Stop-Loss Penalty: reward trueCLOSED_PROFIT (+1) and penalize CLOSED_STOPLOSS (-2) in last 24h!
         cur_r.execute(
             """
-            SELECT inst_id, COUNT(*)
+            SELECT inst_id, SUM(CASE WHEN status='CLOSED_PROFIT' THEN 1 WHEN status='CLOSED_STOPLOSS' THEN -2 ELSE 0 END)
             FROM fresh_scalp_tranches
-            WHERE status='CLOSED_PROFIT' AND datetime(created_at) >= datetime('now', '-24 hours')
+            WHERE status IN ('CLOSED_PROFIT', 'CLOSED_STOPLOSS') AND datetime(created_at) >= datetime('now', '-24 hours')
             GROUP BY inst_id
             """
         )
@@ -809,7 +813,7 @@ def run_predator_cycle(
 
         active_qs_usd = sum(tr[1] * tr[2] for tr in active_tranches_by_inst.get(inst_id, []))
         vel_turns = velocity_turns_map.get(inst_id, 0)
-        vel_bonus = min(10.0, vel_turns * 2.5)
+        vel_bonus = max(-10.0, min(10.0, vel_turns * 2.5))
 
         # Intraday Rebound Catcher: detect V-reversal bounce off 2h low (+15..+120 bps from 2h low while still discounted from 2h high)
         low_2h = low_2h_map.get(inst_id, sig.mid_price)
@@ -1410,22 +1414,33 @@ def run_predator_cycle(
         # 2) Kronos 1h >= +8.0 bps, TP probability >= 0.58, AND Kronos 2h Macro NOT crashing (>= -12.0 bps);
         # 3) OpenRouter Chief Quant Judge Veto: llm_bias >= -0.05 (blocks entry if OpenRouter flags negative conviction);
         # 4) Positive L2 Order Flow Imbalance (OFI >= +0.18) and non-toxic VPIN (<= 0.65).
-        # 5-Horizon Crash Shield: block new BUY entries if 6h (<-22 bps), 12h (<-35 bps), or 24h (<-50 bps) forecast a structural dump!
+        # Load Self-Improving Gemini Free adaptive parameters (bounded safety box)
+        si_state = GeminiSelfImprover(BASE_DIR).load_state()
+        si_min_ofi = float(si_state.get("min_entry_ofi", 0.18))
+        si_max_vpin = float(si_state.get("max_entry_vpin", 0.65))
+        si_min_k1h = float(si_state.get("min_kronos_1h_bps", 8.0))
+        si_min_pullback = float(si_state.get("min_pullback_2h_bps", 32.0))
+        si_penalty_box = set(si_state.get("coin_penalty_box_24h") or [])
+
+        # Require genuine non-zero Kronos forecast in RAM (never treat uncached 0.0 as safe!) + 5-Horizon Crash Shield
+        has_valid_kronos = bool(k_fc is not None and (abs(k_ret_bps) > 0.05 or abs(k_macro_2h_bps) > 0.05))
         has_5h_perspective_safety = bool(
-            k_macro_2h_bps >= -12.0
+            has_valid_kronos
+            and k_macro_2h_bps >= -12.0
             and k_6h_bps >= -22.0
             and k_swing_12h_bps >= -35.0
             and k_24h_bps >= -50.0
         )
         has_positive_edge = bool(
-            (drop_from_high_bps >= 32.0 or is_rebound_leader)
-            and k_ret_bps >= 8.0
+            inst_id not in si_penalty_box
+            and (drop_from_high_bps >= si_min_pullback or is_rebound_leader)
+            and k_ret_bps >= si_min_k1h
             and has_5h_perspective_safety
             and k_tp_prob >= 0.58
             and pred.predicted_return_bps >= 3.5
             and llm_bias >= -0.05
-            and sig.ofi_norm >= 0.18
-            and sig.vpin_toxicity <= 0.65
+            and sig.ofi_norm >= si_min_ofi
+            and sig.vpin_toxicity <= si_max_vpin
         )
         # Universal Macro Concentration Cap (Pillar 2): no single coin may exceed `universal_max_inv_weight` (12.5% when Working Capital < 35%, 15.0% otherwise)!
         eff_max_inv_weight = universal_max_inv_weight
@@ -1657,6 +1672,10 @@ def run_predator_cycle(
 
     debate_res = None
     if run_llm_debate and telemetry_rows:
+        try:
+            macro_equilibrium_summary["self_improvement"] = GeminiSelfImprover(BASE_DIR).run_self_improvement_cycle(conn, nav_usdc, free_usdc)
+        except Exception:
+            pass
         debate_res = council.run_council_debate(
             telemetry=telemetry_rows,
             nav_usdc=nav_usdc,
