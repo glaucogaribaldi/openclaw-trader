@@ -31,6 +31,8 @@ FUTURES_UNIVERSE: Dict[str, Dict[str, Any]] = {
     "BNB-USD_UM_XPERP-310523":    {"spot_id": "BNB-USDC",    "coin": "BNB",    "ct_val": 0.01,   "dec_px": 1, "dec_sz": 0, "min_sz": 1.0},
     "AVAX-USD_UM_XPERP-310530":   {"spot_id": "AVAX-USDC",   "coin": "AVAX",   "ct_val": 10.0,   "dec_px": 3, "dec_sz": 1, "min_sz": 0.1},
     "UNI-USD_UM_XPERP-310718":    {"spot_id": "UNI-USDC",    "coin": "UNI",    "ct_val": 1.0,    "dec_px": 3, "dec_sz": 0, "min_sz": 1.0},
+    "XAU-USD_UM_XPERP-310502":    {"spot_id": "XAU-USDC",    "coin": "XAU",    "ct_val": 0.001,  "dec_px": 1, "dec_sz": 0, "min_sz": 1.0},
+    "CL-USD_UM_XPERP-310509":     {"spot_id": "CL-USDC",     "coin": "CL",     "ct_val": 0.1,    "dec_px": 2, "dec_sz": 0, "min_sz": 1.0},
 }
 
 STARTING_DEMO_NAV_USDC = 268.95
@@ -43,6 +45,40 @@ _IO_POOL = ThreadPoolExecutor(max_workers=6)
 _LEVERAGE_INITIALIZED = False
 _OI_CACHE: Dict[str, Tuple[float, float]] = {}  # inst_id -> (anchor_ts, anchor_oi)
 _LAST_SCANNER_TS = 0.0
+_NEWS_CACHE: Dict[str, Any] = {"ts": 0.0, "headlines": [], "fear_greed": 30}
+
+def fetch_live_breaking_news_radar() -> Dict[str, Any]:
+    global _NEWS_CACHE
+    if (time.time() - float(_NEWS_CACHE.get("ts") or 0.0)) < 600.0 and _NEWS_CACHE.get("headlines"):
+        return _NEWS_CACHE
+    ctx = _ssl_ctx()
+    headlines: List[str] = []
+    import xml.etree.ElementTree as ET
+    rss_urls = [
+        "https://news.google.com/rss/search?q=crypto+OR+binance+OR+bitcoin+OR+oil+OR+gold+when:1d&hl=en-US&gl=US&ceid=US:en",
+        "https://cointelegraph.com/rss",
+    ]
+    for ru in rss_urls:
+        try:
+            req = urllib.request.Request(ru, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=4, context=ctx) as r:
+                root = ET.fromstring(r.read())
+                for item in root.findall(".//item")[:6]:
+                    t_el = item.find("title")
+                    if t_el is not None and t_el.text:
+                        headlines.append(t_el.text.strip()[:140])
+        except Exception:
+            pass
+    fg_val = _NEWS_CACHE.get("fear_greed", 30)
+    try:
+        with urllib.request.urlopen(urllib.request.Request("https://api.alternative.me/fng/?limit=1", headers={"User-Agent": "Mozilla/5.0"}), timeout=3, context=ctx) as rf:
+            fg_d = json.loads(rf.read().decode("utf-8")).get("data", [])
+            if fg_d:
+                fg_val = int(fg_d[0].get("value") or 30)
+    except Exception:
+        pass
+    _NEWS_CACHE = {"ts": time.time(), "headlines": headlines[:10], "fear_greed": fg_val}
+    return _NEWS_CACHE
 
 def refresh_dynamic_xperp_universe() -> None:
     global _LAST_SCANNER_TS
@@ -59,8 +95,6 @@ def refresh_dynamic_xperp_universe() -> None:
             if iid in FUTURES_UNIVERSE or iid not in ins_map:
                 continue
             coin = iid.split("-")[0]
-            if coin in ("XAU", "XAG", "CL", "SPY", "QQQ", "NVDA", "TSLA", "AAPL", "MSFT", "GOOGL", "AMZN", "META"):
-                continue
             bid, ask, last = float(t.get("bidPx") or 0), float(t.get("askPx") or 0), float(t.get("last") or 0)
             open24 = float(t.get("open24h") or last)
             if bid <= 0 or ask <= 0 or last <= 0:
@@ -244,9 +278,11 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "prev_sniper": default_audit.get("gemini_sniper_entries"),
         "learned_rules": default_audit.get("learned_rules", []),
     }
+    news_radar = fetch_live_breaking_news_radar()
     compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "oi_d": t.get("oi_delta_bps", 0.0), "atr": t.get("atr_1h_bps", 55.0), "sqz": t.get("squeeze_regime", "NONE"), "r1h": t.get("real_1h_bps", 0.0), "k1h": t["kronos_1h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k48h": t.get("kronos_48h_bps", 0.0)} for t in telemetry]
     prompt = (
-        "Sei l'Agente Trader Quantitativo H24 Auto-Migliorante di TRE OS v16.0 Derivative Alpha & Hardware Fortress (VPS brody, OKX EEA Regulated Perpetual Futures *-USD_UM_XPERP-*). "
+        "Sei l'Agente Trader Quantitativo H24 Auto-Migliorante di TRE OS v17.0 Live News & Macro-Shock Predator (VPS brody, OKX EEA Regulated Perpetual Futures *-USD_UM_XPERP-* inclusi Crypto, DEX HYPE/UNI, CEX BNB, Oro XAU e Petrolio CL). "
+        f"LIVE BREAKING NEWS & MACRO CATALYSTS OGGI (Fear&Greed={news_radar.get('fear_greed')}): {json.dumps(news_radar.get('headlines', []))}. Contesto chiave: (1) Hack da $6.3B su Binance -> pressione ribassista/volatilità su BNB/CEX e rotazione verso DEX (HYPE, UNI) e privacy (ZEC); (2) Tensioni Medio Oriente / Stretto di Hormuz -> spinta su Petrolio (CL-USD_UM_XPERP-310509); (3) Inflazione USA calda e tassi Fed -> pressione su Oro (XAU-USD_UM_XPERP-310502) e Tech. Sfrutta queste notizie reali insieme ai flussi L2/OI per scegliere i colpi migliori! "
         "NUOVI TOOL V16.0 A TUA DISPOSIZIONE: (A) Open Interest Delta (oi_d) & Squeeze Detector (sqz=SQUEEZE_LONG/SQUEEZE_SHORT); (B) ATR Volatility Scaling per moneta (atr_1h_bps -> adatta automaticamente TP/Shield/SL tra BTC e Altcoin); (C) Dynamic Hot-XPERP Scanner (scansiona i 257 XPERP di OKX Europa e aggiunge i migliori mover con spread<=4.5bps); (D) Hardware Break-Even Stop Ratchet (amend-algos sposta lo stop fisico dentro i server OKX a +12bps appena si arma lo scudo!). "
         "SISTEMA, OBIETTIVI E LIMITI INVALICABILI: "
         f"- Capitale Attuale Conto Trading: ${nav_usd:.2f} USDC (Cutover Futures: $267.88 | Baseline 28/10: $285.74 | Baseline Storica 22/10: $298.89 | Gap da recuperare: ${267.88 - nav_usd:.2f} USDC per il cutover e ${298.89 - nav_usd:.2f} USDC per il massimo storico). "
