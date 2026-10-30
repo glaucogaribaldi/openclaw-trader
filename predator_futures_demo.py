@@ -122,7 +122,14 @@ def load_gemini_brain_skills() -> Dict[str, Any]:
         "priority_boost_inst_ids": [],
         "blacklist_inst_ids": [],
         "gemini_sniper_entries": [],
-        "verdict": "TRE OS v15.0 Constant 60s Gemini Co-Pilot active.",
+        "self_critique": "Inizializzazione memoria episodica agentica.",
+        "active_hypothesis": "In osservazione convergenza 7 orizzonti Kronos + candele reali 1h.",
+        "learned_rules": [
+            "Mai shortare contro candele reali 15m/1h verdi o durante pump di BTC.",
+            "Usare stop anti-wick (-180/-220 bps a 2.0x) per non farsi cacciare dagli spike di 1%.",
+            "Lasciar correre i vincitori tra +35 e +74 bps con solo pavimento break-even a +12 bps."
+        ],
+        "verdict": "TRE OS v15.2 Agentic Memory Co-Pilot active.",
     }
     try:
         if os.path.exists(p):
@@ -151,19 +158,29 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
     open_pos_info = [{"inst_id": r[0], "dir": r[1], "mgn": r[2], "entry": r[3], "now": r[4], "peak_bps": round(float(r[5]), 1), "shield": bool(r[6]), "opened": r[7]} for r in cur.fetchall()]
     cur.execute("SELECT inst_id, direction, realized_pnl_usd, status, closed_at FROM futures_demo_positions WHERE status != 'OPEN' ORDER BY closed_at DESC LIMIT 8")
     recent_closed_info = [{"inst_id": r[0], "dir": r[1], "pnl_usd": r[2], "status": r[3], "closed": r[4]} for r in cur.fetchall()]
+    cur.execute("SELECT inst_id, COUNT(*), SUM(CASE WHEN realized_pnl_usd > 0 THEN 1 ELSE 0 END), ROUND(SUM(realized_pnl_usd), 3) FROM futures_demo_positions WHERE status != 'OPEN' GROUP BY inst_id")
+    coin_scoreboard = [{"inst_id": r[0], "trades": r[1], "wins": r[2], "net_pnl": r[3]} for r in cur.fetchall()]
+    prev_memory = {
+        "prev_updated_at": default_audit.get("updated_at"),
+        "prev_hypothesis": default_audit.get("active_hypothesis"),
+        "prev_sniper": default_audit.get("gemini_sniper_entries"),
+        "prev_boost": default_audit.get("priority_boost_inst_ids"),
+        "prev_blacklist": default_audit.get("blacklist_inst_ids"),
+        "learned_rules": default_audit.get("learned_rules", []),
+    }
     compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "k5m": t["kronos_5m_bps"], "k10m": t["kronos_10m_bps"], "k1h": t["kronos_1h_bps"], "k2h": t["kronos_2h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k24h": t["kronos_24h_bps"]} for t in telemetry]
     prompt = (
-        "Sei il Cervello Quantitativo e Auditor di TRE OS v14.4 Anti-Crash Fortress su OKX EEA Perpetual Futures (*-USD_UM_XPERP-*, leva 4.0x Isolated LONG+SHORT, 4 slot x 20% NAV, Maker fee 2bps). "
-        f"NAV={nav_usd:.2f} USDC, RealizedPnL={realized_pnl:+.4f}, Fees={tot_fees:.4f} (FeeDrag={fee_drag_pct:.1f}%), Wins={wins}, Shields={shields}, Stops={stops}. "
-        f"OpenPositions={json.dumps(open_pos_info)}. RecentClosed={json.dumps(recent_closed_info)}. "
+        "Sei l'Agente Quantitativo Autonomo con Memoria Episodica di TRE OS v15.2 su OKX EEA Perpetual Futures (*-USD_UM_XPERP-*, leva 2.0x Anti-Wick, Stop -180bps, Break-Even +12bps a +35bps, Runner Trail sopra +75bps). "
+        f"NAV={nav_usd:.2f} USDC, RealizedPnL={realized_pnl:+.4f}, Fees={tot_fees:.4f} (FeeDrag={fee_drag_pct:.1f}%), Shields={shields}, Stops={stops}. "
+        f"LA TUA MEMORIA PRECEDENTE (Decisioni, Ipotesi e Regole Imparate): {json.dumps(prev_memory)}. "
+        f"ScoreboardPerMoneta={json.dumps(coin_scoreboard)}. OpenPositions={json.dumps(open_pos_info)}. RecentClosed={json.dumps(recent_closed_info)}. "
         f"FullTelemetry12Pairs={json.dumps(compact_t)}. "
-        "Hai tutti i 5 poteri operativi (Skills): "
-        "1) force_close_inst_ids: lista di inst_id aperti da chiudere subito se la tesi 1h/6h è deteriorata; "
-        "2) trail_lock_ratio [0.58..0.85]: 0.60 largo per lasciar correre trend forti, 0.82 stretto in mercato laterale; "
-        "3) priority_boost_inst_ids (max 3 inst_id migliori) e blacklist_inst_ids (inst_id tossici da bloccare); "
-        "4) gemini_sniper_entries: lista (max 1) di oggetti {inst_id, dir} ('LONG' o 'SHORT') se vedi un'opportunità ad alta convinzione (allineamento Kronos + OFI favorevole) da eseguire subito; "
-        "5) dynamic_slot_leverage [1.8..2.0], min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0] e verdict (1 frase in italiano). "
-        "Rispondi SOLO JSON: {min_kronos_10m_bps, fast_shield_bps, trail_lock_ratio, dynamic_slot_leverage, force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries, verdict}."
+        "Esegui il tuo ciclo agentico: "
+        "1) self_critique: valuta se la tua prev_hypothesis e prev_sniper si sono rivelati corretti rispetto ai prezzi attuali; "
+        "2) active_hypothesis: formula la tua ipotesi operativa per i prossimi 15-60 minuti; "
+        "3) learned_rules: mantieni/aggiorna fino a 5 regole auree apprese dall'esperienza reale su questo conto; "
+        "4) Azioni operative: force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries (max 1 {inst_id, dir} ad altissima convinzione), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict. "
+        "Rispondi SOLO JSON: {self_critique, active_hypothesis, learned_rules, min_kronos_10m_bps, fast_shield_bps, trail_lock_ratio, dynamic_slot_leverage, force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries, verdict}."
     )
     for g_mod in ("gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"):
         try:
@@ -186,6 +203,9 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
                         "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
                         "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
+                        "self_critique": str(p.get("self_critique") or default_audit.get("self_critique", ""))[:280],
+                        "active_hypothesis": str(p.get("active_hypothesis") or default_audit.get("active_hypothesis", ""))[:280],
+                        "learned_rules": [str(x) for x in (p.get("learned_rules") or default_audit.get("learned_rules", [])) if isinstance(x, str)][:5],
                         "verdict": str(p.get("verdict") or default_audit["verdict"])[:280],
                     }
                     _LAST_GEMINI_AUDIT_TS = time.time()
