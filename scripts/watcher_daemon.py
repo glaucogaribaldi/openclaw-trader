@@ -16,7 +16,7 @@ import subprocess
 import time
 import math
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
 PLAYBOOK_PATH = os.path.join(BASE_DIR, "config", "strategy_playbook.json")
 PROTECTED_PATH = os.path.join(BASE_DIR, "config", "protected.json")

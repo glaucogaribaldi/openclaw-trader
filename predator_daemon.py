@@ -59,7 +59,7 @@ DEFAULT_UNIVERSE: Dict[str, Dict[str, Any]] = {
 
 MODO3_24H_DEADLINE_ISO = "2026-10-28T07:05:00Z"  # 24h Modo 3 Purified Run Unwind Deadline
 
-BASELINE_NAV_USDC = float(os.environ.get("BASELINE_NAV_USDC") or 298.89)  # Configurable Starting Capital X USDC (or via config/purified_run_config.json)
+BASELINE_NAV_USDC = float(os.environ.get("BASELINE_NAV_USDC") or 1000.0)  # Configurable Starting Capital X USDC (or via config/purified_run_config.json)
 RUN_START_ISO = os.environ.get("RUN_START_ISO") or "2026-10-22T19:00:00Z"
 RUN_START_TS_MS = int(os.environ.get("RUN_START_TS_MS") or 1792695600000)
 GOLDEN_RULE_DAILY_MIN_PCT = 0.70

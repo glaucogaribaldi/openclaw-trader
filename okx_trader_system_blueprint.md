@@ -31,7 +31,7 @@ The system operates on a **Dual-Node Hybrid Infrastructure** paired securely ove
           │
           ├── [ LOCAL AI CORE (Ollama qwen2.5-coder:7b in VRAM) ]
           │
-          └───► [ OKX API Spot Engine ] // [ Telegram Bot API (@beato_zava) ]
+          └───► [ OKX API Spot Engine ] // [ Telegram Bot API (<YOUR_TELEGRAM_HANDLE>) ]
 ```
 
 ---
@@ -71,7 +71,7 @@ The background autonomous orchestration is divided among 4 specialized Python sc
 
 ### 3. `telegram_reporter.py` (Scheduled: Cron every 5 hours)
 *   **Purpose:** Telemetry Push Notifications.
-*   **Workflow:** Queries OKX live balance and active orders, formats a clean Markdown summary, and pushes it directly to Giacomo's Telegram via the `@beato_zava` bot.
+*   **Workflow:** Queries OKX live balance and active orders, formats a clean Markdown summary, and pushes it directly to Giacomo's Telegram via the `<YOUR_TELEGRAM_HANDLE>` bot.
 
 ### 4. `telegram_interactor.py` (Running: Infinite Python Background Loop)
 *   **Purpose:** Mobile Control Plane (Interactive Polling).

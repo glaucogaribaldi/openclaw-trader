@@ -4,7 +4,7 @@
 **Repository:** [`github.com/glaucogaribaldi/openclaw-trader`](https://github.com/glaucogaribaldi/openclaw-trader)  
 **Audit Panel:** Tri-Model Quantitative Review (**NeoQuasar/Kronos-mini 4.1M** + **Nemotron/OpenRouter Adversarial Council** + **Lehman Brody Lead Quant Architect**)  
 **Target Exchange & Jurisdiction:** **OKX Spot EEA** (`https://eea.okx.com`, `tdMode: cash`, `0.0x` Leverage, `0.00%` Liquidation Risk, `100.0%` Post-Only Maker Execution `ordType: post_only`, `stpMode: cancel_maker`)  
-**Official Run Start & Baseline:** `22 October 2026 21:00 CEST` (`2026-10-22T19:00:00Z`) — **Baseline Capital: `$298.89 USDC`**  
+**Official Run Start & Baseline:** `22 October 2026 21:00 CEST` (`2026-10-22T19:00:00Z`) — **Baseline Capital: `Baseline USDC`**  
 **Evaluation Horizon:** `25 October 2026` $\rightarrow$ `31 December 2026` (**67 Days** / **69.5 Days Total Run**)  
 **Golden Rule Mandate:** Daily organic compounding corridor of **`+0.70%` $\leftrightarrow$ `+5.00%` per day** with Zero Realized Loss (`Cost-Basis Floor` + `Fee-Safe Floor`).
 
@@ -23,7 +23,7 @@
 ## 🎯 OBJECTIVE 1: CAN TRE OS v8.2 ACHIEVE THE GOLDEN RULE (`+0.70%` $\leftrightarrow$ `+5.00% / DAY`) THROUGH DECEMBER 31, 2026?
 
 ### 1.1 Empirical Baseline Proof (First 60 Hours of Live Run: Oct 22 21:00 $\rightarrow$ Oct 25 09:45)
-During the first 60 hours of the official run, the broader cryptocurrency altcoin market suffered a severe weekend selloff (`NEAR -10.1%`, `SEI -7.7%`, `ZEC -7.0%`, `FET -6.6%`, `SUI -5.2%`), creating a temporary unrealized Mark-to-Market (MTM) drawdown on legacy Spot inventory (`NAV $281.21 USDC` vs `$298.89 USDC` baseline).
+During the first 60 hours of the official run, the broader cryptocurrency altcoin market suffered a severe weekend selloff (`NEAR -10.1%`, `SEI -7.7%`, `ZEC -7.0%`, `FET -6.6%`, `SUI -5.2%`), creating a temporary unrealized Mark-to-Market (MTM) drawdown on legacy Spot inventory (`NAV $281.21 USDC` vs `Baseline USDC` baseline).
 
 However, **the active Quick-Scalp engine (`fresh_scalp_tranches`) proved two decisive mathematical properties on live OKX orderbooks**:
 1. **High-Velocity Maker Compounding on Rotating Cash (`+2.85% / day` empirical):**
@@ -44,13 +44,13 @@ In all scenarios, capital progresses through **3 Structural Phases**:
 - **Phase 2 (Days 8–18 — *Core Inventory Liberation*):** Unlocking of `SUI` (`$50.30`), `SOL` (`$36.20`), `LINK` (`$38.25`), and `RENDER` (`$24.80`) expands active Quick-Scalp ammunition from `$25 USDC` to **`$150–$290 USDC`** (split across parallel slots capped at `5.8% NAV` per trade).
 - **Phase 3 (Days 19–67 — *Full-Portfolio Exponential Compounding*):** `85%` of total NAV rotates in short-duration Quick-Scalps (`+36..+135 bps` TP, `+24 bps` 4h fast-unlock floor), compounding daily through Dec 31.
 
-| Simulation Scenario (67 Days: 25/10 $\rightarrow$ 31/12/2026) | Active Cash Daily Yield | NAV at Day 14 (`8 Nov`) | NAV at Day 30 (`24 Nov`) | **Final NAV at `31 Dec 2026` (Day 67)** | **Total Net Return vs `$298.89`** | **Equivalent Daily Compounding Rate** | **Golden Rule (`+0.70%` $\leftrightarrow$ `+5.00%/d`)** |
+| Simulation Scenario (67 Days: 25/10 $\rightarrow$ 31/12/2026) | Active Cash Daily Yield | NAV at Day 14 (`8 Nov`) | NAV at Day 30 (`24 Nov`) | **Final NAV at `31 Dec 2026` (Day 67)** | **Total Net Return vs `Baseline`** | **Equivalent Daily Compounding Rate** | **Golden Rule (`+0.70%` $\leftrightarrow$ `+5.00%/d`)** |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **1. STRESS BEAR / LATERAL** *(Zero market rally; legacy bags unlock strictly via free Quick-Scalp averaging over 24 days)* | `+1.35% / day` *(47% of overnight rate)* | `$317.09 USDC` (`+6.09%`) | `$387.60 USDC` (`+29.68%`) | **`$591.19 USDC`** | **`+97.80%`** (`+$292.30`) | **`+0.99% / day`** | ✅ **COMPLIANT** (`>= +0.70%/d`) |
 | **2. BASE CASE (KRONOS EXPECTED)** *(Normal crypto volatility $\hat{\sigma}_{1h} \approx 22\text{ bps}$; legacy bags unlock by Day 14)* | `+1.85% / day` *(65% of overnight rate)* | `$347.67 USDC` (`+16.32%`) | `$446.26 USDC` (`+49.31%`) | **`$794.89 USDC`** | **`+165.95%`** (`+$496.00`) | **`+1.42% / day`** | ✅ **COMPLIANT** (Sweet Spot) |
 | **3. BULL / ALT-SEASON** *(Kronos `Adaptive Upside Runner` `+135 bps` + `Bull-Wave Legacy Runner`; unlock by Day 8)* | `+2.65% / day` *(93% of overnight rate)* | `$392.09 USDC` (`+31.18%`) | `$559.97 USDC` (`+87.35%`) | **`$1,276.74 USDC`** | **`+327.16%`** (`+$977.85`) | **`+2.11% / day`** | ✅ **COMPLIANT** (Inside Corridor) |
 
-> **Verdict on Objective 1:** Even under the **Stress Bear/Lateral Scenario** (assuming zero macro market recovery and cutting our empirical overnight Quick-Scalp velocity in half to `1.35%/day`), the dual mechanism of **Quick-Scalp compounding + Free `openAvgPx` Averaging** recovers the `$298.89` baseline within **8–10 days** and compounds to **`$591.19 USDC` (`+0.99%/day`)** by December 31, 2026. In the **Kronos Base Case**, NAV reaches **`$794.89 USDC` (`+1.42%/day`)**.
+> **Verdict on Objective 1:** Even under the **Stress Bear/Lateral Scenario** (assuming zero macro market recovery and cutting our empirical overnight Quick-Scalp velocity in half to `1.35%/day`), the dual mechanism of **Quick-Scalp compounding + Free `openAvgPx` Averaging** recovers the `Baseline` baseline within **8–10 days** and compounds to **`$591.19 USDC` (`+0.99%/day`)** by December 31, 2026. In the **Kronos Base Case**, NAV reaches **`$794.89 USDC` (`+1.42%/day`)**.
 
 ---
 

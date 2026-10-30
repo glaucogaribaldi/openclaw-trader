@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os, sys, json, time, sqlite3, subprocess, argparse
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIRECTIVE_PATH = os.path.join(BASE_DIR, "config/ai_hourly_directive.json")
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 sys.path.insert(0, BASE_DIR)
@@ -34,10 +34,10 @@ def get_okx_orders():
 
 def query_openrouter_hourly_steering(nav, usdc_cash, orders_count, active_tokens_str, trigger_reason):
     prompt = f"""Sei l AI Steering Co-Pilot per TRE OS v6.0 Predator su OKX Spot EEA.
-REGOLA AUREA INVIOLABILE DEL SISTEMA: Obiettivo di compounding organico giornaliero obbligatorio tra +0.70% e +5.00% al giorno (Baseline Nuova Run v6.0 del 22/10/2026: $298.89 USDC).
+REGOLA AUREA INVIOLABILE DEL SISTEMA: Obiettivo di compounding organico giornaliero obbligatorio tra +0.70% e +5.00% al giorno (Baseline Nuova Run v6.0 del 22/10/2026: Baseline USDC).
 Evento Scatenante: {trigger_reason}
 Dati attuali:
-- NAV Live: ${nav:.2f} USDC (Baseline v6.0 22/10: $298.89 USDC)
+- NAV Live: ${nav:.2f} USDC (Baseline v6.0 22/10: Baseline USDC)
 - Cassa Liquida USDC: ${usdc_cash:.2f} USDC
 - Ordini Limit Attivi: {orders_count} trappole (100% Post-Only Maker + Cost-Basis Floor openAvgPx + 22 bps)
 - Token High-Beta Monitorati: {active_tokens_str}

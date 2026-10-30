@@ -137,7 +137,7 @@ export interface PredatorSystemState {
   timestamp: string;
   // Capital & NAV Metrics
   genesis_baseline_usdc: number; // $253.01 (11/10/2026)
-  v7_run_baseline_usdc: number; // $298.89 (22/10/2026)
+  v7_run_baseline_usdc: number; // Baseline (22/10/2026)
   current_nav_usdc: number;
   spot_equity_usd: number;
   free_usdc: number;

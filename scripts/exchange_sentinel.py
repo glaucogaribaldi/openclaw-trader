@@ -5,7 +5,7 @@ Checks OKX system status, wallet maintenance, and token notices for the 8 High-B
 """
 import os, sys, json, subprocess, time
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WHITELIST = ["NEAR", "LINK", "SOL", "SUI", "RENDER", "AVAX", "FET", "SEI"]
 
 def check_okx_system_status():

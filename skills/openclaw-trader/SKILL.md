@@ -40,7 +40,7 @@ bash scripts/install_kronos_oracle.sh --size small
 ```
 
 ### 3. Deterministic Accounting & Interactive Telegram Bot (`scripts/accounting_engine.py`, `scripts/telegram_bot.py`)
-- `openclaw-telegram-bot.service` responds in real time to `/report`, `/oggi`, `/settimana`, `/run`, `/portafoglio`, `/mercato` on `@beato_zava`.
+- `openclaw-telegram-bot.service` responds in real time to `/report`, `/oggi`, `/settimana`, `/run`, `/portafoglio`, `/mercato` on `<YOUR_TELEGRAM_HANDLE>`.
 - `scripts/telegram_reporter.py` sends executive reports at `08:00` and `20:00 CEST`.
 
 ---

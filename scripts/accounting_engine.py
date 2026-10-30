@@ -2,7 +2,7 @@
 """
 TRE OS v7.0 (Sovereign Predator Edition) Deterministic Accounting Engine (`scripts/accounting_engine.py`)
 Computes strict 100% Penny Match financial metrics using native HMAC-SHA256 OKX REST API:
-- Official TRE OS v7.0 Predator Run Baseline: $298.89 USDC (22/10/2026 21:00 CEST)
+- Official TRE OS v7.0 Predator Run Baseline: Baseline USDC (22/10/2026 21:00 CEST)
 - Enforces & tracks the GOLDEN RULE daily organic compounding target: [+0.70% <-> +5.00% / day]
 - Auto-syncs recent OKX Spot fills (since 22/10/2026 21:00 CEST) into `predator_fills_ledger` and `trade_ledger`
 - Realized FIFO PnL (24h, 7d, Full Run)
@@ -16,7 +16,7 @@ import json
 import sqlite3
 import time
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if not os.path.exists(BASE_DIR):
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)

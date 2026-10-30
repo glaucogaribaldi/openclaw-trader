@@ -2,7 +2,7 @@
 """
 TRE OS v6.0 (Predator Edition) Interactive Telegram Bot Interactor (`telegram_bot.py`)
 Read-Only Interactive Bot listening for commands:
-- /report or /status -> Full Financial Report (New Run v6.0 from 22/10 $298.89 USDC) + AI Narrative
+- /report or /status -> Full Financial Report (New Run v6.0 from 22/10 Baseline USDC) + AI Narrative
 - /oggi -> Today 24h PnL & Fills + Golden Rule Target (+0.70% <-> +5.00%)
 - /settimana -> 7 Days PnL & Fills (within v6.0 Run)
 - /run -> Full v6.0 Run PnL & Baseline Reconciliation (22/10/2026 21:00 CEST)

@@ -1,7 +1,7 @@
 # 🧠 TRE OS v8.7 — Neural & Microstructure Architecture Map (`NeoQuasar/Kronos-mini` + Online RLS + Kalman)
 
 **Document ID:** `TRE-OS-V8.7-NEURAL-ARCH-2026-10-25`  
-**Interactive Live Visualizer:** Available natively on `http://34.28.19.242:8080` (**Tab `02. Neural Brain & Kronos`**)  
+**Interactive Live Visualizer:** Available natively on `http://<YOUR_VPS_IP>:8080` (**Tab `02. Neural Brain & Kronos`**)  
 **Foundation Model Reference:** Shi et al., *"Kronos: A Foundation Model for the Language of Financial Markets"*, Tsinghua University (`arXiv:2508.02739v1`)
 
 ---
@@ -54,7 +54,7 @@ flowchart LR
 
 ## 2. PyTorch Layer-by-Layer Architecture of `NeoQuasar/Kronos-mini (4.1M)`
 
-Inspected directly from `/home/zavattoni_giacomo/Kronos/model/kronos.py` and `/home/zavattoni_giacomo/Kronos/model/module.py`:
+Inspected directly from `/home/trader_user/Kronos/model/kronos.py` and `/home/trader_user/Kronos/model/module.py`:
 
 | Stage | Module Name | Input Shape | Output Shape | Key Parameters & Mathematical Role |
 | :---: | :--- | :---: | :---: | :--- |

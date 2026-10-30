@@ -272,7 +272,7 @@ export default function App() {
                   : `-$${Math.abs(state.v7_run_pnl_usdc).toFixed(2)}`}{' '}
                 ({state.v7_run_growth_pct >= 0 ? `+${state.v7_run_growth_pct}` : state.v7_run_growth_pct}%)
               </span>
-              <span className="text-[#8A94A6]">da $298.89 (22/10)</span>
+              <span className="text-[#8A94A6]">da Baseline Run</span>
             </div>
           </div>
 

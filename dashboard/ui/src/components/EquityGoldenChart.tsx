@@ -228,7 +228,7 @@ export const EquityGoldenChart: React.FC<EquityGoldenChartProps> = ({
           </div>
           <div>
             <span className="text-[#8A94A6] block">
-              PNL PERIODO ({range === '24H' ? 'DA $298.89' : `DA $${periodBaseline.toFixed(2)}`})
+              PNL PERIODO ({range === '24H' ? 'DA BASELINE' : `DA $${periodBaseline.toFixed(2)}`})
             </span>
             <span className="text-[#10B981] font-semibold">
               {activePoint.nav_usdc - periodBaseline >= 0 ? '+' : ''}$
@@ -298,7 +298,7 @@ export const EquityGoldenChart: React.FC<EquityGoldenChartProps> = ({
               );
             })}
 
-            {/* v7 Run Baseline Reference Line ($298.89) */}
+            {/* v7 Run Baseline Reference Line (Configured Baseline) */}
             {v7Baseline >= minVal && v7Baseline <= maxVal && (
               <g>
                 <line
@@ -316,7 +316,7 @@ export const EquityGoldenChart: React.FC<EquityGoldenChartProps> = ({
                   y={toY(v7Baseline) - 5}
                   className="fill-[#FCD34D] font-mono text-[9px]"
                 >
-                  v7 Sovereign Baseline ($298.89)
+                  v7 Sovereign Baseline (Configured Baseline)
                 </text>
               </g>
             )}

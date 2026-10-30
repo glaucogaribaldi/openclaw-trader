@@ -35,9 +35,9 @@ After=network.target openclaw-predator.service
 
 [Service]
 Type=simple
-User=zavattoni_giacomo
-WorkingDirectory=/home/zavattoni_giacomo/openclaw-trader
-ExecStart=/usr/bin/python3 /home/zavattoni_giacomo/openclaw-trader/scripts/brody_telemetry_push.py
+User=trader_user
+WorkingDirectory=/opt/openclaw-trader
+ExecStart=/usr/bin/python3 /opt/openclaw-trader/scripts/brody_telemetry_push.py
 Restart=always
 RestartSec=5
 
@@ -239,7 +239,7 @@ WantedBy=multi-user.target`;
           <div>
             <span className="text-xs font-mono text-[#FCD34D] flex items-center gap-1.5">
               <Terminal className="w-4 h-4" />
-              INSTALLAZIONE 1-CLICK SULLA VPS SOVRANA &quot;BRODY&quot; (34.28.19.242 / 100.106.15.28)
+              INSTALLAZIONE 1-CLICK SULLA VPS SOVRANA &quot;BRODY&quot; (<YOUR_VPS_IP> / <YOUR_TAILSCALE_IP>)
             </span>
             <p className="text-xs text-[#8A94A6] mt-1">
               Questo script legge <code className="text-[#E6E8EC]">config/okx_trader.db</code> in modalità Read-Only WAL e{' '}
@@ -261,7 +261,7 @@ WantedBy=multi-user.target`;
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-4">
           <div className="lg:col-span-2 bg-[#07080A] border border-[#1E2530] p-3">
             <div className="flex items-center justify-between text-xs font-mono text-[#8A94A6] pb-2 border-b border-[#181E27]">
-              <span>/home/zavattoni_giacomo/openclaw-trader/scripts/brody_telemetry_push.py</span>
+              <span>/opt/openclaw-trader/scripts/brody_telemetry_push.py</span>
               <span className="text-[#10B981]">ZERO DIPENDENZE ESTERNE (STDLIB PYTHON 3.13)</span>
             </div>
             <pre className="text-[11px] font-mono text-[#E6E8EC] overflow-x-auto max-h-72 pt-2 leading-relaxed">

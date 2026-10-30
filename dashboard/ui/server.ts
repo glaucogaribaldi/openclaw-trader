@@ -32,7 +32,7 @@ function computeRegime(predBps: number, ofi: number, vpin: number, btcLeadLag: n
 
 function buildInitialSovereignState(): PredatorSystemState {
   const genesisBaseline = 253.01;
-  const v7Baseline = 298.89;
+  const v7Baseline = 1000.0;
   const currentNav = 312.64;
   const freeUsdc = 38.42;
   const frozenUsdc = 31.85;
@@ -346,7 +346,7 @@ function buildInitialSovereignState(): PredatorSystemState {
     { timestamp: '2026-10-17T12:00:00Z', label: '17 Ott', nav_usdc: 278.12, golden_floor_usdc: 263.82, golden_ceiling_usdc: 339.05, realized_cum_pnl_usdc: 25.11, btc_lead_lag_bps: 5.2, vpin_avg: 0.27 },
     { timestamp: '2026-10-19T12:00:00Z', label: '19 Ott', nav_usdc: 287.64, golden_floor_usdc: 267.53, golden_ceiling_usdc: 373.81, realized_cum_pnl_usdc: 34.63, btc_lead_lag_bps: 1.8, vpin_avg: 0.32 },
     { timestamp: '2026-10-21T12:00:00Z', label: '21 Ott', nav_usdc: 294.20, golden_floor_usdc: 271.29, golden_ceiling_usdc: 412.12, realized_cum_pnl_usdc: 41.19, btc_lead_lag_bps: -6.1, vpin_avg: 0.41 },
-    { timestamp: '2026-10-22T19:00:00Z', label: '22 Ott 21:00', nav_usdc: 298.89, golden_floor_usdc: 273.19, golden_ceiling_usdc: 432.73, realized_cum_pnl_usdc: 45.88, btc_lead_lag_bps: 0.9, vpin_avg: 0.33, event_tag: 'Upgrade TRE OS v7.0 Sovereign ($298.89)' },
+    { timestamp: '2026-10-22T19:00:00Z', label: '22 Ott 21:00', nav_usdc: 1000.0, golden_floor_usdc: 273.19, golden_ceiling_usdc: 432.73, realized_cum_pnl_usdc: 45.88, btc_lead_lag_bps: 0.9, vpin_avg: 0.33, event_tag: 'Upgrade TRE OS v7.0 Sovereign (Configured Baseline)' },
     { timestamp: '2026-10-23T04:00:00Z', label: '23 Ott 06:00', nav_usdc: 303.18, golden_floor_usdc: 299.65, golden_ceiling_usdc: 304.10, realized_cum_pnl_usdc: 50.17, btc_lead_lag_bps: 3.1, vpin_avg: 0.30 },
     { timestamp: '2026-10-23T08:00:00Z', label: '23 Ott 10:00', nav_usdc: 307.92, golden_floor_usdc: 300.12, golden_ceiling_usdc: 308.45, realized_cum_pnl_usdc: 54.91, btc_lead_lag_bps: 6.4, vpin_avg: 0.28, event_tag: 'Kronos-mini 5m+15m Breakout HYPE/SOL' },
     { timestamp: '2026-10-23T11:30:00Z', label: '23 Ott 13:30', nav_usdc: 310.45, golden_floor_usdc: 300.58, golden_ceiling_usdc: 311.60, realized_cum_pnl_usdc: 57.44, btc_lead_lag_bps: 2.8, vpin_avg: 0.31 },
@@ -366,8 +366,8 @@ function buildInitialSovereignState(): PredatorSystemState {
   return {
     status: 'ok',
     vps_host: 'brody (Debian 13 Trixie • 2 vCPU • 964MB RAM)',
-    vps_ip: '34.28.19.242',
-    vps_tailnet_ip: '100.106.15.28',
+    vps_ip: '<YOUR_VPS_IP>',
+    vps_tailnet_ip: '<YOUR_TAILSCALE_IP>',
     connection_mode: 'SOVEREIGN_REPLAY',
     last_vps_push_iso: null,
     vps_push_count: 0,
@@ -878,7 +878,7 @@ import sqlite3
 import time
 import urllib.request
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = "/opt/openclaw-trader"
 DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
 AUDIT_PATH = os.path.join(BASE_DIR, "config", "predator_audit_report.json")
 KRONOS_URL = "http://127.0.0.1:8090/forecast"

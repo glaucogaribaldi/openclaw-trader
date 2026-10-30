@@ -5,7 +5,7 @@ Performs health checks on daemon, SQLite database integrity, and system resource
 """
 import os, sys, json, sqlite3, time, subprocess
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "config/okx_trader.db")
 HEALTH_PATH = os.path.join(BASE_DIR, "memory/health.json")
 

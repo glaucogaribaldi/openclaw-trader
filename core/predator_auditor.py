@@ -61,7 +61,7 @@ class PredatorAuditor:
         db_path: str,
         report_out_path: str,
         or_token: str = "",
-        baseline_nav: float = 298.89,
+        baseline_nav: float = 1000.0,
     ):
         self.db_path = db_path
         self.report_out_path = report_out_path

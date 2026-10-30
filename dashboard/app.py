@@ -12,12 +12,15 @@ import io
 import json
 import os
 import sqlite3
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from predator_daemon import load_purified_run_config
 import time
 import urllib.request
 from typing import Any, Dict, List
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if not os.path.exists(BASE_DIR):
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -29,7 +32,7 @@ LLM_DIRECTIVE_PATH = os.path.join(BASE_DIR, "config", "predator_llm_directive.js
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 
 GENESIS_BASELINE_NAV = 253.01  # Genesis Run Start (11/10/2026 08:42 CEST)
-BASELINE_NAV = 298.89          # Official TRE OS v7.0/v7.1 Sovereign Predator Run Start (22/10/2026 21:00 CEST)
+BASELINE_NAV, RUN_START_ISO, _, _ = load_purified_run_config(BASE_DIR)          # Official TRE OS v7.0/v7.1 Sovereign Predator Run Start (22/10/2026 21:00 CEST)
 RUN_START_ISO = "2026-10-22T19:00:00Z"
 HARVEST_ONLY_SET = {"FET-USDC", "SEI-USDC"}
 
@@ -296,7 +299,7 @@ def build_live_predator_state() -> Dict[str, Any]:
             ("2026-10-19T18:00:00Z", "19 Ott", 308.15, "Ribilanciamento Avellaneda-Stoikov"),
             ("2026-10-20T20:54:00Z", "20 Ott", 313.88, "Finestra Parità Audit ($313.88 USDC)"),
             ("2026-10-21T18:00:00Z", "21 Ott", 304.12, "Ritracciamento Mercato Altcoin"),
-            (RUN_START_ISO, "22 Ott 21:00", BASELINE_NAV, "Cutover Ufficiale TRE OS v7 Sovereign ($298.89 USDC)"),
+            (RUN_START_ISO, "22 Ott 21:00", BASELINE_NAV, "Cutover Ufficiale TRE OS v7 Sovereign (Configured Baseline)"),
         ]
         dt_genesis = datetime.datetime.fromisoformat("2026-10-11T08:42:00+00:00")
         for ts_a, lbl_a, nav_a, tag_a in historical_daily_anchors:
@@ -436,7 +439,7 @@ def build_live_predator_state() -> Dict[str, Any]:
     return {
         "status": "ok" if has_live_snap else "degraded_missing_snapshot",
         "vps_host": "brody (Debian 13 Trixie • 2 vCPU • 964MB RAM + 2GB Swap)",
-        "vps_ip": "34.28.19.242",
+        "vps_ip": os.environ.get("VPS_PUBLIC_IP", "127.0.0.1"),
         "vps_tailnet_ip": "100.106.15.28",
         "connection_mode": "LIVE_VPS_PUSH" if has_live_snap else "OFFLINE_FALLBACK",
         "last_vps_push_iso": live_snap.get("timestamp") or now_dt.isoformat() + "Z",
@@ -486,7 +489,7 @@ def build_live_predator_state() -> Dict[str, Any]:
             "zero_loss_violations": 0,
             "executive_verdict": str(
                 audit_rep.get("executive_verdict")
-                or f"CERTIFICAZIONE QUANTITATIVA SUPERATA: NAV Reale Live a ${current_nav:.2f} USDC ({v7_pnl:+.2f} USDC / {v7_pct:+.2f}% rispetto alla Baseline del 22/10 21:00 CEST di $298.89 USDC). Esecuzione 100.0% Post-Only Maker con +${total_run_realized:.4f} USDC di profitti realizzati chiusi."
+                or f"CERTIFICAZIONE QUANTITATIVA SUPERATA: NAV Reale Live a ${current_nav:.2f} USDC ({v7_pnl:+.2f} USDC / {v7_pct:+.2f}% rispetto alla Baseline del 22/10 21:00 CEST della Baseline Configurata). Esecuzione 100.0% Post-Only Maker con +${total_run_realized:.4f} USDC di profitti realizzati chiusi."
             ),
             "council_timestamp": str(llm_dir.get("timestamp") or now_cest),
             "council_models": [

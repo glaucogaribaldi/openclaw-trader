@@ -5,7 +5,7 @@ Truncates log files in memory/*.log if they exceed 5MB to preserve VPS disk spac
 """
 import os, sys, glob
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_DIR = os.path.join(BASE_DIR, "memory")
 MAX_BYTES = 5 * 1024 * 1024 # 5 MB threshold
 

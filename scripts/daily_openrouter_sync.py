@@ -2,7 +2,7 @@
 import os, sys, json, time, sqlite3, subprocess
 import gspread
 
-BASE_DIR = "/home/zavattoni_giacomo/openclaw-trader"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "config/okx_trader.db")
 SA_KEY_PATH = os.path.join(BASE_DIR, "config/gsheet_sa_key.json")
 SPREADSHEET_ID = "1gNr4yEpdynK4juTIzG5m5AJ365y8E5MzZ33AEDaUjwU"
@@ -30,7 +30,7 @@ def query_openrouter_audit(nav, usdc_cash, total_fills, active_orders):
     prompt = f"""Esegui l'audit giornaliero (24h) di TRE OS v6.0 Predator per OKX Spot EEA.
 REGOLA AUREA INVIOLABILE: Canale di compounding organico giornaliero obbligatorio tra +0.70% e +5.00% al giorno.
 Dati di input (Nuova Run v6.0 iniziata il 22/10/2026 21:00 CEST):
-- Baseline Iniziale Run v6.0: $298.89 USDC (22/10/2026 21:00 CEST)
+- Baseline Iniziale Run v6.0: Baseline USDC (22/10/2026 21:00 CEST)
 - Net Asset Value (NAV) Attuale: ${nav:.2f} USDC
 - Cassa Liquida Disponibile: ${usdc_cash:.2f} USDC
 - Fills Realizzati nella Nuova Run: {total_fills}
@@ -106,9 +106,9 @@ def main():
 
 ## 📊 METRICHE CHIAVE LIVE OKX SPOT (NUOVA RUN v6.0)
 
-- **Capitale Iniziale Baseline v6.0 (22/10/2026 21:00 CEST):** `$298.89 USDC`
+- **Capitale Iniziale Baseline v6.0 (22/10/2026 21:00 CEST):** `Baseline USDC`
 - **Net Asset Value (NAV) Attuale:** `${total_nav:.2f} USDC`
-- **Variazione Netta NAV (Nuova Run v6.0):** `{(total_nav - 298.89):+.2f} USDC` (`{((total_nav - 298.89) / 298.89 * 100):+.2f}%`)
+- **Variazione Netta NAV (Nuova Run v6.0):** `{(total_nav - float(os.environ.get("BASELINE_NAV_USDC") or 1000.0)):+.2f} USDC` (`{((total_nav - float(os.environ.get("BASELINE_NAV_USDC") or 1000.0)) / float(os.environ.get("BASELINE_NAV_USDC") or 1000.0) * 100):+.2f}%`)
 - **Canale Regola Aurea Giornaliera:** `+0.70% <-> +5.00%` (`+${(total_nav * 0.007):.2f} <-> +${(total_nav * 0.05):.2f} USDC/giorno`)
 - **Cassa Liquida Disponibile USDC:** `${usdc_cash:.2f} USDC`
 - **Trappole Limit Attive in Book:** `{active_orders}` (100% Post-Only Maker + Cost-Basis Floor)
