@@ -213,10 +213,10 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
         "instId": inst_id,
         "tdMode": "isolated",
         "side": side,
-        "ordType": "market" if urgent_stop else "post_only",
+        "ordType": "market" if (urgent_stop or reduce_only) else "post_only",
         "sz": sz_str,
     }
-    if not urgent_stop:
+    if body["ordType"] != "market":
         body["px"] = px_str
     if reduce_only:
         body["reduceOnly"] = True
@@ -225,10 +225,6 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
         d = (r.get("data") or [{}])[0]
         if str(d.get("sCode", "")) == "0":
             return True
-        if reduce_only and not urgent_stop:
-            body["ordType"] = "limit"
-            r2 = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
-            return str((r2.get("data") or [{}])[0].get("sCode", "")) == "0"
     except Exception:
         pass
     return False
@@ -260,6 +256,21 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             if db_inst not in live_okx_pos and db_inst not in live_okx_pend:
                 cur.execute("DELETE FROM futures_demo_positions WHERE pos_id=?", (db_row[0],))
                 del open_positions[db_inst]
+        for okx_inst, okx_p in live_okx_pos.items():
+            if okx_inst in FUTURES_UNIVERSE and okx_inst not in open_positions:
+                pos_val = float(okx_p.get("pos") or 0.0)
+                avg_px = float(okx_p.get("avgPx") or 0.0)
+                mgn_u = round(float(okx_p.get("margin") or 35.0), 2)
+                not_u = round(abs(pos_val) * float(FUTURES_UNIVERSE[okx_inst]["ct_val"]) * avg_px, 2)
+                p_dir = "LONG" if pos_val > 0 else "SHORT"
+                c_dec = int(FUTURES_UNIVERSE[okx_inst]["dec_px"])
+                tp_px = round(avg_px * 1.0110, c_dec) if p_dir == "LONG" else round(avg_px * 0.9890, c_dec)
+                sl_px = round(avg_px * 0.9844, c_dec) if p_dir == "LONG" else round(avg_px * 1.0156, c_dec)
+                efee = round(not_u * MAKER_FEE_RATE, 4)
+                pid = f"XPERP_{okx_inst.split('-')[0]}_{int(okx_p.get('cTime') or int(time.time()*1000))}"
+                cur.execute("INSERT OR REPLACE INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 1, ?, 'OPEN', ?, NULL, NULL, NULL)",
+                            (pid, okx_inst, p_dir, LEVERAGE, mgn_u, not_u, avg_px, avg_px, tp_px, sl_px, efee, now_iso))
+                open_positions[okx_inst] = (pid, okx_inst, p_dir, LEVERAGE, mgn_u, not_u, avg_px, tp_px, sl_px, 0.0, 1, efee, now_iso)
         conn.commit()
     cur.execute("SELECT inst_id, status, (julianday('now') - julianday(closed_at)) * 1440.0 FROM futures_demo_positions WHERE status != 'OPEN' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 40")
     cooldown_blocked_insts = set()
