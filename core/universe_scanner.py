@@ -81,14 +81,16 @@ class PredatorUniverseScanner:
                 if low <= 0 or bid <= 0 or ask <= 0:
                     continue
                 spread_bps = ((ask - bid) / ((ask + bid) * 0.5)) * 10000.0
-                is_currently_held = coin in held_coins
-                if not is_currently_held and (vol_usd < 220000.0 or spread_bps > 8.5):
-                    continue
                 range_pct = ((high - low) / low) * 100.0
                 chg_pct = ((last - open24) / open24) * 100.0 if open24 > 0 else 0.0
-                # Predator Alpha Score: rewards explosive intraday range + directional momentum + deep liquidity, penalizes spread
-                liq_score = min(14.0, math.log10(max(100000.0, vol_usd)) * 2.2 - 9.0)
-                pred_rank = round((range_pct * 2.6) + (abs(chg_pct) * 1.35) + liq_score - (spread_bps * 1.4), 2)
+                is_currently_held = coin in held_coins
+                # Block 1 Structural Fix: reject thin/erratic pump-and-dump coins (vol < $500k, spread > 5.8 bps, or 24h range > 16.5%)
+                if not is_currently_held and (vol_usd < 500000.0 or spread_bps > 5.8 or range_pct > 16.5):
+                    continue
+                # Reward deep liquidity + healthy controlled volatility (3%-12%) + tight spread
+                liq_score = min(16.0, math.log10(max(100000.0, vol_usd)) * 2.5 - 10.0)
+                controlled_vol = min(range_pct, 11.5)
+                pred_rank = round((controlled_vol * 1.4) + (liq_score * 2.2) - (spread_bps * 2.6), 2)
 
                 meta = inst_map.get(iid, {})
                 dec_px = _decimals_from_step(str(meta.get("tickSz") or "0.001"), default_dec=3, max_dec=6)

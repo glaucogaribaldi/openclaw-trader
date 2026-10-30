@@ -456,6 +456,7 @@ def run_predator_cycle(
     active_tranche_ord_ids: set[str] = set()
     active_tranches_by_inst: Dict[str, List[tuple]] = {}
     recent_sell_cooldown_map: Dict[str, Tuple[float, float]] = {}  # inst_id -> (last_sell_px, minutes_ago)
+    stop_loss_quarantine_set: set[str] = set()  # 6h automatic quarantine for any coin that hit CLOSED_STOPLOSS or negative realized PnL
     if client.is_authenticated:
         try:
             raw_fills = prefetched_raw_fills
@@ -478,6 +479,20 @@ def run_predator_cycle(
             for s_inst, s_px, s_mins in cur_tr.fetchall():
                 if str(s_inst) not in recent_sell_cooldown_map:
                     recent_sell_cooldown_map[str(s_inst)] = (float(s_px or 0.0), float(s_mins or 0.0))
+
+            # Block 5 Fix: 6-Hour Stop-Loss Quarantine (never re-buy a coin within 6h of a stop-loss exit!)
+            cur_tr.execute(
+                """
+                SELECT DISTINCT inst_id FROM predator_fills_ledger
+                WHERE side='sell' AND realized_pnl_usd < -0.05 AND datetime(fill_time) >= datetime('now', '-6 hours')
+                UNION
+                SELECT DISTINCT inst_id FROM fresh_scalp_tranches
+                WHERE status='CLOSED_STOPLOSS' AND datetime(created_at) >= datetime('now', '-6 hours')
+                """
+            )
+            for (q_inst,) in cur_tr.fetchall():
+                if q_inst:
+                    stop_loss_quarantine_set.add(str(q_inst))
 
             cur_tr.execute(
                 """
@@ -719,6 +734,19 @@ def run_predator_cycle(
         {"inst_id": x["inst_id"], "range_24h_pct": x["range_24h_pct"], "chg_24h_pct": x["chg_24h_pct"], "pred_rank": x["pred_rank"]}
         for x in alpha_radar_top[:5]
     ]
+
+    # Load Self-Improving Gemini Free + 5-Horizon Kronos state ONCE per cycle (Block 2 Fix)
+    si_state = GeminiSelfImprover(BASE_DIR).load_state()
+    si_min_ofi = float(si_state.get("min_entry_ofi", 0.18))
+    si_max_vpin = float(si_state.get("max_entry_vpin", 0.65))
+    si_min_k1h = float(si_state.get("min_kronos_1h_bps", 8.0))
+    si_min_k6h = float(si_state.get("min_kronos_6h_bps", -22.0))
+    si_min_k24h = float(si_state.get("min_kronos_24h_bps", -50.0))
+    si_min_pullback = float(si_state.get("min_pullback_2h_bps", 32.0))
+    si_fast_shield_bps = float(si_state.get("fast_shield_trigger_bps", 38.0))
+    si_penalty_box = set(si_state.get("coin_penalty_box_24h") or []) | stop_loss_quarantine_set
+    si_kronos_leaders = set(si_state.get("kronos_top_conviction_leaders") or [])
+    is_night_dead_zone = bool(utc_hour >= 23 or utc_hour < 5)  # 00:00 - 06:00 CET low-liquidity stop-hunt window
 
     # 1. Scan all instruments in active_universe (Core + Dynamic Predator Explorers) using prefetched parallel market snapshots
     for inst_id, meta in active_universe.items():
@@ -1120,7 +1148,7 @@ def run_predator_cycle(
                                         })
                                     continue
 
-                                eff_lock_trigger = float(user_run_cfg.get("fast_shield_trigger_bps") or 38.0)
+                                eff_lock_trigger = si_fast_shield_bps
                                 fast_decay_hours = 2.0 if is_purified_mode else 2.5
                                 # Mechanism 3 (12h Daily Profit Stop-Stagnation Sweeper): ONLY if today's realized profits (ratchet_pool_usd)
                                 # genuinely cover 100% of the spread to best_ask (never out of pocket!), exit at best_ask:
@@ -1418,28 +1446,34 @@ def run_predator_cycle(
         # 2) Kronos 1h >= +8.0 bps, TP probability >= 0.58, AND Kronos 2h Macro NOT crashing (>= -12.0 bps);
         # 3) OpenRouter Chief Quant Judge Veto: llm_bias >= -0.05 (blocks entry if OpenRouter flags negative conviction);
         # 4) Positive L2 Order Flow Imbalance (OFI >= +0.18) and non-toxic VPIN (<= 0.65).
-        # Load Self-Improving Gemini Free + 5-Horizon Kronos adaptive parameters (bounded safety box)
-        si_state = GeminiSelfImprover(BASE_DIR).load_state()
-        si_min_ofi = float(si_state.get("min_entry_ofi", 0.18))
-        si_max_vpin = float(si_state.get("max_entry_vpin", 0.65))
-        si_min_k1h = float(si_state.get("min_kronos_1h_bps", 8.0))
-        si_min_k6h = float(si_state.get("min_kronos_6h_bps", -22.0))
-        si_min_k24h = float(si_state.get("min_kronos_24h_bps", -50.0))
-        si_min_pullback = float(si_state.get("min_pullback_2h_bps", 32.0))
-        si_penalty_box = set(si_state.get("coin_penalty_box_24h") or [])
-        si_kronos_leaders = set(si_state.get("kronos_top_conviction_leaders") or [])
         if inst_id in si_kronos_leaders:
             calc_opp_score = round(calc_opp_score + 4.5, 2)
 
-        # Require genuine non-zero Kronos forecast in RAM (never treat uncached 0.0 as safe!) + 5-Horizon Crash Shield
-        has_valid_kronos = bool(k_fc is not None and (abs(k_ret_bps) > 0.05 or abs(k_macro_2h_bps) > 0.05))
-        has_5h_perspective_safety = bool(
-            has_valid_kronos
-            and k_macro_2h_bps >= -12.0
-            and k_6h_bps >= si_min_k6h
-            and k_swing_12h_bps >= -35.0
-            and k_24h_bps >= si_min_k24h
+        # Block 3 & 5 Fix: Require ALL 5 Kronos horizons (1h, 2h, 6h, 12h, 24h) to be populated in RAM (never treat uncached 0.0 as safe!),
+        # and during Night Dead-Zone (00:00-06:00 CET) require all 5 horizons to be strictly positive (>= +8 bps) + OFI >= +0.28!
+        has_valid_kronos = bool(
+            k_fc is not None
+            and (abs(k_ret_bps) > 0.05 or abs(k_macro_2h_bps) > 0.05)
+            and (abs(k_6h_bps) > 0.05 or abs(k_swing_12h_bps) > 0.05 or abs(k_24h_bps) > 0.05)
         )
+        if is_night_dead_zone:
+            has_5h_perspective_safety = bool(
+                has_valid_kronos
+                and k_ret_bps >= 12.0
+                and k_macro_2h_bps >= 8.0
+                and k_6h_bps >= 10.0
+                and k_swing_12h_bps >= 10.0
+                and k_24h_bps >= 10.0
+                and sig.ofi_norm >= 0.28
+            )
+        else:
+            has_5h_perspective_safety = bool(
+                has_valid_kronos
+                and k_macro_2h_bps >= -12.0
+                and k_6h_bps >= si_min_k6h
+                and k_swing_12h_bps >= -35.0
+                and k_24h_bps >= si_min_k24h
+            )
         has_positive_edge = bool(
             inst_id not in si_penalty_box
             and (drop_from_high_bps >= si_min_pullback or is_rebound_leader)
