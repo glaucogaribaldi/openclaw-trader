@@ -58,6 +58,12 @@ def main() -> None:
     for r in cur.fetchall():
         print(" ", r)
     conn.close()
+    fut_snap_p = os.path.join(BASE_DIR, 'config', 'futures_demo_snapshot.json')
+    if os.path.exists(fut_snap_p):
+        fs = json.load(open(fut_snap_p))
+        print(f"=== PARALLEL FUTURES DEMO 2.5X ({fs.get('timestamp')}) | Start=${fs.get('baseline_nav_usd')} -> LiveNAV=${fs.get('current_nav_usd')} (Sim22Oct=${fs.get('historical_22oct_sim_nav_usd')}) | FreeMgn=${fs.get('free_margin_usd')} | RealizedPnL=${fs.get('realized_pnl_usd'):+.3f} | Fees=${fs.get('total_fees_usd'):.3f} (FeeDrag={fs.get('fee_drag_ratio_pct')}%) | Wins={fs.get('wins_count')} Shields={fs.get('shield_locks_count')} Stops={fs.get('stops_count')} | Auditor={fs.get('auditor_model')} ===")
+        for fp in fs.get('open_positions', []):
+            print(f"  [OPEN {fp['direction']} 2.5x] {fp['inst_id']:<14} | Entry=${fp['entry_px']} -> Now=${fp['current_px']} | TP=${fp['tp_px']} SL=${fp['sl_px']} | Peak={fp['peak_move_bps']:+.1f}bps Shield={fp['shield_armed']}")
 
 
 if __name__ == "__main__":

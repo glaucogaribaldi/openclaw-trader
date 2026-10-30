@@ -335,6 +335,11 @@ def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 3, force
     tp_touch_prob_1h = round(sum(1 for hb in path_highs_bps if hb >= 26.0) / max(1, len(path_highs_bps)), 3)
     path_dispersion_bps = round(float(np.std(path_rets_bps)), 2) if len(path_rets_bps) > 1 else 5.0
 
+    # Extract ultra-short 5m (step 0) and 10m (step 1) micro-trigger forecasts directly from raw_paths_5m (0.00ms extra CPU!)
+    pred_close_5m = float(np.mean(raw_paths_5m[:, 0, 3])) if raw_paths_5m.shape[1] >= 1 else pred_close
+    pred_close_10m = float(0.45 * np.mean(raw_paths_5m[:, 0, 3]) + 0.55 * np.mean(raw_paths_5m[:, 1, 3])) if raw_paths_5m.shape[1] >= 2 else pred_close
+    ret_5m_bps = ((pred_close_5m - last_close) / last_close) * 10000.0 if last_close > 0 else 0.0
+    ret_10m_bps = ((pred_close_10m - last_close) / last_close) * 10000.0 if last_close > 0 else 0.0
     upside_bps = ((pred_high - last_close) / last_close) * 10000.0 if last_close > 0 else 0.0
     downside_bps = ((last_close - pred_low) / last_close) * 10000.0 if last_close > 0 else 0.0
     net_return_bps = ((pred_close - last_close) / last_close) * 10000.0 if last_close > 0 else 0.0
@@ -358,6 +363,8 @@ def forecast_pair(inst_id: str, pred_len: int = 12, sample_count: int = 3, force
         "pred_1h_close": round(pred_close, 6),
         "upside_high_bps": round(upside_bps, 2),
         "downside_low_bps": round(downside_bps, 2),
+        "kronos_5m_bps": round(ret_5m_bps, 2),
+        "kronos_10m_bps": round(ret_10m_bps, 2),
         "expected_return_1h_bps": round(net_return_bps, 2),
         "macro_return_2h_bps": round(macro_ret_2h_bps, 2),
         "horizon_6h_bps": round(horizon_6h_bps, 2),

@@ -148,7 +148,7 @@ class GeminiSelfImprover:
                 "id": t.get("inst_id"),
                 "ofi": t.get("ofi_norm"),
                 "vpin": t.get("vpin_toxicity"),
-                "k1h": t.get("kronos_1h_bps"),
+                "k5m": t.get("kronos_5m_bps", 0.0), "k10m": t.get("kronos_10m_bps", 0.0), "k1h": t.get("kronos_1h_bps"),
                 "k2h": t.get("kronos_2h_bps"),
                 "k6h": t.get("kronos_6h_bps"),
                 "k12h": t.get("kronos_12h_bps"),
