@@ -254,7 +254,7 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
         "instId": inst_id,
         "tdMode": "isolated",
         "side": side,
-        "ordType": "market" if (urgent_stop or reduce_only) else "post_only",
+        "ordType": "market" if urgent_stop else ("limit" if reduce_only else "post_only"),
         "sz": sz_str,
     }
     if body["ordType"] != "market":
@@ -376,7 +376,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 locked_move_bps = max(10.0, new_peak * trail_ratio)
                 if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
-                    exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
+                    exit_exec_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
             if not exit_reason and move_bps <= -55.0:
                 inv_1h = bool(pos_age_mins >= 15.0 and ((p_dir == "LONG" and k5m <= -5.0 and k10m <= -8.0 and k1h <= -18.0) or (p_dir == "SHORT" and k5m >= 5.0 and k10m >= 8.0 and k1h >= 18.0)))
                 broken = bool((p_dir == "LONG" and k5m < -6.0 and k6h < -18.0) or (p_dir == "SHORT" and k5m > 6.0 and k6h > 18.0))
@@ -392,7 +392,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     close_side = "sell" if p_dir == "LONG" else "buy"
                     _execute_live_xperp_order(inst_id, close_side, sz_str, exit_exec_px, meta["dec_px"], reduce_only=True, urgent_stop=urgent_stop)
                 realized_move_bps = max(-156.0, ((exit_exec_px - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - exit_exec_px) / p_entry * 10000.0))
-                exit_fee_rate = 0.0005 if (live_mode and (urgent_stop or True)) else MAKER_FEE_RATE
+                exit_fee_rate = 0.0005 if (live_mode and urgent_stop) else MAKER_FEE_RATE
                 exit_fee_usd = round(p_notional * exit_fee_rate, 4)
                 net_pnl_usd = round((p_notional * (realized_move_bps / 10000.0)) - p_efee - exit_fee_usd, 4)
                 free_mgn = round(free_mgn + p_mgn + net_pnl_usd, 4)
