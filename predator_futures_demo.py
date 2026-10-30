@@ -41,7 +41,7 @@ MAX_SLOTS = 4
 SLOT_NAV_PCT = 0.20      # 20.0% of live NAV per slot (4 slots = 80% Chamber 1 Assault at 2.0x Anti-Wick + 20% Chamber 2 Reserve)
 _IO_POOL = ThreadPoolExecutor(max_workers=6)
 _LEVERAGE_INITIALIZED = False
-_OI_CACHE: Dict[str, float] = {}
+_OI_CACHE: Dict[str, Tuple[float, float]] = {}  # inst_id -> (anchor_ts, anchor_oi)
 _LAST_SCANNER_TS = 0.0
 
 def refresh_dynamic_xperp_universe() -> None:
@@ -84,6 +84,11 @@ def refresh_dynamic_xperp_universe() -> None:
                 "min_sz": float(spec.get("minSz") or 1.0),
                 "dynamic_hot": True,
             }
+            if _OKX_CLIENT.is_authenticated:
+                try:
+                    _OKX_CLIENT._request("POST", "/api/v5/account/set-leverage", body_dict={"instId": iid, "lever": "2", "mgnMode": "isolated"}, auth=True)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -166,9 +171,11 @@ def _fetch_swap_book_and_trades(inst_id: str):
             oi_d = json.loads(roi.read().decode("utf-8")).get("data", [])
             if oi_d:
                 cur_oi = float(oi_d[0].get("oi") or 0.0)
-                prev_oi = _OI_CACHE.get(inst_id, cur_oi)
+                now_t = time.time()
+                prev_ts, prev_oi = _OI_CACHE.get(inst_id, (now_t, cur_oi))
                 oi_delta_bps = ((cur_oi - prev_oi) / prev_oi * 10000.0) if prev_oi > 0 else 0.0
-                _OI_CACHE[inst_id] = cur_oi
+                if (now_t - prev_ts) >= 900.0 or inst_id not in _OI_CACHE:
+                    _OI_CACHE[inst_id] = (now_t, cur_oi)
     except Exception:
         pass
     return inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps, atr_1h_bps, oi_delta_bps, funding_bps
@@ -253,7 +260,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "1) self_critique: auto-analisi su cosa ha funzionato o fallito nelle scelte precedenti; "
         "2) Prospettive Multi-Orizzonte: outlook_1h (piano tattico prossima 1h), outlook_6h (piano sessione 6h), outlook_12h (piano swing 12h), outlook_48h (strategia macro 48h per recuperare i $267.88 e puntare a $298.89); "
         "3) learned_rules: fino a 5 regole operative auto-apprese; "
-        "4) Controlli operativi: force_close_inst_ids, priority_boost_inst_ids (top 2-3 monete migliori), blacklist_inst_ids (MAX 3 monete più tossiche, VIETATO bloccare tutto il paniere: devi trovare i migliori setup con VPIN<=0.78 per recuperare il NAV!), gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
+        "4) Controlli operativi: force_close_inst_ids, priority_boost_inst_ids (top 2-3 monete migliori), blacklist_inst_ids (MAX 3 monete più tossiche, VIETATO bloccare tutto il paniere: devi trovare i migliori setup con VPIN<=0.78 per recuperare il NAV!), gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [18.0..25.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
     )
     for g_mod in ("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-4-argon"):
         try:
@@ -537,13 +544,13 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         if mid <= 0:
             continue
         k_fc = kronos_map.get(meta["spot_id"])
-        k5m = k_fc.kronos_5m_bps if k_fc else 0.0
-        k10m = k_fc.kronos_10m_bps if k_fc else 0.0
-        k1h = k_fc.expected_return_1h_bps if k_fc else 0.0
-        k2h = k_fc.macro_return_2h_bps if k_fc else 0.0
-        k6h = k_fc.horizon_6h_bps if k_fc else 0.0
-        k12h = k_fc.swing_return_12h_bps if k_fc else 0.0
-        k24h = k_fc.daily_return_24h_bps if k_fc else 0.0
+        k5m = k_fc.kronos_5m_bps if k_fc else round(real_15m_bps * 0.45, 1)
+        k10m = k_fc.kronos_10m_bps if k_fc else round(real_15m_bps * 0.75, 1)
+        k1h = k_fc.expected_return_1h_bps if k_fc else round(real_1h_bps * 0.85, 1)
+        k2h = k_fc.macro_return_2h_bps if k_fc else round(real_1h_bps * 1.15, 1)
+        k6h = k_fc.horizon_6h_bps if k_fc else round(real_48h_bps * 0.25, 1)
+        k12h = k_fc.swing_return_12h_bps if k_fc else round(real_48h_bps * 0.45, 1)
+        k24h = k_fc.daily_return_24h_bps if k_fc else round(real_48h_bps * 0.70, 1)
         # Real-Candle Price Momentum Gate: NEVER short a rising green candle (real_15m/1h > 0) and NEVER long a falling red candle!
         macro_bull = bool(k6h >= 8.0 and (k12h >= 5.0 or k24h >= 5.0) and k2h >= -8.0 and k1h >= 6.0 and real_1h_bps >= 0.0 and real_15m_bps >= -12.0)
         macro_bear = bool(k6h <= -8.0 and (k12h <= -5.0 or k24h <= -5.0) and k2h <= 8.0 and k1h <= -6.0 and real_1h_bps <= -5.0 and real_15m_bps <= -2.0)
@@ -573,7 +580,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 else:
                     base_trail = float(brain_skills.get("trail_lock_ratio") or 0.75)
                     locked_move_bps = new_peak * max(0.72, base_trail)
-                if move_bps <= locked_move_bps and move_bps >= -15.0:
+                if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
