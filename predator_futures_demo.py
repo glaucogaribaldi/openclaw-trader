@@ -196,16 +196,17 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "3) learned_rules: fino a 5 regole operative auto-apprese; "
         "4) Controlli operativi: force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
     )
-    for g_mod in ("gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"):
+    for g_mod in ("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-4-argon"):
         try:
             u = f"https://generativelanguage.googleapis.com/v1beta/models/{g_mod}:generateContent"
             payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.15, "responseMimeType": "application/json"}}
             req = urllib.request.Request(u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json", ("x-goog-" + "api-key"): gemini_key})
-            with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx()) as resp:
+            with urllib.request.urlopen(req, timeout=14, context=_ssl_ctx()) as resp:
                 d = json.loads(resp.read().decode("utf-8"))
                 txt = (d.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")).strip()
                 if txt and "{" in txt:
-                    p = json.loads(txt)
+                    s_i, e_i = txt.find("{"), txt.rfind("}")
+                    p = json.loads(txt[s_i:e_i+1])
                     res = {
                         "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "model_used": f"google-free:{g_mod}", "fee_drag_ratio_pct": fee_drag_pct,
