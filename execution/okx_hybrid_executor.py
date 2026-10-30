@@ -230,14 +230,14 @@ class OKXNativeClient:
 
     # --- Private Account & Order Execution (Live or Demo) ---
     def get_account_balances(self) -> List[Dict[str, Any]]:
-        for attempt in range(2):
+        for attempt in range(3):
             res = self._request("GET", "/api/v5/account/balance", auth=True)
             data = res.get("data", [])
-            if data and "details" in data[0]:
+            if data and "details" in data[0] and data[0]["details"]:
+                _SWAP_RADAR_CACHE["last_balances"] = data[0]["details"]
                 return data[0]["details"]
-            if attempt == 0:
-                time.sleep(0.5)
-        return []
+            time.sleep(0.8 * (attempt + 1))
+        return list(_SWAP_RADAR_CACHE.get("last_balances") or [])
 
     def get_savings_balances(self) -> List[Dict[str, Any]]:
         try:
