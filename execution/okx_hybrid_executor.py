@@ -230,13 +230,30 @@ class OKXNativeClient:
 
     # --- Private Account & Order Execution (Live or Demo) ---
     def get_account_balances(self) -> List[Dict[str, Any]]:
-        for attempt in range(3):
+        for attempt in range(2):
             res = self._request("GET", "/api/v5/account/balance", auth=True)
             data = res.get("data", [])
             if data and "details" in data[0] and data[0]["details"]:
                 _SWAP_RADAR_CACHE["last_balances"] = data[0]["details"]
                 return data[0]["details"]
-            time.sleep(0.8 * (attempt + 1))
+            time.sleep(0.4)
+        # Fallback: if Trading Account (18) is empty because funds are parked in Funding Account (6), read /api/v5/asset/balances
+        try:
+            f_res = self._request("GET", "/api/v5/asset/balances", auth=True)
+            f_data = f_res.get("data", [])
+            if f_data:
+                mapped = []
+                for b in f_data:
+                    ccy = str(b.get("ccy") or "")
+                    bal = float(b.get("bal") or 0.0)
+                    avail = float(b.get("availBal") or 0.0)
+                    froz = float(b.get("frozenBal") or 0.0)
+                    eq_usd = bal if ccy in ("USDC", "USDT", "USDG") else 0.0
+                    mapped.append({"ccy": ccy, "cashBal": str(bal), "availBal": str(avail), "frozenBal": str(froz), "eqUsd": str(eq_usd), "funding_account_only": True})
+                if mapped:
+                    return mapped
+        except Exception:
+            pass
         return list(_SWAP_RADAR_CACHE.get("last_balances") or [])
 
     def get_savings_balances(self) -> List[Dict[str, Any]]:
