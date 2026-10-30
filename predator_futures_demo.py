@@ -210,7 +210,12 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             p_id, _, p_dir, p_lev, p_mgn, p_notional, p_entry, p_tp, p_sl, p_peak_bps, p_shield, p_efee, p_open_ts = open_positions[inst_id]
             move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
             new_peak = max(float(p_peak_bps), move_bps)
-            eff_shield_gate = min(30.0, fast_shield_gate_bps)
+            try:
+                pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace('Z', '+00:00'))).total_seconds() / 60.0
+            except Exception:
+                pos_age_mins = 0.0
+            # 60-Minute Time-Decay Tightener: after 45m, lower shield gate from 28 bps down to 14 bps so stagnant trades exit in net profit!
+            eff_shield_gate = 14.0 if pos_age_mins >= 45.0 else min(28.0, fast_shield_gate_bps)
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             exit_reason, exit_exec_px = None, mid
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
