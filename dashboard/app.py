@@ -26,6 +26,8 @@ if not os.path.exists(BASE_DIR):
 
 UI_DIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "dist")
 DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
+FUTURES_DB_PATH = os.path.join(BASE_DIR, "config", "okx_futures_demo.db")
+FUTURES_SNAP_PATH = os.path.join(BASE_DIR, "config", "futures_demo_snapshot.json")
 LIVE_SNAP_PATH = os.path.join(BASE_DIR, "config", "predator_live_snapshot.json")
 AUDIT_PATH = os.path.join(BASE_DIR, "config", "predator_audit_report.json")
 LLM_DIRECTIVE_PATH = os.path.join(BASE_DIR, "config", "predator_llm_directive.json")
@@ -59,9 +61,67 @@ def build_live_predator_state() -> Dict[str, Any]:
         BASELINE_NAV = float(purified_cfg["baseline_nav_usdc"])
     if purified_cfg.get("run_start_iso"):
         RUN_START_ISO = str(purified_cfg["run_start_iso"])
+    fut_snap = _read_json_safe(FUTURES_SNAP_PATH)
     live_snap = _read_json_safe(LIVE_SNAP_PATH)
     audit_rep = _read_json_safe(AUDIT_PATH)
     llm_dir = _read_json_safe(LLM_DIRECTIVE_PATH)
+    if fut_snap and fut_snap.get("current_nav_usd"):
+        open_pos_map = {p["inst_id"]: p for p in fut_snap.get("open_positions", []) if isinstance(p, dict) and p.get("inst_id")}
+        mapped_tel = []
+        btc_mid_v, btc_ofi_v = 0.0, 0.0
+        for st in fut_snap.get("telemetry", []):
+            iid = str(st.get("inst_id") or "")
+            mid_p = float(st.get("mid_price") or 0.0)
+            if "BTC-" in iid:
+                btc_mid_v, btc_ofi_v = mid_p, float(st.get("ofi_norm") or 0.0)
+            op = open_pos_map.get(iid)
+            avg_p = float(op.get("entry_px") or 0.0) if op else 0.0
+            not_u = float(op.get("notional_usd") or 0.0) if op else 0.0
+            p_dir = str(op.get("direction") or "LONG") if op else str(st.get("allowed_direction") or "NEUTRAL")
+            unr_b = (((mid_p - avg_p) / avg_p * 10000.0) if p_dir == "LONG" else ((avg_p - mid_p) / avg_p * 10000.0)) if avg_p > 0 else 0.0
+            unr_u = round(not_u * (unr_b / 10000.0), 3) if avg_p > 0 else 0.0
+            mapped_tel.append({
+                "inst_id": iid,
+                "open_avg_px": avg_p,
+                "cost_basis_floor_px": float(op.get("tp_px") or 0.0) if op else 0.0,
+                "holding_size": round(not_u / mid_p, 4) if (op and mid_p > 0) else 0.0,
+                "holding_eq_usd": float(op.get("margin_usd") or 0.0) if op else 0.0,
+                "unrealized_bps": round(unr_b, 1),
+                "unrealized_usd": unr_u,
+                "mid_price": mid_p,
+                "ofi_norm": float(st.get("ofi_norm") or 0.0),
+                "vpin_toxicity": float(st.get("vpin_toxicity") or 0.0),
+                "kronos_1h_bps": float(st.get("kronos_1h_bps") or 0.0),
+                "kronos_2h_bps": float(st.get("kronos_2h_bps") or 0.0),
+                "horizon_aligned": str(st.get("allowed_direction")) in ("LONG", "SHORT"),
+                "predicted_return_bps": float(st.get("kronos_10m_bps") or 0.0),
+                "opp_score": round(float(st.get("kronos_10m_bps") or 0.0) + float(st.get("kronos_1h_bps") or 0.0) * 0.5, 2),
+                "regime": f"XPERP_4X_{st.get('allowed_direction', 'NEUTRAL')}",
+                "active_buy_px": float(op.get("sl_px")) if op else None,
+                "active_sell_px": float(op.get("tp_px")) if op else None,
+                "updated_at": fut_snap.get("timestamp"),
+            })
+        live_snap = {
+            "timestamp": fut_snap.get("timestamp"),
+            "nav_usdc": fut_snap.get("current_nav_usd"),
+            "free_usdc": fut_snap.get("free_margin_usd"),
+            "frozen_usdc": fut_snap.get("locked_margin_usd"),
+            "btc_mid_px": btc_mid_v,
+            "ofi_btc": btc_ofi_v,
+            "btc_lead_lag_bps": 0.0,
+            "ratchet_pool_usd": fut_snap.get("realized_pnl_usd", 0.0),
+            "cost_basis_fixes": fut_snap.get("stops_count", 0),
+            "profit_lock_repegs": fut_snap.get("shield_locks_count", 0),
+            "active_orders_count": len(fut_snap.get("open_positions", [])),
+            "telemetry": mapped_tel,
+        }
+        audit_rep = {
+            "current_nav_usd": fut_snap.get("current_nav_usd"),
+            "auditor_model": fut_snap.get("auditor_model"),
+            "realized_pnl_usd": fut_snap.get("realized_pnl_usd"),
+            "unrealized_mtm_usd": fut_snap.get("unrealized_pnl_usd"),
+            "executive_verdict": f"[TRE OS v14.3 LIVE XPERP 4.0X ISOLATED] {fut_snap.get('auditor_verdict', '')} | Wins={fut_snap.get('wins_count',0)} Shields={fut_snap.get('shield_locks_count',0)} Stops={fut_snap.get('stops_count',0)} | FeeDrag={fut_snap.get('fee_drag_ratio_pct',0):.1f}%",
+        }
 
     now_dt = datetime.datetime.now()
     now_cest = now_dt.strftime("%Y-%m-%d %H:%M:%S CEST")
