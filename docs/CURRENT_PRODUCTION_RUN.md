@@ -1,40 +1,26 @@
-# 🏆 CURRENT REFERENCE PRODUCTION RUN — TRE OS v12.0 (SOVEREIGN TWO-CHAMBER EDITION)
+# CURRENT PRODUCTION RUN — TRE OS v14.0 (Sovereign Futures 2.5x Isolated Edition)
+<!-- project: github.com/glaucogaribaldi/openclaw-trader -->
 
-> **Note:** This document describes the active **Reference Production Run** currently operating live on OKX Spot EEA. New users installing this repository are **not** bound to these dates or dollar amounts — use `scripts/configure_run.py` (see [`AI_INSTALLER_GUIDE.md`](../AI_INSTALLER_GUIDE.md)) to calibrate the engine to your own wallet and schedule.
-
----
-
-## 📊 1. REFERENCE RUN PARAMETERS (`config/purified_run_config.json` on Production Host)
-
-| Parameter | Reference Production Value | Description |
-| :--- | :--- | :--- |
-| **Exchange & Market Mode** | **OKX Spot EEA** (`tdMode: cash`) | Zero leverage, zero derivatives, 0.00% liquidation risk |
-| **Order Execution Policy** | **100% Post-Only Maker** (`ordType: post_only`) | `10 bps` buy + `10 bps` sell = `20 bps` round-trip VIP0 Maker fee; `0.00%` Taker fee |
-| **Purified Run Inauguration** | `2026-10-28T21:06:37Z` (`22:06:37 CET`) | Initialized after 100% legacy block unwind |
-| **Purified Baseline Capital (`X`)** | **`$285.74 USDC`** | Reference starting capital for the Purified Two-Chamber Run |
-| **Daily Compounding Target** | **`+0.70% <-> +5.00% / day`** | Golden Rule organic daily compounding channel |
-| **Target Expiration Date** | **`2026-12-31T21:00:00Z`** | Configurable 4-Stage Cashout Engine (6-day taper starting `2026-12-25`) |
-| **Chamber 1 (Assault Sniper)** | **`63% of NAV`** | Dynamic high-liquidity altcoin & major dip-sniper bullets |
-| **Chamber 2 (Pure Cash Shield)** | **`37% of NAV`** | Pure `USDC` reserve held in cash during ordinary sessions |
+> **Stato Attivo in Produzione su `brody`:** **LIVE PERPETUAL FUTURES `2.5x Isolated` (`LONG + SHORT`)** sui 12 contratti regolamentati OKX Europa (`*-USD_UM_XPERP-*`, `instType=FUTURES`, `ruleType=xperp`, `settleCcy=USD` 1:1 con `USDC`).
+> **Servizio Primario:** `openclaw-futures-demo.service` (`predator_futures_live.py` / `predator_futures_demo.py`, modalità `LIVE_XPERP_2.5X`).
+> **Vecchio Motore Spot 1x (`openclaw-predator.service`):** Spento e disabilitato (`inactive / disabled`) dopo liquidazione pulita al 100% in `USDC` alle `13:18 CET` del `30 Ottobre 2026`.
 
 ---
 
-## 🧠 2. COGNITIVE & MATHEMATICAL STACK OF THE CURRENT RUN (`TRE OS v12.0`)
+## 1. PARAMETRI UFFICIALI DELLA RUN IN PRODUZIONE (`config/purified_run_config.json`)
 
-1. **5-Horizon Local Kronos Foundation Model (`kronos-oracle.service` on `127.0.0.1:8090`):**
-   - Runs Tsinghua University's `NeoQuasar/Kronos-mini (4.1M)` locally in RAM with a single-worker `PRIORITY_QUEUE` (`0.2 ms` HTTP response, `~3.5s` background CPU inference per pair).
-   - Computes 5 simultaneous horizons per asset:
-     - **`1h` (`expected_return_1h_bps`):** `12 × 5m` rollout with pre-mean trajectory tensor (`Eq. 12` realized volatility & `tp_touch_prob_1h`);
-     - **`2h` (`macro_return_2h_bps`):** `8 × 15m` intraday trend;
-     - **`6h` (`horizon_6h_bps`):** `6 × 1H` session perspective;
-     - **`12h` (`swing_return_12h_bps`):** `12 × 1H` overnight swing perspective;
-     - **`24h` (`daily_return_24h_bps`):** `24 × 1H` daily structural perspective.
-   - **5-Horizon Crash Shield (`has_5h_perspective_safety`):** Automatically blocks new `BUY` entries if `2h < -12 bps`, `6h < -22 bps`, `12h < -35 bps`, or `24h < -50 bps`.
-2. **Dual Free AI Council (`agents/llm_council.py`):**
-   - **Primary Engine:** Google AI Studio Free Tier (`gemini-3.5-flash-lite` ➔ `gemini-3.5-flash` ➔ `gemini-3.8-flash`) with native `application/json` output.
-   - **Secondary Automatic Failover:** 1-Single-Call OpenRouter Free Router (`"model": "nvidia/nemotron-3-ultra-550b-a55b:free"`, `"models": ["google/gemma-4-31b-it:free", "openrouter/free"]`).
-   - **70% Conviction Authority & Full Negative Veto:** If the AI Judge assigns `conviction <= -0.15`, new `BUY` orders on that asset are vetoed.
-3. **3-Stage Asymmetric Risk & Profit Protection:**
-   - **Stage 1 — Fast Break-Even + Profit Shield at `+38 bps` (`+0.38%`):** Locks `76%–88%` of unrealized profit (minimum `+26 bps` gross = `+6 bps` net after `20 bps` OKX Maker fees).
-   - **Stage 2 — Cognitive Early Exit (`-1.80% .. -3.99%`):** Exits early in `Post-Only Maker` at `best_ask` if both Kronos (`2h <= -25 bps` + bearish `6h/12h/24h`) and the AI Council (`llm_bias <= -0.25`) confirm thesis invalidation.
-   - **Stage 3 — Hard Max-Loss Cap at `-4.00%` (`-400 bps`):** Inviolable automatic `Post-Only Maker` exit at `best_ask` so no position can ever exceed a `-4.0%` drawdown.
+- **Capitale Netto Certificato al Cutover Futures `v14.0` (`30/10/2026 13:20 CET`):**
+  - **Conto di Trading OKX (`18`):** `$267.88 USDC` (100% disponibile per margine isolato `USD_UM_XPERP`)
+  - **Conto di Finanziamento OKX (`6`):** `$6.06 USD` (polvere non negoziabile)
+  - **NAV Totale Complessivo:** **`$273.94 USDC`** (Baseline Run Purificata 28/10: `$285.74 USDC`; Baseline Storica 22/10: `$298.89 USDC`)
+- **Architettura a Due Camere (`4 Slot x 12.5% NAV = 50% / 50%`):**
+  - **Camera 1 (Assalto Futures `2.5x Isolated` `LONG + SHORT`):** Max **4 Slot contemporanei**, ciascuno pari al **`12.5%` del NAV attuale** (`~$33.50 USDC` di margine isolato = `~$83.75 USD` nozionale a leva `2.5x`, max `50%` del NAV impegnato).
+  - **Camera 2 (Scudo Contanti Puro `USDC`):** Minimo **`50.0%` del NAV** sempre liquido e intoccabile a riserva.
+- **Le 3 Regole Auree Invalicabili (`TRE OS v14.0`):**
+  1. **Regola Aurea 1 (`+0.70% <-> +5.00% / giorno`):** Ordini `post_only` Maker (`2 bps` entrata + `2 bps` uscita = `4 bps` round-trip sul nozionale), **Scudo Break-Even Rapido a `+28 bps`** (blocca l'82% del picco) e **45m Time-Decay Tightener a `+14 bps`**.
+  2. **Regola Aurea 2 (Tetto Massimo di Perdita `-4.00%` sul Margine):**
+     - **Stadio B (Uscita Cognitiva Anticipata a `-110 bps` prezzo = `-2.75%` margine):** chiude se `5m` e `6h` di Kronos confermano la rottura della tesi;
+     - **Stadio C (Hard Cap Invalicabile a `-156 bps` prezzo + `4 bps` fee = `-4.00%` margine):** chiusura immediata `reduceOnly=True`;
+     - **Circuit Breaker Generale di Portafoglio:** blocca nuove aperture se il NAV scende oltre `-8.0%` dalla baseline.
+  3. **Regola Aurea 3 (Interesse Composto Continuo fino a `expiry_iso`):**
+     - La taglia di ogni slot (`12.5% * live_nav_est`) scala dinamicamente a ogni profitto incassato fino a `2026-12-31T21:00:00Z` (tapering Reduce-Only negli ultimi 6 giorni dal `25/12/2026`).

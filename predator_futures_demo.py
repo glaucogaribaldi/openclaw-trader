@@ -38,7 +38,7 @@ HISTORICAL_22OCT_SIM_NAV_USDC = 298.89
 LEVERAGE = 2.5
 MAKER_FEE_RATE = 0.0002  # 2 bps entry + 2 bps exit = 4 bps round-trip on notional
 MAX_SLOTS = 4
-SLOT_NAV_PCT = 0.134     # ~$36.00 margin per slot ($90.00 notional at 2.5x) on $268.95 NAV
+SLOT_NAV_PCT = 0.125     # 12.5% of live NAV per slot (4 slots = 50% Chamber 1 Assault + 50% Chamber 2 Pure USDC Shield)
 _IO_POOL = ThreadPoolExecutor(max_workers=6)
 _LEVERAGE_INITIALIZED = False
 
@@ -312,10 +312,10 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     exit_reason, exit_exec_px = "CLOSED_SHIELD", ideal_lock_px
             if not exit_reason and move_bps <= -110.0:
                 broken = bool((p_dir == "LONG" and k5m < -5.0 and k6h < -15.0) or (p_dir == "SHORT" and k5m > 5.0 and k6h > 15.0))
-                if broken or move_bps <= -150.0:
+                if broken or move_bps <= -156.0:
                     exit_reason = "CLOSED_STOPLOSS"
                     exit_exec_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
-                    urgent_stop = bool(move_bps <= -150.0)
+                    urgent_stop = bool(move_bps <= -156.0)
             if exit_reason:
                 if live_mode and inst_id in live_okx_pos:
                     pos_cts = abs(float(live_okx_pos[inst_id].get("pos") or 0.0))
@@ -357,8 +357,10 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             "allowed_direction": allowed_dir,
         })
     live_nav_est = round(real_nav if (live_mode and real_nav > 10.0) else (base_nav + realized_pnl + unrealized_total_usd), 2)
+    portfolio_dd_pct = ((live_nav_est - base_nav) / base_nav * 100.0) if base_nav > 0 else 0.0
+    circuit_breaker_tripped = bool(portfolio_dd_pct <= -8.0)
     slot_margin_usd = round(live_nav_est * SLOT_NAV_PCT, 2)
-    if len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
+    if not circuit_breaker_tripped and len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
         candidates.sort(key=lambda x: x["score"], reverse=True)
         for cand in candidates:
             if len(open_positions) >= MAX_SLOTS or free_mgn < slot_margin_usd: break
@@ -373,7 +375,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 if not ok: continue
             entry_fee_usd = round(actual_notional * MAKER_FEE_RATE, 4)
             tp_px = round(c_px * 1.0110, c_dec) if c_dir == "LONG" else round(c_px * 0.9890, c_dec)
-            sl_px = round(c_px * 0.9850, c_dec) if c_dir == "LONG" else round(c_px * 1.0150, c_dec)
+            sl_px = round(c_px * 0.9844, c_dec) if c_dir == "LONG" else round(c_px * 1.0156, c_dec)
             pos_id = f"XPERP_{c_id.split('-')[0]}_{int(time.time()*1000)}"
             cur.execute("INSERT INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, ?, 'OPEN', ?, NULL, NULL, NULL)",
                         (pos_id, c_id, c_dir, LEVERAGE, actual_margin, actual_notional, c_px, c_px, tp_px, sl_px, entry_fee_usd, now_iso))
