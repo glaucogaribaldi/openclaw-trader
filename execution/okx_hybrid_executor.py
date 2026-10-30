@@ -237,21 +237,21 @@ class OKXNativeClient:
                 _SWAP_RADAR_CACHE["last_balances"] = data[0]["details"]
                 return data[0]["details"]
             time.sleep(0.4)
-        # Fallback: if Trading Account (18) is empty because funds are parked in Funding Account (6), read /api/v5/asset/balances
+        # Auto-Heal: if Trading Account (18) is empty because funds were swept to Funding Account (6),
+        # automatically transfer available USDC from Funding (6) back to Trading (18) so the bot stays 100% operative!
         try:
             f_res = self._request("GET", "/api/v5/asset/balances", auth=True)
             f_data = f_res.get("data", [])
             if f_data:
-                mapped = []
                 for b in f_data:
-                    ccy = str(b.get("ccy") or "")
-                    bal = float(b.get("bal") or 0.0)
-                    avail = float(b.get("availBal") or 0.0)
-                    froz = float(b.get("frozenBal") or 0.0)
-                    eq_usd = bal if ccy in ("USDC", "USDT", "USDG") else 0.0
-                    mapped.append({"ccy": ccy, "cashBal": str(bal), "availBal": str(avail), "frozenBal": str(froz), "eqUsd": str(eq_usd), "funding_account_only": True})
-                if mapped:
-                    return mapped
+                    if str(b.get("ccy") or "") == "USDC" and float(b.get("availBal") or 0.0) >= 5.0:
+                        amt_str = f"{float(b.get('availBal')):.6f}"
+                        self._request("POST", "/api/v5/asset/transfer", body_dict={"ccy": "USDC", "amt": amt_str, "from": "6", "to": "18"}, auth=True)
+                        res2 = self._request("GET", "/api/v5/account/balance", auth=True)
+                        d2 = res2.get("data", [])
+                        if d2 and "details" in d2[0] and d2[0]["details"]:
+                            _SWAP_RADAR_CACHE["last_balances"] = d2[0]["details"]
+                            return d2[0]["details"]
         except Exception:
             pass
         return list(_SWAP_RADAR_CACHE.get("last_balances") or [])
