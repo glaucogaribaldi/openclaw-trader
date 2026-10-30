@@ -13,7 +13,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 from core.kronos_oracle import KronosOracleClient
 from core.microstructure import MicrostructureEngine
+from execution.okx_hybrid_executor import OKXNativeClient
 from predator_daemon import evaluate_run_lifecycle, load_dotenv
+_OKX_PUBLIC_CLIENT = OKXNativeClient(simulated_demo=False)
 
 FUTURES_UNIVERSE: Dict[str, Dict[str, Any]] = {
     "BTC-USDT-SWAP":  {"spot_id": "BTC-USDC",  "coin": "BTC",  "dec_px": 1, "dec_sz": 4},
@@ -80,14 +82,8 @@ def _fetch_swap_book_and_trades(inst_id: str):
     bids, asks, trades = [], [], []
     high_2h, low_2h = 0.0, 0.0
     try:
-        u_b = f"https://eea.okx.com/api/v5/market/books?instId={inst_id}&sz=5"
-        with urllib.request.urlopen(urllib.request.Request(u_b, headers={"User-Agent": "TRE-OS-Fut/13.0"}), timeout=5, context=ctx) as r:
-            b_data = (json.loads(r.read().decode("utf-8")).get("data") or [{}])[0]
-            bids = [[float(x[0]), float(x[1])] for x in b_data.get("bids", [])]
-            asks = [[float(x[0]), float(x[1])] for x in b_data.get("asks", [])]
-        u_t = f"https://eea.okx.com/api/v5/market/trades?instId={inst_id}&limit=25"
-        with urllib.request.urlopen(urllib.request.Request(u_t, headers={"User-Agent": "TRE-OS-Fut/13.0"}), timeout=5, context=ctx) as r:
-            trades = json.loads(r.read().decode("utf-8")).get("data", [])
+        bids, asks = _OKX_PUBLIC_CLIENT.get_orderbook(inst_id, sz=5)
+        trades = _OKX_PUBLIC_CLIENT.get_recent_trades(inst_id, limit=25)
         u_c = f"https://eea.okx.com/api/v5/market/candles?instId={inst_id}&bar=15m&limit=8"
         with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/13.0"}), timeout=5, context=ctx) as r:
             c_rows = json.loads(r.read().decode("utf-8")).get("data", [])
