@@ -167,11 +167,12 @@ def _calc_contract_sz(inst_id: str, notional_usd: float, px: float) -> Tuple[str
     sz_str = f"{cts:.{dec_sz}f}" if dec_sz > 0 else str(int(cts))
     return sz_str, actual_notional
 
-def _sync_live_okx_account_and_cancel_stale(live_mode: bool) -> Tuple[float, float, Dict[str, Dict[str, Any]]]:
+def _sync_live_okx_account_and_cancel_stale(live_mode: bool) -> Tuple[float, float, Dict[str, Dict[str, Any]], set]:
     if not live_mode or not _OKX_CLIENT.is_authenticated:
-        return 0.0, 0.0, {}
+        return 0.0, 0.0, {}, set()
     real_nav, real_free = 0.0, 0.0
     live_pos_map: Dict[str, Dict[str, Any]] = {}
+    live_pend_set: set = set()
     try:
         b_res = _OKX_CLIENT._request("GET", "/api/v5/account/balance", auth=True).get("data", [])
         if b_res:
@@ -190,6 +191,8 @@ def _sync_live_okx_account_and_cancel_stale(live_mode: bool) -> Tuple[float, flo
             c_ms = int(o.get("cTime") or now_ms)
             if (now_ms - c_ms) >= 22000:
                 _OKX_CLIENT._request("POST", "/api/v5/trade/cancel-order", body_dict={"instId": o["instId"], "ordId": o["ordId"]}, auth=True)
+            else:
+                live_pend_set.add(str(o.get("instId") or ""))
     except Exception:
         pass
     try:
@@ -200,7 +203,7 @@ def _sync_live_okx_account_and_cancel_stale(live_mode: bool) -> Tuple[float, flo
                 live_pos_map[p["instId"]] = p
     except Exception:
         pass
-    return real_nav, real_free, live_pos_map
+    return real_nav, real_free, live_pos_map, live_pend_set
 
 def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, dec_px: int, reduce_only: bool = False, urgent_stop: bool = False) -> bool:
     if not _OKX_CLIENT.is_authenticated:
@@ -240,7 +243,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     cur.execute("SELECT baseline_nav_usd, current_nav_usd, free_margin_usd, realized_pnl_usd, total_fees_usd, wins_count, stops_count, shield_locks_count, started_at FROM futures_demo_account WHERE id=1")
     acct = cur.fetchone()
     base_nav, curr_nav, free_mgn, realized_pnl, tot_fees, wins_cnt, stops_cnt, shields_cnt, started_at = float(acct[0]), float(acct[1]), float(acct[2]), float(acct[3]), float(acct[4]), int(acct[5]), int(acct[6]), int(acct[7]), str(acct[8])
-    real_nav, real_free, live_okx_pos = _sync_live_okx_account_and_cancel_stale(live_mode)
+    real_nav, real_free, live_okx_pos, live_okx_pend = _sync_live_okx_account_and_cancel_stale(live_mode)
     if live_mode and real_nav > 10.0:
         free_mgn = real_free
     cur.execute("SELECT min_kronos_10m_bps, fast_shield_bps, model_used, verdict, fee_drag_ratio_pct FROM futures_demo_audit_log ORDER BY id DESC LIMIT 1")
@@ -252,6 +255,12 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     fee_drag_pct = float(last_aud[4]) if last_aud else 0.0
     cur.execute("SELECT pos_id, inst_id, direction, leverage, margin_usd, notional_usd, entry_px, tp_px, sl_px, peak_move_bps, shield_armed, entry_fee_usd, opened_at FROM futures_demo_positions WHERE status='OPEN'")
     open_positions = {r[1]: r for r in cur.fetchall()}
+    if live_mode:
+        for db_inst, db_row in list(open_positions.items()):
+            if db_inst not in live_okx_pos and db_inst not in live_okx_pend:
+                cur.execute("DELETE FROM futures_demo_positions WHERE pos_id=?", (db_row[0],))
+                del open_positions[db_inst]
+        conn.commit()
     cur.execute("SELECT inst_id, status, (julianday('now') - julianday(closed_at)) * 1440.0 FROM futures_demo_positions WHERE status != 'OPEN' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 40")
     cooldown_blocked_insts = set()
     for c_inst, c_st, mins_ago in cur.fetchall():
