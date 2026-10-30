@@ -556,25 +556,24 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            vol_mult = max(0.68, min(1.25, atr_1h_bps / 55.0))
-            eff_shield_gate = round((22.0 if pos_age_mins >= 45.0 else max(32.0, fast_shield_gate_bps)) * vol_mult, 1)
+            eff_shield_gate = 16.0 if pos_age_mins >= 30.0 else min(24.0, fast_shield_gate_bps)
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             if live_mode and int(p_shield) == 0 and new_shield == 1:
-                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 12.0, meta["dec_px"])
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 10.0, meta["dec_px"])
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_PROFIT", p_tp, True
             elif inst_id in brain_skills.get("force_close_inst_ids", []):
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             elif new_shield == 1:
-                # Stage 1 (+35..+74 bps): pure Break-Even Floor at +12 bps so winners have 23..62 bps breathing room to become big runners!
-                # Stage 2 (>= +75 bps): lock 75%..82% of the big runner!
-                if new_peak < 75.0:
-                    locked_move_bps = 12.0
+                # Stage 1 (+24..+64 bps): pure Break-Even Floor at +10 bps so a trade that reached +24..+36 bps NEVER turns into a stop-loss!
+                # Stage 2 (>= +65 bps): lock 75%..82% of the big runner!
+                if new_peak < 65.0:
+                    locked_move_bps = 10.0
                 else:
                     base_trail = float(brain_skills.get("trail_lock_ratio") or 0.75)
                     locked_move_bps = new_peak * max(0.72, base_trail)
-                if move_bps <= locked_move_bps:
+                if move_bps <= locked_move_bps and move_bps >= -15.0:
                     exit_reason = "CLOSED_SHIELD"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
