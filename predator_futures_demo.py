@@ -380,8 +380,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         k12h = k_fc.swing_return_12h_bps if k_fc else 0.0
         k24h = k_fc.daily_return_24h_bps if k_fc else 0.0
         # Real-Candle Price Momentum Gate: NEVER short a rising green candle (real_15m/1h > 0) and NEVER long a falling red candle!
-        macro_bull = bool(k6h >= 8.0 and (k12h >= 5.0 or k24h >= 5.0) and k2h >= -8.0 and k1h >= 6.0 and real_15m_bps >= 3.0 and real_1h_bps >= 8.0)
-        macro_bear = bool(k6h <= -8.0 and (k12h <= -5.0 or k24h <= -5.0) and k2h <= 8.0 and k1h <= -6.0 and real_15m_bps <= -3.0 and real_1h_bps <= -8.0)
+        macro_bull = bool(k6h >= 8.0 and (k12h >= 5.0 or k24h >= 5.0) and k2h >= -8.0 and k1h >= 6.0 and real_1h_bps >= 0.0 and real_15m_bps >= -12.0)
+        macro_bear = bool(k6h <= -8.0 and (k12h <= -5.0 or k24h <= -5.0) and k2h <= 8.0 and k1h <= -6.0 and real_1h_bps <= -5.0 and real_15m_bps <= -2.0)
         allowed_dir = "LONG" if macro_bull else ("SHORT" if macro_bear else "NEUTRAL")
         if inst_id in open_positions:
             p_id, _, p_dir, p_lev, p_mgn, p_notional, p_entry, p_tp, p_sl, p_peak_bps, p_shield, p_efee, p_open_ts = open_positions[inst_id]
