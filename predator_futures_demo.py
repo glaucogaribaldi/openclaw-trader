@@ -121,7 +121,8 @@ def load_gemini_brain_skills() -> Dict[str, Any]:
         "force_close_inst_ids": [],
         "priority_boost_inst_ids": [],
         "blacklist_inst_ids": [],
-        "verdict": "TRE OS v14.4 Empowered Gemini Brain active.",
+        "gemini_sniper_entries": [],
+        "verdict": "TRE OS v15.0 Constant 60s Gemini Co-Pilot active.",
     }
     try:
         if os.path.exists(p):
@@ -160,9 +161,9 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "1) force_close_inst_ids: lista di inst_id aperti da chiudere subito se la tesi 1h/6h è deteriorata; "
         "2) trail_lock_ratio [0.58..0.85]: 0.60 largo per lasciar correre trend forti, 0.82 stretto in mercato laterale; "
         "3) priority_boost_inst_ids (max 3 inst_id migliori) e blacklist_inst_ids (inst_id tossici da bloccare); "
-        "4) dynamic_slot_leverage [2.5..4.0] e min_kronos_10m_bps [6.0..12.0] e fast_shield_bps [18.0..28.0]; "
-        "5) verdict (1 frase incisiva in italiano). "
-        "Rispondi SOLO JSON: {min_kronos_10m_bps, fast_shield_bps, trail_lock_ratio, dynamic_slot_leverage, force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, verdict}."
+        "4) gemini_sniper_entries: lista (max 1) di oggetti {inst_id, dir} ('LONG' o 'SHORT') se vedi un'opportunità ad alta convinzione (allineamento Kronos + OFI favorevole) da eseguire subito; "
+        "5) dynamic_slot_leverage [1.8..2.0], min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0] e verdict (1 frase in italiano). "
+        "Rispondi SOLO JSON: {min_kronos_10m_bps, fast_shield_bps, trail_lock_ratio, dynamic_slot_leverage, force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries, verdict}."
     )
     for g_mod in ("gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"):
         try:
@@ -184,6 +185,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "force_close_inst_ids": [str(x) for x in (p.get("force_close_inst_ids") or []) if isinstance(x, str)],
                         "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
                         "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
+                        "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
                         "verdict": str(p.get("verdict") or default_audit["verdict"])[:280],
                     }
                     _LAST_GEMINI_AUDIT_TS = time.time()
@@ -391,7 +393,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            eff_shield_gate = 25.0 if pos_age_mins >= 45.0 else max(38.0, fast_shield_gate_bps)
+            eff_shield_gate = 25.0 if pos_age_mins >= 45.0 else max(35.0, fast_shield_gate_bps)
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
@@ -399,17 +401,21 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             elif inst_id in brain_skills.get("force_close_inst_ids", []):
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             elif new_shield == 1:
-                base_trail = float(brain_skills.get("trail_lock_ratio") or 0.72)
-                trail_ratio = 0.82 if new_peak >= 65.0 else base_trail
-                locked_move_bps = max(22.0, new_peak * trail_ratio)
+                # Stage 1 (+35..+74 bps): pure Break-Even Floor at +12 bps so winners have 23..62 bps breathing room to become big runners!
+                # Stage 2 (>= +75 bps): lock 75%..82% of the big runner!
+                if new_peak < 75.0:
+                    locked_move_bps = 12.0
+                else:
+                    base_trail = float(brain_skills.get("trail_lock_ratio") or 0.75)
+                    locked_move_bps = new_peak * max(0.72, base_trail)
                 if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
-            if not exit_reason and move_bps <= -150.0:
-                inv_1h = bool(pos_age_mins >= 30.0 and ((p_dir == "LONG" and k5m <= -8.0 and k10m <= -12.0 and k1h <= -25.0) or (p_dir == "SHORT" and k5m >= 8.0 and k10m >= 12.0 and k1h >= 25.0)))
+            if not exit_reason and move_bps <= -110.0:
+                inv_1h = bool(pos_age_mins >= 15.0 and ((p_dir == "LONG" and k5m <= -8.0 and k10m <= -12.0 and k1h <= -25.0) or (p_dir == "SHORT" and k5m >= 8.0 and k10m >= 12.0 and k1h >= 25.0)))
                 broken = bool((p_dir == "LONG" and k5m < -10.0 and k6h < -25.0) or (p_dir == "SHORT" and k5m > 10.0 and k6h > 25.0))
-                if inv_1h or (move_bps <= -180.0 and broken) or move_bps <= -220.0:
+                if inv_1h or (move_bps <= -150.0 and broken) or move_bps <= -180.0:
                     exit_reason = "CLOSED_STOPLOSS"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
@@ -444,13 +450,20 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         eff_k10m_gate = max(6.0, min(12.0, min_k10m_gate))
         boost_bonus = 15.0 if inst_id in brain_skills.get("priority_boost_inst_ids", []) else 0.0
         is_blacklisted = inst_id in brain_skills.get("blacklist_inst_ids", [])
+        gem_sniper_map = {str(x.get("inst_id")): str(x.get("dir")) for x in brain_skills.get("gemini_sniper_entries", []) if isinstance(x, dict)}
         if not is_blacklisted and inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 5.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.20 and sig.vpin_toxicity <= 0.75:
+            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 5.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.78:
                 score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
-            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -5.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.20 and sig.vpin_toxicity <= 0.75:
+            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -5.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.78:
                 score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
+            elif inst_id in gem_sniper_map and sig.vpin_toxicity <= 0.80:
+                g_dir = gem_sniper_map[inst_id]
+                if g_dir == "LONG" and not btc_veto_long and real_1h_bps >= -5.0 and sig.ofi_norm >= 0.12 and k1h >= 5.0:
+                    candidates.append({"inst_id": inst_id, "dir": "LONG", "score": round(35.0 + boost_bonus, 2), "px": bids[0][0], "dec_px": meta["dec_px"]})
+                elif g_dir == "SHORT" and not btc_veto_short and real_1h_bps <= -3.0 and sig.ofi_norm <= -0.12 and k1h <= -5.0:
+                    candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": round(35.0 + boost_bonus, 2), "px": asks[0][0], "dec_px": meta["dec_px"]})
         telemetry_rows.append({
             "inst_id": inst_id, "mid_price": mid, "ofi_norm": round(sig.ofi_norm, 2), "vpin_toxicity": round(sig.vpin_toxicity, 2),
             "kronos_5m_bps": round(k5m, 1), "kronos_10m_bps": round(k10m, 1), "kronos_1h_bps": round(k1h, 1),
@@ -475,8 +488,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             unshielded_total = sum(1 for r in open_positions.values() if int(r[10]) == 0) + len(live_okx_pend)
             if unshielded_total >= 1:
                 break
-            tp_px = round(c_px * 1.0130, c_dec) if c_dir == "LONG" else round(c_px * 0.9870, c_dec)
-            sl_px = round(c_px * 0.9780, c_dec) if c_dir == "LONG" else round(c_px * 1.0220, c_dec)
+            tp_px = round(c_px * 1.0135, c_dec) if c_dir == "LONG" else round(c_px * 0.9865, c_dec)
+            sl_px = round(c_px * 0.9820, c_dec) if c_dir == "LONG" else round(c_px * 1.0180, c_dec)
             if live_mode:
                 if c_id in live_okx_pend or c_id in live_okx_pos:
                     continue
@@ -515,8 +528,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     conn.commit()
     gross_prof_live = max(0.01, realized_pnl + tot_fees) if realized_pnl > 0 else 1.0
     fee_drag_pct = round((tot_fees / gross_prof_live) * 100.0, 2) if tot_fees > 0 else 0.0
-    event_trigger = bool(len(actions_taken) > 0 or abs(btc_k5m) >= 15.0 or any(abs(float(r[9])) >= 30.0 for r in open_positions.values()))
-    should_audit = bool(run_audit or (event_trigger and (time.time() - _LAST_GEMINI_AUDIT_TS) >= 90.0))
+    # Constant 60-Second Gemini Co-Pilot: call Gemini every 60s (or on any trade event after 30s)
+    event_trigger = bool(len(actions_taken) > 0 or abs(btc_k5m) >= 12.0 or any(abs(float(r[9])) >= 25.0 for r in open_positions.values()))
+    should_audit = bool(run_audit or (time.time() - _LAST_GEMINI_AUDIT_TS) >= 60.0 or (event_trigger and (time.time() - _LAST_GEMINI_AUDIT_TS) >= 30.0))
     if should_audit:
         aud_res = run_gemini_ordinary_futures_audit(conn, curr_nav, telemetry_rows)
         aud_model, aud_verdict, fee_drag_pct = aud_res["model_used"], aud_res["verdict"], aud_res["fee_drag_ratio_pct"]
