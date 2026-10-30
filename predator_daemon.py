@@ -771,6 +771,8 @@ def run_predator_cycle(
         llm_bias = float(convictions.get(inst_id, 0.0))
 
         k_fc = kronos_forecasts.get(inst_id)
+        k_5m_bps = k_fc.kronos_5m_bps if k_fc else 0.0
+        k_10m_bps = k_fc.kronos_10m_bps if k_fc else 0.0
         k_ret_bps = k_fc.expected_return_1h_bps if k_fc else 0.0
         k_up_bps = k_fc.upside_high_bps if k_fc else 0.0
         k_down_bps = k_fc.downside_low_bps if k_fc else 0.0
@@ -953,6 +955,8 @@ def run_predator_cycle(
             "hawkes_intensity": round(sig.hawkes_net_burst, 3),
             "hawkes_net_burst": round(sig.hawkes_net_burst, 3),
             "composite_alpha": round(sig.composite_alpha, 3),
+            "kronos_5m_bps": round(k_5m_bps, 2),
+            "kronos_10m_bps": round(k_10m_bps, 2),
             "kronos_1h_bps": round(k_ret_bps, 2),
             "kronos_2h_bps": round(k_macro_2h_bps, 2),
             "kronos_2h_macro_bps": round(k_macro_2h_bps, 2),
@@ -1478,6 +1482,7 @@ def run_predator_cycle(
         has_positive_edge = bool(
             inst_id not in si_penalty_box
             and (drop_from_high_bps >= si_min_pullback or is_rebound_leader)
+            and k_5m_bps >= -6.0
             and k_ret_bps >= si_min_k1h
             and has_5h_perspective_safety
             and k_tp_prob >= 0.58

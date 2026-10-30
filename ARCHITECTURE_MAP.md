@@ -1,32 +1,29 @@
-# 🗺️ TRE OS v12.6 — MASTER MEMORY & ARCHITECTURE INDEX (1-SHOT CONSULTATION FILE)
+# TRE OS v13.1 — MASTER MEMORY & 6-BLOCK ARCHITECTURAL INDEX (INSTANT RECALL)
 
-> **Purpose:** Read this single file first (`/Users/zava/.openclaw/workspace/memory/TRE_OS_V12_MASTER_INDEX.md` or `openclaw-trader/ARCHITECTURE_MAP.md`) to recall the entire project architecture, exact file/line map, SQLite schemas, AI keys, and mathematical invariants in **1 tool call**.
+> Purpose: Single source of truth for Lehman Brody (Aragorn / OpenClaw) to recall the entire architecture, file/line map, fee structure, and invariants of TRE OS v13.1 (Spot Live + Parallel Futures Demo 2.5x) in 1 read call.
 
----
+## 0. SUPREME DIRECTIVES & GOLDEN RULES
+1. Brutal Honesty Always: Never celebrate micro-wins if total net capital is down. Always report exact net cashflow (NAV, Free USDC, realized PnL, fees paid).
+2. Golden Rule 1 (Daily Compounding Channel): Target +0.70% <-> +5.00% / day organic compounding.
+3. Golden Rule 2 (Inviolable -4.00% Max Loss Cap):
+   - Spot (1x): -400 bps (-4.00%) hard Post-Only Maker stop at best_ask (active 24/7, never expires after 10h).
+   - Futures (2.5x Isolated): -156 bps price move + 4 bps Maker fee = -400 bps (-4.00%) hard margin loss cap.
+4. Golden Rule 3 (Continuous Compounding until Expiration):
+   - Slot sizing scales dynamically as a % of live NAV (10.5% in Spot Camera 1, 12.5% per slot in Futures Demo) until expiry_iso (2026-12-31T21:00:00Z with 6-day taper, or user-configured date).
+5. 100% Sovereign & Free AI Stack (Zero totallyinnovationsrl dependency):
+   - VPS brody (34.28.19.242 / 100.106.15.28, zavatoni.giacomo@gmail.com) uses:
+     1) Local 7-Horizon Tsinghua Kronos-mini (4.1M) on 127.0.0.1:8090 (kronos-oracle.service);
+     2) Google AI Studio Free Tier (GEMINI_API_KEY stored ONLY in brody:.env, gemini-3.5-flash-lite / gemini-3.5-flash / gemini-3.8-flash);
+     3) OpenRouter Free Tier (OPENROUTER_API_KEY, 1-call native fallback nemotron-3-ultra-550b:free -> gemma-4-31b:free -> openrouter/free).
 
-## 🚨 0. SUPREME DIRECTIVES & STANDING RULES OF GIACOMO ZAVATTONI
-1. **Brutale Sincerità & Zero Trionfalismo:** Never claim a system is "working great" or celebrate micro-wins when total net capital (NAV) is down. Always start from real net cashflow (actual USDC in wallet vs baseline, fees paid, and MTM drawdown).
-2. **100% Sovereign Infrastructure (Zero `totallyinnovationsrl`):** Never connect to `100.125.189.103` or any `totallyinnovationsrl` host. Operate exclusively on `brody` (`<YOUR_VPS_IP>` / `<YOUR_TAILSCALE_IP>`, `trader_user`, `<YOUR_GOOGLE_ACCOUNT>`).
-3. **Key Separation Policy:**
-   - The **Google AI Studio Free Tier key (`GEMINI_API_KEY`)** from `chiave brody.txt` is stored **EXCLUSIVELY on `brody`** (`/opt/openclaw-trader/.env`, `chmod 600`), never in local OpenClaw config.
-   - The **OpenRouter Free key (`OPENROUTER_API_KEY`)** is stored in `brody`'s `.env` and local Vault as secondary failover (`1` single HTTP call with `"model": "nvidia/nemotron-3-ultra-550b-a55b:free"`, `"models": ["google/gemma-4-31b-it:free", "openrouter/free"]`, max 48 calls/day).
+## 1. CERTIFIED OKX FEE STRUCTURE (Account uid: 885203458402552862, Lv1, acctLv: 2)
+- OKX Spot (USDC pairs): Maker 0.08% (8 bps) / Taker 0.10% (10 bps) -> 16-20 bps round-trip.
+- OKX Perpetual Swap (SWAP) & Futures (FUTURES): Maker 0.02% (2 bps) / Taker 0.05% (5 bps) -> 0.04% (4 bps) round-trip on notional (10 bps on 2.5x margin = $0.035 total fee on a $35 margin slot, less than half of Spot!).
 
----
-
-## ⚡ 1. INSTANT 1-SHOT SSH COMMANDS TO `brody` (`<YOUR_VPS_IP>`)
-- **Read-Only Fast Status (< 0.4s):**
-  `ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes -i ~/.ssh/brody_ed25519 -o StrictHostKeyChecking=no trader_user@<YOUR_VPS_IP> "/opt/openclaw-trader/venv/bin/python /opt/openclaw-trader/scripts/brody_fast_status.py"`
-- **Run 5-Block Verification & Self-Test Suite:**
-  `ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes -i ~/.ssh/brody_ed25519 -o StrictHostKeyChecking=no trader_user@<YOUR_VPS_IP> "/opt/openclaw-trader/venv/bin/python /opt/openclaw-trader/scripts/test_all_blocks.py"`
-
----
-
-## 🧩 2. THE 5 SYSTEM BLOCKS & EXACT FILE MAP (`openclaw-trader`)
-
-| Block | File Path | Key Classes / Functions | Mathematical & Flow Invariants |
-| :--- | :--- | :--- | :--- |
-| **Block 1: Universe Scanner** | `core/universe_scanner.py` | `PredatorUniverseScanner.scan_okx_usdc_universe` | • Excludes synthetic `X*` equities (`XSOXL`, `XNVDA`).<br>• Never drops held coins (`coin in held_coins`).<br>• Rejects thin/erratic pump-and-dump coins (`vol < $500k`, `spread > 5.8 bps`, or `range_24h > 16.5%`). |
-| **Block 2: Microstructure & RLS/Kalman** | `core/microstructure.py`<br>`core/predictor.py` | `MicrostructureEngine`<br>`PredatorPredictiveEngine.evaluate` | • Cont-Stoikov 5-level OFI, VPIN toxicity, Hawkes burst.<br>• 2-State Kalman velocity + Online RLS (`d=6`, `P_t` persisted).<br>• 5-Horizon Macro Veto: discounts 1h bounce by 80% if `2h < -20`, `6h < -25`, `12h < -35`, or `24h < -45 bps`. |
-| **Block 3: 5-Horizon Kronos Oracle** | `scripts/kronos_oracle_server.py`<br>`core/kronos_oracle.py` | `forecast_pair`<br>`_background_refresh_loop` | • Runs on `127.0.0.1:8090` (`/home/trader_user/Kronos/kronos_oracle_server.py`).<br>• Single-worker `PRIORITY_QUEUE` (zero thread leak, `~3.5s/pair`, `380 MB` RAM).<br>• Computes 5 horizons: `1h (12×5m)`, `2h (8×15m)`, `6h (6×1H)`, `12h (12×1H)`, `24h (24×1H)` + `BTC-USDC` included. |
-| **Block 4: Dual Free AI Council & Self-Improver** | `agents/llm_council.py`<br>`core/gemini_self_improver.py` | `AdversarialLLMCouncil`<br>`GeminiSelfImprover` | • Primary: Google AI Studio Free Tier (`gemini-3.5-flash-lite` ➔ `3.5-flash` ➔ `3.8-flash`) via `x-goog-api-key`.<br>• Secondary: 1-call OpenRouter Free Router.<br>• `GeminiSelfImprover` anchors to baseline (anti-paralysis) and updates `config/self_improvement_state.json`. |
-| **Block 5: Execution, Risk & Calibration** | `predator_daemon.py`<br>`scripts/configure_run.py` | `run_predator_cycle`<br>`load_purified_run_config_dict` | • 100% Post-Only Maker (`tdMode: cash`, 0% leverage).<br>• Requires `has_valid_kronos` (all 5 horizons non-zero in RAM) before any `BUY`.<br>• **Night Dead-Zone Guard (`00:00–06:00 CET`):** requires all 5 Kronos horizons `>= +8..+12 bps` and `OFI >= +0.28`.<br>• **Anti-FOMO 24h Guard:** blocks buying coins up `>= +10%` in 24h unless pulled back `>= -350 bps`.<br>• **6h Stop-Loss Quarantine:** blocks re-buying any coin for 6h after a `CLOSED_STOPLOSS`.<br>• **24/7 Hard Stop (`-4.00%` / `-400 bps`) + Anti-Wick Kronos Shield (`-475 bps` when `6h/12h/24h >= +60 bps`) + Fast Shield (`+38 bps`).** |
+## 2. THE 6 SYSTEM BLOCKS & EXACT FILE MAP (/home/zavattoni_giacomo/openclaw-trader)
+- Block 1 (7-Horizon Kronos Oracle): scripts/kronos_oracle_server.py + core/kronos_oracle.py (kronos-oracle.service :8090). Single-worker PRIORITY_QUEUE (zero thread-leak, 380 MB RAM). Extracts 7 horizons: 5m (step 0), 10m (step 1), 1h (12x5m), 2h (8x15m), 6h (6x1H), 12h (12x1H), 24h (24x1H) + Eq.12 Volatility & tp_touch_prob_1h.
+- Block 2 (L2 Microstructure & RLS): core/microstructure.py + core/predictor.py. Cont-Stoikov 5-level OFI, VPIN toxicity, Hawkes intensity, 2-state Kalman Velocity filter, Online RLS (6x6 P_t persisted), and 5-Horizon Crash Veto.
+- Block 3 (AI Council & Self-Improver): agents/llm_council.py + core/gemini_self_improver.py. Gemini Free + OpenRouter Free Council (70% authority + negative veto) & Ordinary Internal Fee-Drag Auditor (monitors Fee / Gross Profit <= 12% and updates config/self_improvement_state.json).
+- Block 4 (Spot Live Engine): predator_daemon.py (openclaw-predator.service). Two-Chamber Spot (63% Assault / 37% Pure USDC Shield), Anti-FOMO +10% 24h guard, +38 bps Fast Shield, -4.00% 24/7 Hard Stop, CLOSED_PROFIT vs CLOSED_STOPLOSS Darwinian scoring.
+- Block 5 (Parallel Futures Demo 2.5x): predator_futures_demo.py (openclaw-futures-demo.service). 2.5x Isolated LONG + SHORT on 12 OKX Perpetual Swaps. Macro Compass (6h/12h/24h) + Micro Trigger (5m/10m + OFI), BTC Correlation Veto, Funding Rate Guard, 30m/120m Post-Exit Cooldown, Real Book Exit Price, -4.00% Margin Hard Cap.
+- Block 6 (Execution & Instant Diagnostics): execution/okx_hybrid_executor.py + scripts/brody_fast_status.py. 16-connection Keep-Alive TLS pool, 100% Post-Only Maker, side-by-side Spot Live + Futures Demo reporting.

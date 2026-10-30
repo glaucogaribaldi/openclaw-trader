@@ -85,14 +85,23 @@ def _fetch_swap_book_and_trades(inst_id: str):
         bids, asks = _OKX_PUBLIC_CLIENT.get_orderbook(inst_id, sz=5)
         trades = _OKX_PUBLIC_CLIENT.get_recent_trades(inst_id, limit=25)
         u_c = f"https://eea.okx.com/api/v5/market/candles?instId={inst_id}&bar=15m&limit=8"
-        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/13.0"}), timeout=5, context=ctx) as r:
+        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/13.1"}), timeout=5, context=ctx) as r:
             c_rows = json.loads(r.read().decode("utf-8")).get("data", [])
             if c_rows:
                 high_2h = max(float(x[2]) for x in c_rows)
                 low_2h = min(float(x[3]) for x in c_rows)
     except Exception:
         pass
-    return inst_id, bids, asks, trades, high_2h, low_2h
+    funding_bps = 0.0
+    try:
+        u_f = f"https://eea.okx.com/api/v5/public/funding-rate?instId={inst_id}"
+        with urllib.request.urlopen(urllib.request.Request(u_f, headers={"User-Agent": "TRE-OS-Fut/13.1"}), timeout=4, context=ctx) as rf:
+            f_rows = json.loads(rf.read().decode("utf-8")).get("data", [])
+            if f_rows:
+                funding_bps = float(f_rows[0].get("fundingRate") or 0.0) * 10000.0
+    except Exception:
+        pass
+    return inst_id, bids, asks, trades, high_2h, low_2h, funding_bps
 
 def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, telemetry: List[Dict[str, Any]]) -> Dict[str, Any]:
     default_audit = {
@@ -161,10 +170,21 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     fee_drag_pct = float(last_aud[4]) if last_aud else 0.0
     cur.execute("SELECT pos_id, inst_id, direction, leverage, margin_usd, notional_usd, entry_px, tp_px, sl_px, peak_move_bps, shield_armed, entry_fee_usd, opened_at FROM futures_demo_positions WHERE status='OPEN'")
     open_positions = {r[1]: r for r in cur.fetchall()}
+    # Audit Fix 1: Post-Exit Cooldown Map (30m cooldown after profit/shield exit, 120m cooldown after stoploss exit!)
+    cur.execute("SELECT inst_id, status, (julianday('now') - julianday(closed_at)) * 1440.0 FROM futures_demo_positions WHERE status != 'OPEN' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 40")
+    cooldown_blocked_insts = set()
+    for c_inst, c_st, mins_ago in cur.fetchall():
+        req_cd = 120.0 if c_st == "CLOSED_STOPLOSS" else 30.0
+        if float(mins_ago or 0.0) < req_cd:
+            cooldown_blocked_insts.add(str(c_inst))
     market_snaps = list(_IO_POOL.map(_fetch_swap_book_and_trades, list(FUTURES_UNIVERSE.keys())))
+    # Audit Fix 2: BTC-USDT-SWAP Macro Correlation Veto
+    btc_fc = kronos_map.get("BTC-USDC")
+    btc_k5m = btc_fc.kronos_5m_bps if btc_fc else 0.0
+    btc_k1h = btc_fc.expected_return_1h_bps if btc_fc else 0.0
     telemetry_rows, actions_taken, candidates = [], [], []
     unrealized_total_usd, locked_margin_total_usd = 0.0, 0.0
-    for inst_id, bids, asks, trades, high_2h, low_2h in market_snaps:
+    for inst_id, bids, asks, trades, high_2h, low_2h, funding_bps in market_snaps:
         if not bids or not asks:
             continue
         meta = FUTURES_UNIVERSE[inst_id]
@@ -198,7 +218,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 micro_rev = bool((p_dir == "LONG" and (k5m < -4.0 or sig.ofi_norm < -0.15)) or (p_dir == "SHORT" and (k5m > 4.0 or sig.ofi_norm > 0.15)))
                 if move_bps <= locked_move_bps and (micro_rev or new_peak >= 45.0):
                     exit_reason = "CLOSED_SHIELD"
-                    exit_exec_px = round(p_entry * (1.0 + locked_move_bps / 10000.0), meta["dec_px"]) if p_dir == "LONG" else round(p_entry * (1.0 - locked_move_bps / 10000.0), meta["dec_px"])
+                    # Audit Fix 4: Never assume an exit price better than the live executable book price (bids[0][0] / asks[0][0])!
+                    ideal_lock_px = round(p_entry * (1.0 + locked_move_bps / 10000.0), meta["dec_px"]) if p_dir == "LONG" else round(p_entry * (1.0 - locked_move_bps / 10000.0), meta["dec_px"])
+                    exit_exec_px = min(bids[0][0], ideal_lock_px) if p_dir == "LONG" else max(asks[0][0], ideal_lock_px)
             if not exit_reason and move_bps <= -110.0:
                 broken = bool((p_dir == "LONG" and k5m < -5.0 and k6h < -15.0) or (p_dir == "SHORT" and k5m > 5.0 and k6h > 15.0))
                 if broken or move_bps <= -156.0:
@@ -223,12 +245,15 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 unrealized_total_usd += unr_usd
                 locked_margin_total_usd += p_mgn
                 cur.execute("UPDATE futures_demo_positions SET current_px=?, peak_move_bps=?, shield_armed=? WHERE pos_id=?", (mid, new_peak, new_shield, p_id))
-        if inst_id not in open_positions and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and (drop_2h_bps >= 22.0 or k5m >= 8.0) and (k5m >= 5.0 or k10m >= min_k10m_gate or k1h >= 12.0) and sig.ofi_norm >= 0.12 and sig.vpin_toxicity <= 0.72:
-                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0), 2)
+        # Audit Fix 1 + 2 + 3: Enforce Post-Exit Cooldown, BTC Correlation Veto, and Funding Rate Guard (<= 4.5 bps adverse funding)
+        btc_veto_long = bool(btc_k5m <= -12.0 or btc_k1h <= -25.0)
+        btc_veto_short = bool(btc_k5m >= 12.0 or btc_k1h >= 25.0)
+        if inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
+            if allowed_dir == "LONG" and not btc_veto_long and funding_bps <= 4.5 and (drop_2h_bps >= 22.0 or k5m >= 8.0) and (k5m >= 5.0 or k10m >= min_k10m_gate or k1h >= 12.0) and sig.ofi_norm >= 0.12 and sig.vpin_toxicity <= 0.72:
+                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) - (funding_bps * 1.5), 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
-            elif allowed_dir == "SHORT" and (bounce_2h_bps >= 22.0 or k5m <= -8.0) and (k5m <= -5.0 or k10m <= -min_k10m_gate or k1h <= -12.0) and sig.ofi_norm <= -0.12 and sig.vpin_toxicity <= 0.72:
-                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0), 2)
+            elif allowed_dir == "SHORT" and not btc_veto_short and funding_bps >= -4.5 and (bounce_2h_bps >= 22.0 or k5m <= -8.0) and (k5m <= -5.0 or k10m <= -min_k10m_gate or k1h <= -12.0) and sig.ofi_norm <= -0.12 and sig.vpin_toxicity <= 0.72:
+                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + (funding_bps * 1.5), 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
         telemetry_rows.append({
             "inst_id": inst_id, "mid_price": mid, "ofi_norm": round(sig.ofi_norm, 2), "vpin_toxicity": round(sig.vpin_toxicity, 2),
