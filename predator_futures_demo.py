@@ -205,7 +205,7 @@ def _sync_live_okx_account_and_cancel_stale(live_mode: bool) -> Tuple[float, flo
         pass
     return real_nav, real_free, live_pos_map, live_pend_set
 
-def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, dec_px: int, reduce_only: bool = False, urgent_stop: bool = False) -> bool:
+def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, dec_px: int, reduce_only: bool = False, urgent_stop: bool = False, tp_px: float = 0.0, sl_px: float = 0.0) -> bool:
     if not _OKX_CLIENT.is_authenticated:
         return False
     px_str = f"{px:.{dec_px}f}"
@@ -220,6 +220,16 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
         body["px"] = px_str
     if reduce_only:
         body["reduceOnly"] = True
+    elif tp_px > 0.0 and sl_px > 0.0:
+        # Anti-Crash Hardware Shield: attach native TP and SL directly inside OKX Matching Engine!
+        body["attachAlgoOrds"] = [{
+            "tpTriggerPx": f"{tp_px:.{dec_px}f}",
+            "tpOrdPx": "-1",
+            "tpTriggerPxType": "last",
+            "slTriggerPx": f"{sl_px:.{dec_px}f}",
+            "slOrdPx": "-1",
+            "slTriggerPxType": "last",
+        }]
     try:
         r = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
         d = (r.get("data") or [{}])[0]
@@ -383,13 +393,17 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             sz_str, actual_notional = _calc_contract_sz(c_id, target_notional, c_px)
             actual_margin = round(actual_notional / LEVERAGE, 2)
             if actual_margin > free_mgn: continue
+            # Anti-Cascade Free-Roll Pyramiding: max 2 unshielded slots in the same direction!
+            unshielded_same_dir = sum(1 for r in open_positions.values() if r[2] == c_dir and int(r[10]) == 0)
+            if unshielded_same_dir >= 2:
+                continue
+            tp_px = round(c_px * 1.0110, c_dec) if c_dir == "LONG" else round(c_px * 0.9890, c_dec)
+            sl_px = round(c_px * 0.9895, c_dec) if c_dir == "LONG" else round(c_px * 1.0105, c_dec)
             if live_mode:
                 side = "buy" if c_dir == "LONG" else "sell"
-                ok = _execute_live_xperp_order(c_id, side, sz_str, c_px, c_dec, reduce_only=False, urgent_stop=False)
+                ok = _execute_live_xperp_order(c_id, side, sz_str, c_px, c_dec, reduce_only=False, urgent_stop=False, tp_px=tp_px, sl_px=sl_px)
                 if not ok: continue
             entry_fee_usd = round(actual_notional * MAKER_FEE_RATE, 4)
-            tp_px = round(c_px * 1.0110, c_dec) if c_dir == "LONG" else round(c_px * 0.9890, c_dec)
-            sl_px = round(c_px * 0.9900, c_dec) if c_dir == "LONG" else round(c_px * 1.0100, c_dec)
             pos_id = f"XPERP_{c_id.split('-')[0]}_{int(time.time()*1000)}"
             cur.execute("INSERT INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, ?, 'OPEN', ?, NULL, NULL, NULL)",
                         (pos_id, c_id, c_dir, LEVERAGE, actual_margin, actual_notional, c_px, c_px, tp_px, sl_px, entry_fee_usd, now_iso))
