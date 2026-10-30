@@ -377,12 +377,12 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
-            if not exit_reason and move_bps <= -25.0:
-                inv_1h = bool((p_dir == "LONG" and k5m <= -4.0 and k10m <= -6.0 and k1h <= -15.0) or (p_dir == "SHORT" and k5m >= 4.0 and k10m >= 6.0 and k1h >= 15.0))
-                broken = bool((p_dir == "LONG" and k5m < -5.0 and k6h < -15.0) or (p_dir == "SHORT" and k5m > 5.0 and k6h > 15.0))
+            if not exit_reason and move_bps <= -55.0:
+                inv_1h = bool(pos_age_mins >= 15.0 and ((p_dir == "LONG" and k5m <= -5.0 and k10m <= -8.0 and k1h <= -18.0) or (p_dir == "SHORT" and k5m >= 5.0 and k10m >= 8.0 and k1h >= 18.0)))
+                broken = bool((p_dir == "LONG" and k5m < -6.0 and k6h < -18.0) or (p_dir == "SHORT" and k5m > 6.0 and k6h > 18.0))
                 if inv_1h or (move_bps <= -75.0 and broken) or move_bps <= -100.0:
                     exit_reason = "CLOSED_STOPLOSS"
-                    exit_exec_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
+                    exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
             if exit_reason:
                 if live_mode and inst_id in live_okx_pos:
@@ -392,13 +392,14 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     close_side = "sell" if p_dir == "LONG" else "buy"
                     _execute_live_xperp_order(inst_id, close_side, sz_str, exit_exec_px, meta["dec_px"], reduce_only=True, urgent_stop=urgent_stop)
                 realized_move_bps = max(-156.0, ((exit_exec_px - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - exit_exec_px) / p_entry * 10000.0))
-                exit_fee_usd = round(p_notional * MAKER_FEE_RATE, 4)
+                exit_fee_rate = 0.0005 if (live_mode and (urgent_stop or True)) else MAKER_FEE_RATE
+                exit_fee_usd = round(p_notional * exit_fee_rate, 4)
                 net_pnl_usd = round((p_notional * (realized_move_bps / 10000.0)) - p_efee - exit_fee_usd, 4)
                 free_mgn = round(free_mgn + p_mgn + net_pnl_usd, 4)
                 realized_pnl = round(realized_pnl + net_pnl_usd, 4)
                 tot_fees = round(tot_fees + p_efee + exit_fee_usd, 4)
                 if exit_reason == "CLOSED_PROFIT": wins_cnt += 1
-                elif exit_reason == "CLOSED_SHIELD": shields_cnt += 1
+                elif exit_reason == "CLOSED_SHIELD" and net_pnl_usd >= 0.0: shields_cnt += 1
                 else: stops_cnt += 1
                 cur.execute("UPDATE futures_demo_positions SET status=?, closed_at=?, exit_px=?, realized_pnl_usd=?, current_px=?, peak_move_bps=?, shield_armed=? WHERE pos_id=?",
                             (exit_reason, now_iso, exit_exec_px, net_pnl_usd, exit_exec_px, new_peak, new_shield, p_id))
@@ -448,9 +449,16 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             tp_px = round(c_px * 1.0110, c_dec) if c_dir == "LONG" else round(c_px * 0.9890, c_dec)
             sl_px = round(c_px * 0.9895, c_dec) if c_dir == "LONG" else round(c_px * 1.0105, c_dec)
             if live_mode:
+                if c_id in live_okx_pend or c_id in live_okx_pos:
+                    continue
                 side = "buy" if c_dir == "LONG" else "sell"
                 ok = _execute_live_xperp_order(c_id, side, sz_str, c_px, c_dec, reduce_only=False, urgent_stop=False, tp_px=tp_px, sl_px=sl_px)
                 if not ok: continue
+                # Do NOT insert into futures_demo_positions until the post_only order actually fills on OKX (live_okx_pos)!
+                live_okx_pend.add(c_id)
+                free_mgn = round(free_mgn - actual_margin, 4)
+                actions_taken.append({"action": f"PLACE_POST_ONLY_{c_dir}_4.0X", "inst_id": c_id, "px": c_px, "sz_contracts": sz_str, "margin_usd": actual_margin, "notional_usd": actual_notional})
+                continue
             entry_fee_usd = round(actual_notional * MAKER_FEE_RATE, 4)
             pos_id = f"XPERP_{c_id.split('-')[0]}_{int(time.time()*1000)}"
             cur.execute("INSERT INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, ?, 'OPEN', ?, NULL, NULL, NULL)",
@@ -458,7 +466,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             free_mgn = round(free_mgn - actual_margin, 4)
             locked_margin_total_usd += actual_margin
             open_positions[c_id] = (pos_id, c_id, c_dir, LEVERAGE, actual_margin, actual_notional, c_px, tp_px, sl_px, 0.0, 0, entry_fee_usd, now_iso)
-            actions_taken.append({"action": f"OPEN_{c_dir}_2.5X", "inst_id": c_id, "px": c_px, "sz_contracts": sz_str, "margin_usd": actual_margin, "notional_usd": actual_notional})
+            actions_taken.append({"action": f"OPEN_{c_dir}_4.0X", "inst_id": c_id, "px": c_px, "sz_contracts": sz_str, "margin_usd": actual_margin, "notional_usd": actual_notional})
     curr_nav = live_nav_est
     cur.execute("UPDATE futures_demo_account SET current_nav_usd=?, free_margin_usd=?, realized_pnl_usd=?, total_fees_usd=?, wins_count=?, stops_count=?, shield_locks_count=?, updated_at=? WHERE id=1",
                 (curr_nav, round(free_mgn, 2), round(realized_pnl, 4), round(tot_fees, 4), wins_cnt, stops_cnt, shields_cnt, now_iso))
