@@ -80,13 +80,13 @@ class GeminiSelfImprover:
                     st[k] = v
             except Exception:
                 pass
-        st["min_entry_ofi"] = _clamp(st.get("min_entry_ofi", 0.18), 0.15, 0.45, 0.18)
-        st["max_entry_vpin"] = _clamp(st.get("max_entry_vpin", 0.65), 0.40, 0.68, 0.65)
-        st["min_kronos_1h_bps"] = _clamp(st.get("min_kronos_1h_bps", 8.0), 6.0, 22.0, 8.0)
-        st["min_kronos_6h_bps"] = _clamp(st.get("min_kronos_6h_bps", -22.0), -25.0, 15.0, -22.0)
-        st["min_kronos_24h_bps"] = _clamp(st.get("min_kronos_24h_bps", -50.0), -50.0, 20.0, -50.0)
-        st["min_pullback_2h_bps"] = _clamp(st.get("min_pullback_2h_bps", 32.0), 25.0, 70.0, 32.0)
-        st["fast_shield_trigger_bps"] = _clamp(st.get("fast_shield_trigger_bps", 38.0), 28.0, 55.0, 38.0)
+        st["min_entry_ofi"] = _clamp(st.get("min_entry_ofi", 0.18), 0.15, 0.30, 0.18)
+        st["max_entry_vpin"] = _clamp(st.get("max_entry_vpin", 0.65), 0.50, 0.68, 0.65)
+        st["min_kronos_1h_bps"] = _clamp(st.get("min_kronos_1h_bps", 8.0), 6.0, 15.0, 8.0)
+        st["min_kronos_6h_bps"] = _clamp(st.get("min_kronos_6h_bps", -22.0), -25.0, 0.0, -22.0)
+        st["min_kronos_24h_bps"] = _clamp(st.get("min_kronos_24h_bps", -50.0), -50.0, 0.0, -50.0)
+        st["min_pullback_2h_bps"] = _clamp(st.get("min_pullback_2h_bps", 32.0), 25.0, 48.0, 32.0)
+        st["fast_shield_trigger_bps"] = _clamp(st.get("fast_shield_trigger_bps", 38.0), 28.0, 52.0, 38.0)
         if not isinstance(st.get("coin_penalty_box_24h"), list):
             st["coin_penalty_box_24h"] = []
         if not isinstance(st.get("kronos_top_conviction_leaders"), list):
@@ -115,8 +115,8 @@ class GeminiSelfImprover:
                 """
                 SELECT fill_time, inst_id, side, fill_px, fill_sz, notional_usd, fee_usd, realized_pnl_usd
                 FROM predator_fills_ledger
-                WHERE side='sell'
-                ORDER BY fill_time DESC LIMIT 20
+                WHERE side='sell' AND datetime(fill_time) >= datetime('now', '-6 hours')
+                ORDER BY fill_time DESC LIMIT 15
                 """
             )
             recent_sells = [
@@ -157,18 +157,16 @@ class GeminiSelfImprover:
             })
 
         prompt = (
-            "You are the Autonomous Quantitative Self-Improvement Engine of TRE OS v12.4 (OKX Spot EEA), "
-            "uniting realized trade post-mortems with Tsinghua Kronos 5-Horizon forecasts (1h, 2h, 6h, 12h, 24h). "
+            "You are the Autonomous Quantitative Self-Improvement Engine of TRE OS v12.5 (OKX Spot EEA), "
+            "uniting last-6h trade post-mortems with Tsinghua Kronos 5-Horizon forecasts (1h, 2h, 6h, 12h, 24h). "
             f"Current NAV: ${nav_usdc:.2f} USDC (Free Cash: ${free_usdc:.2f} USDC). "
-            f"Current Parameters: {json.dumps(current_state)}. "
-            f"Recent Closed Sells: {json.dumps(recent_sells)}. "
-            f"Tranche Outcomes by Asset (CLOSED_PROFIT vs CLOSED_STOPLOSS): {json.dumps(tranche_outcomes)}. "
+            f"Standard Reference Baseline: {json.dumps(self.DEFAULT_STATE)}. "
+            f"Last 6h Closed Sells: {json.dumps(recent_sells)}. "
             f"Live 5-Horizon Kronos Trajectory Matrix (1h/2h/6h/12h/24h bps): {json.dumps(kronos_matrix)}. "
-            "Task: Cross-analyze past trade outcomes AND live 5-Horizon Kronos forecasts (1h, 2h, 6h, 12h, 24h) to self-optimize: "
-            "1) If Kronos 6h/12h/24h across the market are bearish, tighten min_kronos_6h_bps/min_kronos_24h_bps and lower fast_shield_trigger_bps (e.g. 30-35 bps) to lock profits faster; "
-            "if 6h/12h/24h are strongly bullish, allow runners (fast_shield_trigger_bps 38-48 bps). "
-            "2) Put any coin that suffered CLOSED_STOPLOSS AND has negative Kronos 6h/12h/24h into coin_penalty_box_24h (max 3 inst_ids). "
-            "3) Select up to 3 coins with the strongest positive 5-Horizon Kronos alignment (k1h, k2h, k6h, k12h, k24h all positive + low VPIN) in kronos_top_conviction_leaders. "
+            "CRITICAL ANTI-PARALYSIS RULE: Do NOT ratchetingly push parameters to extreme bounds! "
+            "If Free Cash is > 65% of NAV and Last 6h Closed Sells is empty, keep entry thresholds close to the Standard Reference Baseline "
+            "(min_entry_ofi ~0.18-0.24, max_entry_vpin ~0.58-0.65, min_kronos_1h_bps ~8-12, min_kronos_6h_bps ~-15 to 0, min_pullback_2h_bps ~30-40) so capital can deploy on valid setups! "
+            "Select up to 3 coins with the strongest positive 5-Horizon Kronos alignment in kronos_top_conviction_leaders. "
             "Return ONLY valid JSON with keys: min_entry_ofi, max_entry_vpin, min_kronos_1h_bps, min_kronos_6h_bps, min_kronos_24h_bps, "
             "min_pullback_2h_bps, fast_shield_trigger_bps, coin_penalty_box_24h, kronos_top_conviction_leaders, lesson_learned (in Italian)."
         )

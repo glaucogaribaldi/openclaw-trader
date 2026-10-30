@@ -1050,9 +1050,13 @@ def run_predator_cycle(
                                 tr_unr_bps = ((sig.mid_price - tr_buy_px) / tr_buy_px) * 10000.0
                                 # Fee-Aware Fast-Exit Floor: +24 bps gross = +4 bps guaranteed net profit after 10 bps BUY + 10 bps SELL OKX Maker fees!
                                 fast_exit_px = max(_ceil_px(tr_buy_px * 1.0024, dec_px), round(asks[0][0], dec_px))
-                                # Audit 4.1 Fix: Hard -4.0% Stop & Cognitive Early Stop NEVER expire after 10h (active 24/7 for the entire life of the position!)
+                                # Audit 4.1 + Anti-Wick Kronos Filter (v12.5):
+                                # If Kronos 6h/12h/24h are all strongly bullish (>= +60 bps, like LIT +167/+200/+226 bps) and OFI is not dumping (> -0.25),
+                                # give a -75 bps Anti-Wick buffer (-475 bps) so 30-second midnight stop-hunt wicks at -4.04% do not shake us out right before a +9% rebound!
                                 cfg_max_loss_bps = -abs(float(user_run_cfg.get("max_loss_cap_bps") or -400.0))
-                                is_hard_4pct_stop = bool(tr_unr_bps <= cfg_max_loss_bps)
+                                has_strong_kronos_rebound_shield = bool(k_6h_bps >= 60.0 and k_swing_12h_bps >= 60.0 and k_24h_bps >= 60.0 and sig.ofi_norm > -0.25)
+                                eff_hard_stop_bps = (cfg_max_loss_bps - 75.0) if has_strong_kronos_rebound_shield else cfg_max_loss_bps
+                                is_hard_4pct_stop = bool(tr_unr_bps <= eff_hard_stop_bps)
                                 is_cognitive_early_stop = bool(
                                     cfg_max_loss_bps < tr_unr_bps <= -180.0
                                     and k_macro_2h_bps <= -25.0
