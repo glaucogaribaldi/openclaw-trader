@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-TRE OS v13.0 — Parallel Sovereign Perpetual Futures Demo Engine (predator_futures_demo.py)
-Runs in parallel with predator_daemon.py on brody, sharing the local 7-Horizon Kronos-mini (4.1M)
-RAM Oracle (127.0.0.1:8090, 0 MB extra PyTorch RAM) and Gemini Free Ordinary Internal Auditor.
+TRE OS v14.0 — Sovereign Perpetual Futures 2.5x Isolated Engine (LIVE & DEMO)
+Operates on OKX Europe Regulated Perpetual Futures (*-USD_UM_XPERP-*, instType=FUTURES, settleCcy=USD 1:1 USDC).
+Shares the local 7-Horizon Kronos-mini (4.1M) RAM Oracle (127.0.0.1:8090) and Gemini Free Ordinary Internal Auditor.
 """
 from __future__ import annotations
 import argparse, datetime, json, math, os, sqlite3, ssl, sys, time, urllib.request
@@ -15,30 +15,32 @@ from core.kronos_oracle import KronosOracleClient
 from core.microstructure import MicrostructureEngine
 from execution.okx_hybrid_executor import OKXNativeClient
 from predator_daemon import evaluate_run_lifecycle, load_dotenv
-_OKX_PUBLIC_CLIENT = OKXNativeClient(simulated_demo=False)
+
+_OKX_CLIENT = OKXNativeClient(simulated_demo=False)
 
 FUTURES_UNIVERSE: Dict[str, Dict[str, Any]] = {
-    "BTC-USDT-SWAP":  {"spot_id": "BTC-USDC",  "coin": "BTC",  "dec_px": 1, "dec_sz": 4},
-    "SOL-USDT-SWAP":  {"spot_id": "SOL-USDC",  "coin": "SOL",  "dec_px": 2, "dec_sz": 2},
-    "HYPE-USDT-SWAP": {"spot_id": "HYPE-USDC", "coin": "HYPE", "dec_px": 3, "dec_sz": 2},
-    "LINK-USDT-SWAP": {"spot_id": "LINK-USDC", "coin": "LINK", "dec_px": 3, "dec_sz": 1},
-    "SUI-USDT-SWAP":  {"spot_id": "SUI-USDC",  "coin": "SUI",  "dec_px": 4, "dec_sz": 1},
-    "UNI-USDT-SWAP":  {"spot_id": "UNI-USDC",  "coin": "UNI",  "dec_px": 3, "dec_sz": 1},
-    "TAO-USDT-SWAP":  {"spot_id": "TAO-USDC",  "coin": "TAO",  "dec_px": 2, "dec_sz": 3},
-    "WLD-USDT-SWAP":  {"spot_id": "WLD-USDC",  "coin": "WLD",  "dec_px": 4, "dec_sz": 1},
-    "ENA-USDT-SWAP":  {"spot_id": "ENA-USDC",  "coin": "ENA",  "dec_px": 4, "dec_sz": 0},
-    "ARB-USDT-SWAP":  {"spot_id": "ARB-USDC",  "coin": "ARB",  "dec_px": 4, "dec_sz": 0},
-    "AVAX-USDT-SWAP": {"spot_id": "AVAX-USDC", "coin": "AVAX", "dec_px": 3, "dec_sz": 1},
-    "NEAR-USDT-SWAP": {"spot_id": "NEAR-USDC", "coin": "NEAR", "dec_px": 3, "dec_sz": 1},
+    "BTC-USD_UM_XPERP-310404":    {"spot_id": "BTC-USDC",    "coin": "BTC",    "ct_val": 0.0001, "dec_px": 1, "dec_sz": 0, "min_sz": 1.0},
+    "ETH-USD_UM_XPERP-310404":    {"spot_id": "ETH-USDC",    "coin": "ETH",    "ct_val": 0.001,  "dec_px": 2, "dec_sz": 0, "min_sz": 1.0},
+    "SOL-USD_UM_XPERP-310404":    {"spot_id": "SOL-USDC",    "coin": "SOL",    "ct_val": 0.01,   "dec_px": 2, "dec_sz": 0, "min_sz": 1.0},
+    "HYPE-USD_UM_XPERP-310523":   {"spot_id": "HYPE-USDC",   "coin": "HYPE",   "ct_val": 0.1,    "dec_px": 3, "dec_sz": 0, "min_sz": 1.0},
+    "ZEC-USD_UM_XPERP-310530":    {"spot_id": "ZEC-USDC",    "coin": "ZEC",    "ct_val": 0.01,   "dec_px": 2, "dec_sz": 0, "min_sz": 1.0},
+    "XRP-USD_UM_XPERP-310404":    {"spot_id": "XRP-USDC",    "coin": "XRP",    "ct_val": 1.0,    "dec_px": 4, "dec_sz": 0, "min_sz": 1.0},
+    "NEAR-USD_UM_XPERP-310613":   {"spot_id": "NEAR-USDC",   "coin": "NEAR",   "ct_val": 1.0,    "dec_px": 3, "dec_sz": 0, "min_sz": 1.0},
+    "LINK-USD_UM_XPERP-310523":   {"spot_id": "LINK-USDC",   "coin": "LINK",   "ct_val": 1.0,    "dec_px": 3, "dec_sz": 0, "min_sz": 1.0},
+    "SUI-USD_UM_XPERP-310404":    {"spot_id": "SUI-USDC",    "coin": "SUI",    "ct_val": 1.0,    "dec_px": 4, "dec_sz": 0, "min_sz": 1.0},
+    "BNB-USD_UM_XPERP-310523":    {"spot_id": "BNB-USDC",    "coin": "BNB",    "ct_val": 0.01,   "dec_px": 1, "dec_sz": 0, "min_sz": 1.0},
+    "AVAX-USD_UM_XPERP-310530":   {"spot_id": "AVAX-USDC",   "coin": "AVAX",   "ct_val": 10.0,   "dec_px": 3, "dec_sz": 1, "min_sz": 0.1},
+    "UNI-USD_UM_XPERP-310718":    {"spot_id": "UNI-USDC",    "coin": "UNI",    "ct_val": 1.0,    "dec_px": 3, "dec_sz": 0, "min_sz": 1.0},
 }
 
-STARTING_DEMO_NAV_USDC = 275.01
-HISTORICAL_22OCT_SIM_NAV_USDC = 311.71
+STARTING_DEMO_NAV_USDC = 268.95
+HISTORICAL_22OCT_SIM_NAV_USDC = 298.89
 LEVERAGE = 2.5
 MAKER_FEE_RATE = 0.0002  # 2 bps entry + 2 bps exit = 4 bps round-trip on notional
 MAX_SLOTS = 4
-SLOT_NAV_PCT = 0.125     # 12.5% of live NAV per slot (continuous compounding)
+SLOT_NAV_PCT = 0.134     # ~$36.00 margin per slot ($90.00 notional at 2.5x) on $268.95 NAV
 _IO_POOL = ThreadPoolExecutor(max_workers=6)
+_LEVERAGE_INITIALIZED = False
 
 def _ssl_ctx() -> ssl.SSLContext:
     try:
@@ -46,6 +48,17 @@ def _ssl_ctx() -> ssl.SSLContext:
         return ssl.create_default_context(cafile=certifi.where())
     except Exception:
         return ssl.create_default_context()
+
+def ensure_isolated_leverage(live_mode: bool) -> None:
+    global _LEVERAGE_INITIALIZED
+    if _LEVERAGE_INITIALIZED or not live_mode or not _OKX_CLIENT.is_authenticated:
+        return
+    for inst_id in FUTURES_UNIVERSE:
+        try:
+            _OKX_CLIENT._request("POST", "/api/v5/account/set-leverage", body_dict={"instId": inst_id, "lever": "2.5", "mgnMode": "isolated"}, auth=True)
+        except Exception:
+            pass
+    _LEVERAGE_INITIALIZED = True
 
 def init_futures_db(db_path: str) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -82,32 +95,22 @@ def _fetch_swap_book_and_trades(inst_id: str):
     bids, asks, trades = [], [], []
     high_2h, low_2h = 0.0, 0.0
     try:
-        bids, asks = _OKX_PUBLIC_CLIENT.get_orderbook(inst_id, sz=5)
-        trades = _OKX_PUBLIC_CLIENT.get_recent_trades(inst_id, limit=25)
+        bids, asks = _OKX_CLIENT.get_orderbook(inst_id, sz=5)
+        trades = _OKX_CLIENT.get_recent_trades(inst_id, limit=25)
         u_c = f"https://eea.okx.com/api/v5/market/candles?instId={inst_id}&bar=15m&limit=8"
-        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/13.1"}), timeout=5, context=ctx) as r:
+        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/14.0"}), timeout=5, context=ctx) as r:
             c_rows = json.loads(r.read().decode("utf-8")).get("data", [])
             if c_rows:
                 high_2h = max(float(x[2]) for x in c_rows)
                 low_2h = min(float(x[3]) for x in c_rows)
     except Exception:
         pass
-    funding_bps = 0.0
-    try:
-        u_f = f"https://eea.okx.com/api/v5/public/funding-rate?instId={inst_id}"
-        with urllib.request.urlopen(urllib.request.Request(u_f, headers={"User-Agent": "TRE-OS-Fut/13.1"}), timeout=4, context=ctx) as rf:
-            f_rows = json.loads(rf.read().decode("utf-8")).get("data", [])
-            if f_rows:
-                funding_bps = float(f_rows[0].get("fundingRate") or 0.0) * 10000.0
-    except Exception:
-        pass
-    return inst_id, bids, asks, trades, high_2h, low_2h, funding_bps
-
+    return inst_id, bids, asks, trades, high_2h, low_2h, 0.0
 def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, telemetry: List[Dict[str, Any]]) -> Dict[str, Any]:
     default_audit = {
         "model_used": "deterministic-7h-auditor",
-        "fee_drag_ratio_pct": 0.0, "min_kronos_10m_bps": 8.0, "fast_shield_bps": 32.0,
-        "verdict": "Fee-Drag 0.0% (4 bps Maker). Piramide Kronos a 7 Orizzonti (5m/10m + 1h..24h) e 3 Regole Auree attive.",
+        "fee_drag_ratio_pct": 0.0, "min_kronos_10m_bps": 8.0, "fast_shield_bps": 28.0,
+        "verdict": "Fee-Drag 0.0% (4 bps Maker XPERP). Piramide Kronos a 7 Orizzonti (5m/10m + 1h..24h) e 3 Regole Auree attive.",
     }
     cur = conn.cursor()
     cur.execute("SELECT realized_pnl_usd, total_fees_usd, wins_count, stops_count, shield_locks_count FROM futures_demo_account WHERE id=1")
@@ -121,10 +124,10 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         return default_audit
     compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "k5m": t["kronos_5m_bps"], "k10m": t["kronos_10m_bps"], "k1h": t["kronos_1h_bps"], "k6h": t["kronos_6h_bps"], "k24h": t["kronos_24h_bps"]} for t in telemetry[:10]]
     prompt = (
-        "Sei l'Auditor Ordinario Interno di TRE OS v13.0 Futures Demo (2.5x Isolated LONG+SHORT, OKX Maker Fee 4 bps round-trip). "
-        f"NAV={nav_usd:.2f} USDC (Start=$275.01), RealizedPnL={realized_pnl:+.2f}, Fees={tot_fees:.3f} (FeeDrag={fee_drag_pct:.1f}%), Wins={wins}, ShieldLocks={shields}, Stops={stops}. "
+        "Sei l'Auditor Ordinario Interno di TRE OS v14.0 Live Perpetual Futures (2.5x Isolated LONG+SHORT XPERP, OKX Maker Fee 4 bps round-trip). "
+        f"NAV={nav_usd:.2f} USDC, RealizedPnL={realized_pnl:+.2f}, Fees={tot_fees:.3f} (FeeDrag={fee_drag_pct:.1f}%), Wins={wins}, ShieldLocks={shields}, Stops={stops}. "
         f"Telemetry 7-Horizons: {json.dumps(compact_t)}. "
-        "Verifica che le commissioni non superino il 12% dei profitti, calibra min_kronos_10m_bps [6.0..18.0] e fast_shield_bps [28.0..48.0], ed emetti verdict (1 frase in italiano). Rispondi SOLO JSON: {min_kronos_10m_bps, fast_shield_bps, verdict}."
+        "Verifica che le commissioni non superino il 12% dei profitti, calibra min_kronos_10m_bps [6.0..18.0] e fast_shield_bps [24.0..32.0], ed emetti verdict (1 frase in italiano). Rispondi SOLO JSON: {min_kronos_10m_bps, fast_shield_bps, verdict}."
     )
     for g_mod in ("gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"):
         try:
@@ -151,9 +154,85 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
             continue
     return default_audit
 
-def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: MicrostructureEngine, kronos_client: KronosOracleClient, run_audit: bool = False) -> Dict[str, Any]:
+def _calc_contract_sz(inst_id: str, notional_usd: float, px: float) -> Tuple[str, float]:
+    meta = FUTURES_UNIVERSE[inst_id]
+    ct_val = float(meta.get("ct_val", 1.0))
+    dec_sz = int(meta.get("dec_sz", 0))
+    min_sz = float(meta.get("min_sz", 1.0))
+    raw_cts = notional_usd / max(1e-9, px * ct_val)
+    cts = round(raw_cts, dec_sz) if dec_sz > 0 else float(int(round(raw_cts)))
+    if cts < min_sz:
+        cts = min_sz
+    actual_notional = round(cts * px * ct_val, 2)
+    sz_str = f"{cts:.{dec_sz}f}" if dec_sz > 0 else str(int(cts))
+    return sz_str, actual_notional
+
+def _sync_live_okx_account_and_cancel_stale(live_mode: bool) -> Tuple[float, float, Dict[str, Dict[str, Any]]]:
+    if not live_mode or not _OKX_CLIENT.is_authenticated:
+        return 0.0, 0.0, {}
+    real_nav, real_free = 0.0, 0.0
+    live_pos_map: Dict[str, Dict[str, Any]] = {}
+    try:
+        b_res = _OKX_CLIENT._request("GET", "/api/v5/account/balance", auth=True).get("data", [])
+        if b_res:
+            real_nav = float(b_res[0].get("totalEq") or 0.0)
+            for d in b_res[0].get("details", []):
+                if d.get("ccy") == "USDC":
+                    real_free = float(d.get("availBal") or d.get("availEq") or 0.0)
+                    if real_nav <= 0.0:
+                        real_nav = float(d.get("eqUsd") or real_free)
+    except Exception:
+        pass
+    try:
+        pend = _OKX_CLIENT._request("GET", "/api/v5/trade/orders-pending?instType=FUTURES", auth=True).get("data", [])
+        now_ms = int(time.time() * 1000)
+        for o in pend:
+            c_ms = int(o.get("cTime") or now_ms)
+            if (now_ms - c_ms) >= 22000:
+                _OKX_CLIENT._request("POST", "/api/v5/trade/cancel-order", body_dict={"instId": o["instId"], "ordId": o["ordId"]}, auth=True)
+    except Exception:
+        pass
+    try:
+        p_rows = _OKX_CLIENT._request("GET", "/api/v5/account/positions?instType=FUTURES", auth=True).get("data", [])
+        for p in p_rows:
+            pos_sz = float(p.get("pos") or 0.0)
+            if abs(pos_sz) > 0:
+                live_pos_map[p["instId"]] = p
+    except Exception:
+        pass
+    return real_nav, real_free, live_pos_map
+
+def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, dec_px: int, reduce_only: bool = False, urgent_stop: bool = False) -> bool:
+    if not _OKX_CLIENT.is_authenticated:
+        return False
+    px_str = f"{px:.{dec_px}f}"
+    body: Dict[str, Any] = {
+        "instId": inst_id,
+        "tdMode": "isolated",
+        "side": side,
+        "ordType": "market" if urgent_stop else "post_only",
+        "sz": sz_str,
+    }
+    if not urgent_stop:
+        body["px"] = px_str
+    if reduce_only:
+        body["reduceOnly"] = True
+    try:
+        r = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
+        d = (r.get("data") or [{}])[0]
+        if str(d.get("sCode", "")) == "0":
+            return True
+        if reduce_only and not urgent_stop:
+            body["ordType"] = "limit"
+            r2 = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
+            return str((r2.get("data") or [{}])[0].get("sCode", "")) == "0"
+    except Exception:
+        pass
+    return False
+def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: MicrostructureEngine, kronos_client: KronosOracleClient, run_audit: bool = False, live_mode: bool = True) -> Dict[str, Any]:
     now_dt = datetime.datetime.now(datetime.timezone.utc)
     now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    ensure_isolated_leverage(live_mode)
     lifecycle = evaluate_run_lifecycle()
     spot_ids = [m["spot_id"] for m in FUTURES_UNIVERSE.values()]
     kronos_map = kronos_client.fetch_forecasts(spot_ids)
@@ -161,16 +240,18 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     cur.execute("SELECT baseline_nav_usd, current_nav_usd, free_margin_usd, realized_pnl_usd, total_fees_usd, wins_count, stops_count, shield_locks_count, started_at FROM futures_demo_account WHERE id=1")
     acct = cur.fetchone()
     base_nav, curr_nav, free_mgn, realized_pnl, tot_fees, wins_cnt, stops_cnt, shields_cnt, started_at = float(acct[0]), float(acct[1]), float(acct[2]), float(acct[3]), float(acct[4]), int(acct[5]), int(acct[6]), int(acct[7]), str(acct[8])
+    real_nav, real_free, live_okx_pos = _sync_live_okx_account_and_cancel_stale(live_mode)
+    if live_mode and real_nav > 10.0:
+        free_mgn = real_free
     cur.execute("SELECT min_kronos_10m_bps, fast_shield_bps, model_used, verdict, fee_drag_ratio_pct FROM futures_demo_audit_log ORDER BY id DESC LIMIT 1")
     last_aud = cur.fetchone()
     min_k10m_gate = float(last_aud[0]) if last_aud else 8.0
-    fast_shield_gate_bps = float(last_aud[1]) if last_aud else 32.0
+    fast_shield_gate_bps = float(last_aud[1]) if last_aud else 28.0
     aud_model = str(last_aud[2]) if last_aud else "baseline-7h-auditor"
-    aud_verdict = str(last_aud[3]) if last_aud else "7-Horizon Kronos + 4bps Maker Fee Guard active."
+    aud_verdict = str(last_aud[3]) if last_aud else "7-Horizon Kronos + 4bps Maker XPERP Guard active."
     fee_drag_pct = float(last_aud[4]) if last_aud else 0.0
     cur.execute("SELECT pos_id, inst_id, direction, leverage, margin_usd, notional_usd, entry_px, tp_px, sl_px, peak_move_bps, shield_armed, entry_fee_usd, opened_at FROM futures_demo_positions WHERE status='OPEN'")
     open_positions = {r[1]: r for r in cur.fetchall()}
-    # Audit Fix 1: Post-Exit Cooldown Map (30m cooldown after profit/shield exit, 120m cooldown after stoploss exit!)
     cur.execute("SELECT inst_id, status, (julianday('now') - julianday(closed_at)) * 1440.0 FROM futures_demo_positions WHERE status != 'OPEN' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 40")
     cooldown_blocked_insts = set()
     for c_inst, c_st, mins_ago in cur.fetchall():
@@ -178,7 +259,6 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         if float(mins_ago or 0.0) < req_cd:
             cooldown_blocked_insts.add(str(c_inst))
     market_snaps = list(_IO_POOL.map(_fetch_swap_book_and_trades, list(FUTURES_UNIVERSE.keys())))
-    # Audit Fix 2: BTC-USDT-SWAP Macro Correlation Veto
     btc_fc = kronos_map.get("BTC-USDC")
     btc_k5m = btc_fc.kronos_5m_bps if btc_fc else 0.0
     btc_k1h = btc_fc.expected_return_1h_bps if btc_fc else 0.0
@@ -200,38 +280,40 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         k6h = k_fc.horizon_6h_bps if k_fc else 0.0
         k12h = k_fc.swing_return_12h_bps if k_fc else 0.0
         k24h = k_fc.daily_return_24h_bps if k_fc else 0.0
-        # Strict 7-Horizon Alignment (5m + 10m + 1h + 2h + 6h/12h/24h must agree on direction — never short a 1h/2h rebound!)
         macro_bull = bool(k6h >= 10.0 and (k12h >= 10.0 or k24h >= 10.0) and k2h >= 0.0 and k1h >= 6.0)
         macro_bear = bool(k6h <= -10.0 and (k12h <= -10.0 or k24h <= -10.0) and k2h <= 0.0 and k1h <= -6.0)
         allowed_dir = "LONG" if macro_bull else ("SHORT" if macro_bear else "NEUTRAL")
-        drop_2h_bps = ((high_2h - mid) / high_2h * 10000.0) if high_2h > 0 else 0.0
-        bounce_2h_bps = ((mid - low_2h) / low_2h * 10000.0) if low_2h > 0 else 0.0
         if inst_id in open_positions:
             p_id, _, p_dir, p_lev, p_mgn, p_notional, p_entry, p_tp, p_sl, p_peak_bps, p_shield, p_efee, p_open_ts = open_positions[inst_id]
             move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
             new_peak = max(float(p_peak_bps), move_bps)
             try:
-                pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace('Z', '+00:00'))).total_seconds() / 60.0
+                pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            # 60-Minute Time-Decay Tightener: after 45m, lower shield gate from 28 bps down to 14 bps so stagnant trades exit in net profit!
             eff_shield_gate = 14.0 if pos_age_mins >= 45.0 else min(28.0, fast_shield_gate_bps)
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
-            exit_reason, exit_exec_px = None, mid
+            exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
                 exit_reason, exit_exec_px = "CLOSED_PROFIT", p_tp
             elif new_shield == 1:
                 locked_move_bps = max(18.0, new_peak * 0.82)
                 ideal_lock_px = round(p_entry * (1.0 + locked_move_bps / 10000.0), meta["dec_px"]) if p_dir == "LONG" else round(p_entry * (1.0 - locked_move_bps / 10000.0), meta["dec_px"])
                 if move_bps <= locked_move_bps:
-                    exit_reason = "CLOSED_SHIELD"
-                    exit_exec_px = ideal_lock_px
+                    exit_reason, exit_exec_px = "CLOSED_SHIELD", ideal_lock_px
             if not exit_reason and move_bps <= -110.0:
                 broken = bool((p_dir == "LONG" and k5m < -5.0 and k6h < -15.0) or (p_dir == "SHORT" and k5m > 5.0 and k6h > 15.0))
-                if broken or move_bps <= -156.0:
+                if broken or move_bps <= -150.0:
                     exit_reason = "CLOSED_STOPLOSS"
                     exit_exec_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
+                    urgent_stop = bool(move_bps <= -150.0)
             if exit_reason:
+                if live_mode and inst_id in live_okx_pos:
+                    pos_cts = abs(float(live_okx_pos[inst_id].get("pos") or 0.0))
+                    dec_sz = int(meta.get("dec_sz", 0))
+                    sz_str = f"{pos_cts:.{dec_sz}f}" if dec_sz > 0 else str(int(round(pos_cts)))
+                    close_side = "sell" if p_dir == "LONG" else "buy"
+                    _execute_live_xperp_order(inst_id, close_side, sz_str, exit_exec_px, meta["dec_px"], reduce_only=True, urgent_stop=urgent_stop)
                 realized_move_bps = max(-156.0, ((exit_exec_px - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - exit_exec_px) / p_entry * 10000.0))
                 exit_fee_usd = round(p_notional * MAKER_FEE_RATE, 4)
                 net_pnl_usd = round((p_notional * (realized_move_bps / 10000.0)) - p_efee - exit_fee_usd, 4)
@@ -250,15 +332,14 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 unrealized_total_usd += unr_usd
                 locked_margin_total_usd += p_mgn
                 cur.execute("UPDATE futures_demo_positions SET current_px=?, peak_move_bps=?, shield_armed=? WHERE pos_id=?", (mid, new_peak, new_shield, p_id))
-        # Audit Fix 1 + 2 + 3: Enforce Post-Exit Cooldown, BTC Correlation Veto, and Funding Rate Guard (<= 4.5 bps adverse funding)
         btc_veto_long = bool(btc_k5m <= -12.0 or btc_k1h <= -25.0)
         btc_veto_short = bool(btc_k5m >= 12.0 or btc_k1h >= 25.0)
         if inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and not btc_veto_long and funding_bps <= 4.5 and k5m >= 4.0 and k10m >= 6.0 and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.68:
-                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) - (funding_bps * 1.5), 2)
+            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 4.0 and k10m >= 6.0 and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.68:
+                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0), 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
-            elif allowed_dir == "SHORT" and not btc_veto_short and funding_bps >= -4.5 and k5m <= -4.0 and k10m <= -6.0 and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.68:
-                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + (funding_bps * 1.5), 2)
+            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -4.0 and k10m <= -6.0 and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.68:
+                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0), 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
         telemetry_rows.append({
             "inst_id": inst_id, "mid_price": mid, "ofi_norm": round(sig.ofi_norm, 2), "vpin_toxicity": round(sig.vpin_toxicity, 2),
@@ -266,25 +347,32 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             "kronos_2h_bps": round(k2h, 1), "kronos_6h_bps": round(k6h, 1), "kronos_12h_bps": round(k12h, 1), "kronos_24h_bps": round(k24h, 1),
             "allowed_direction": allowed_dir,
         })
-    live_nav_est = round(base_nav + realized_pnl + unrealized_total_usd, 2)
+    live_nav_est = round(real_nav if (live_mode and real_nav > 10.0) else (base_nav + realized_pnl + unrealized_total_usd), 2)
     slot_margin_usd = round(live_nav_est * SLOT_NAV_PCT, 2)
     if len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
         candidates.sort(key=lambda x: x["score"], reverse=True)
         for cand in candidates:
             if len(open_positions) >= MAX_SLOTS or free_mgn < slot_margin_usd: break
             c_id, c_dir, c_px, c_dec = cand["inst_id"], cand["dir"], cand["px"], cand["dec_px"]
-            notional_usd = round(slot_margin_usd * LEVERAGE, 2)
-            entry_fee_usd = round(notional_usd * MAKER_FEE_RATE, 4)
+            target_notional = round(slot_margin_usd * LEVERAGE, 2)
+            sz_str, actual_notional = _calc_contract_sz(c_id, target_notional, c_px)
+            actual_margin = round(actual_notional / LEVERAGE, 2)
+            if actual_margin > free_mgn: continue
+            if live_mode:
+                side = "buy" if c_dir == "LONG" else "sell"
+                ok = _execute_live_xperp_order(c_id, side, sz_str, c_px, c_dec, reduce_only=False, urgent_stop=False)
+                if not ok: continue
+            entry_fee_usd = round(actual_notional * MAKER_FEE_RATE, 4)
             tp_px = round(c_px * 1.0110, c_dec) if c_dir == "LONG" else round(c_px * 0.9890, c_dec)
-            sl_px = round(c_px * 0.9844, c_dec) if c_dir == "LONG" else round(c_px * 1.0156, c_dec)
-            pos_id = f"FUT_{c_id.split('-')[0]}_{int(time.time()*1000)}"
+            sl_px = round(c_px * 0.9850, c_dec) if c_dir == "LONG" else round(c_px * 1.0150, c_dec)
+            pos_id = f"XPERP_{c_id.split('-')[0]}_{int(time.time()*1000)}"
             cur.execute("INSERT INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, ?, 'OPEN', ?, NULL, NULL, NULL)",
-                        (pos_id, c_id, c_dir, LEVERAGE, slot_margin_usd, notional_usd, c_px, c_px, tp_px, sl_px, entry_fee_usd, now_iso))
-            free_mgn = round(free_mgn - slot_margin_usd, 4)
-            locked_margin_total_usd += slot_margin_usd
-            open_positions[c_id] = (pos_id, c_id, c_dir, LEVERAGE, slot_margin_usd, notional_usd, c_px, tp_px, sl_px, 0.0, 0, entry_fee_usd, now_iso)
-            actions_taken.append({"action": f"OPEN_{c_dir}_2.5X", "inst_id": c_id, "px": c_px, "margin_usd": slot_margin_usd, "notional_usd": notional_usd})
-    curr_nav = round(base_nav + realized_pnl + unrealized_total_usd, 2)
+                        (pos_id, c_id, c_dir, LEVERAGE, actual_margin, actual_notional, c_px, c_px, tp_px, sl_px, entry_fee_usd, now_iso))
+            free_mgn = round(free_mgn - actual_margin, 4)
+            locked_margin_total_usd += actual_margin
+            open_positions[c_id] = (pos_id, c_id, c_dir, LEVERAGE, actual_margin, actual_notional, c_px, tp_px, sl_px, 0.0, 0, entry_fee_usd, now_iso)
+            actions_taken.append({"action": f"OPEN_{c_dir}_2.5X", "inst_id": c_id, "px": c_px, "sz_contracts": sz_str, "margin_usd": actual_margin, "notional_usd": actual_notional})
+    curr_nav = live_nav_est
     cur.execute("UPDATE futures_demo_account SET current_nav_usd=?, free_margin_usd=?, realized_pnl_usd=?, total_fees_usd=?, wins_count=?, stops_count=?, shield_locks_count=?, updated_at=? WHERE id=1",
                 (curr_nav, round(free_mgn, 2), round(realized_pnl, 4), round(tot_fees, 4), wins_cnt, stops_cnt, shields_cnt, now_iso))
     conn.commit()
@@ -294,7 +382,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     cur.execute("SELECT pos_id, inst_id, direction, margin_usd, notional_usd, entry_px, current_px, tp_px, sl_px, peak_move_bps, shield_armed, opened_at FROM futures_demo_positions WHERE status='OPEN'")
     active_pos_list = [{"pos_id": r[0], "inst_id": r[1], "direction": r[2], "margin_usd": r[3], "notional_usd": r[4], "entry_px": r[5], "current_px": r[6], "tp_px": r[7], "sl_px": r[8], "peak_move_bps": round(float(r[9]), 1), "shield_armed": bool(r[10]), "opened_at": r[11]} for r in cur.fetchall()]
     snap = {
-        "timestamp": now_iso, "baseline_nav_usd": base_nav,
+        "timestamp": now_iso, "execution_mode": "LIVE_XPERP_2.5X" if live_mode else "DEMO_2.5X", "baseline_nav_usd": base_nav,
         "historical_22oct_sim_nav_usd": round(HISTORICAL_22OCT_SIM_NAV_USDC + (curr_nav - base_nav), 2),
         "current_nav_usd": curr_nav, "free_margin_usd": round(free_mgn, 2), "locked_margin_usd": round(locked_margin_total_usd, 2),
         "realized_pnl_usd": round(realized_pnl, 4), "unrealized_pnl_usd": round(unrealized_total_usd, 3),
@@ -309,23 +397,25 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     return snap
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="TRE OS v13.0 — Parallel Perpetual Futures 2.5x Demo Engine")
+    parser = argparse.ArgumentParser(description="TRE OS v14.0 — Sovereign Perpetual Futures 2.5x Isolated Engine (LIVE & DEMO)")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--demo", action="store_true", help="Force paper simulation instead of live XPERP execution")
     parser.add_argument("--interval", type=float, default=15.0)
     args = parser.parse_args()
     load_dotenv(os.path.join(BASE_DIR, ".env"))
+    live_mode = not args.demo and (os.environ.get("FUTURES_LIVE_EXECUTION", "true").lower() in ("1", "true", "yes"))
     conn = init_futures_db(os.path.join(BASE_DIR, "config", "okx_futures_demo.db"))
     micro = MicrostructureEngine(bucket_volume_usd=2500.0)
     kronos = KronosOracleClient()
     if args.once:
-        s = run_futures_demo_cycle(conn, micro, kronos, run_audit=True)
-        print(f"[FUTURES DEMO 2.5X] NAV={s['current_nav_usd']:.2f} | Free={s['free_margin_usd']:.2f} | OpenPos={len(s['open_positions'])} | Auditor={s['auditor_model']}")
+        s = run_futures_demo_cycle(conn, micro, kronos, run_audit=True, live_mode=live_mode)
+        print(f"[FUTURES {s['execution_mode']}] NAV={s['current_nav_usd']:.2f} | Free={s['free_margin_usd']:.2f} | OpenPos={len(s['open_positions'])} | Auditor={s['auditor_model']}")
         return
     cyc = 0
     while True:
         cyc += 1
-        try: run_futures_demo_cycle(conn, micro, kronos, run_audit=(cyc % 80 == 1))
-        except Exception as e: print(f"[!] Futures Demo cycle error: {e}")
+        try: run_futures_demo_cycle(conn, micro, kronos, run_audit=(cyc % 80 == 1), live_mode=live_mode)
+        except Exception as e: print(f"[!] Futures Engine cycle error: {e}")
         time.sleep(max(5.0, args.interval))
 
 if __name__ == "__main__":
