@@ -230,10 +230,13 @@ class OKXNativeClient:
 
     # --- Private Account & Order Execution (Live or Demo) ---
     def get_account_balances(self) -> List[Dict[str, Any]]:
-        res = self._request("GET", "/api/v5/account/balance", auth=True)
-        data = res.get("data", [])
-        if data and "details" in data[0]:
-            return data[0]["details"]
+        for attempt in range(2):
+            res = self._request("GET", "/api/v5/account/balance", auth=True)
+            data = res.get("data", [])
+            if data and "details" in data[0]:
+                return data[0]["details"]
+            if attempt == 0:
+                time.sleep(0.5)
         return []
 
     def get_savings_balances(self) -> List[Dict[str, Any]]:

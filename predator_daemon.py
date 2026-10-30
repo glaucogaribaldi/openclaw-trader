@@ -746,7 +746,8 @@ def run_predator_cycle(
     si_fast_shield_bps = float(si_state.get("fast_shield_trigger_bps", 38.0))
     si_penalty_box = set(si_state.get("coin_penalty_box_24h") or []) | stop_loss_quarantine_set
     si_kronos_leaders = set(si_state.get("kronos_top_conviction_leaders") or [])
-    is_night_dead_zone = bool(utc_hour >= 23 or utc_hour < 5)  # 00:00 - 06:00 CET low-liquidity stop-hunt window
+    _now_utc_h = datetime.datetime.now(datetime.timezone.utc).hour
+    is_night_dead_zone = bool(_now_utc_h >= 23 or _now_utc_h < 5)  # 00:00 - 06:00 CET low-liquidity stop-hunt window
 
     # 1. Scan all instruments in active_universe (Core + Dynamic Predator Explorers) using prefetched parallel market snapshots
     for inst_id, meta in active_universe.items():
