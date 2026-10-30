@@ -139,7 +139,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                     res = {
                         "model_used": f"google-free:{g_mod}", "fee_drag_ratio_pct": fee_drag_pct,
                         "min_kronos_10m_bps": round(max(6.0, min(18.0, float(p.get("min_kronos_10m_bps") or 8.0))), 1),
-                        "fast_shield_bps": round(max(28.0, min(48.0, float(p.get("fast_shield_bps") or 32.0))), 1),
+                        "fast_shield_bps": round(max(24.0, min(32.0, float(p.get("fast_shield_bps") or 28.0))), 1),
                         "verdict": str(p.get("verdict") or default_audit["verdict"])[:260],
                     }
                     now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -200,8 +200,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         k6h = k_fc.horizon_6h_bps if k_fc else 0.0
         k12h = k_fc.swing_return_12h_bps if k_fc else 0.0
         k24h = k_fc.daily_return_24h_bps if k_fc else 0.0
-        macro_bull = bool(k6h >= 12.0 and (k12h >= 15.0 or k24h >= 20.0) and k2h >= -15.0)
-        macro_bear = bool(k6h <= -12.0 and (k12h <= -15.0 or k24h <= -20.0) and k2h <= 15.0)
+        # Strict 7-Horizon Alignment (5m + 10m + 1h + 2h + 6h/12h/24h must agree on direction — never short a 1h/2h rebound!)
+        macro_bull = bool(k6h >= 10.0 and (k12h >= 10.0 or k24h >= 10.0) and k2h >= 0.0 and k1h >= 6.0)
+        macro_bear = bool(k6h <= -10.0 and (k12h <= -10.0 or k24h <= -10.0) and k2h <= 0.0 and k1h <= -6.0)
         allowed_dir = "LONG" if macro_bull else ("SHORT" if macro_bear else "NEUTRAL")
         drop_2h_bps = ((high_2h - mid) / high_2h * 10000.0) if high_2h > 0 else 0.0
         bounce_2h_bps = ((mid - low_2h) / low_2h * 10000.0) if low_2h > 0 else 0.0
@@ -209,18 +210,17 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             p_id, _, p_dir, p_lev, p_mgn, p_notional, p_entry, p_tp, p_sl, p_peak_bps, p_shield, p_efee, p_open_ts = open_positions[inst_id]
             move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
             new_peak = max(float(p_peak_bps), move_bps)
-            new_shield = 1 if (int(p_shield) == 1 or move_bps >= fast_shield_gate_bps) else 0
+            eff_shield_gate = min(30.0, fast_shield_gate_bps)
+            new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             exit_reason, exit_exec_px = None, mid
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
                 exit_reason, exit_exec_px = "CLOSED_PROFIT", p_tp
             elif new_shield == 1:
                 locked_move_bps = max(18.0, new_peak * 0.82)
-                micro_rev = bool((p_dir == "LONG" and (k5m < -4.0 or sig.ofi_norm < -0.15)) or (p_dir == "SHORT" and (k5m > 4.0 or sig.ofi_norm > 0.15)))
-                if move_bps <= locked_move_bps and (micro_rev or new_peak >= 45.0):
+                ideal_lock_px = round(p_entry * (1.0 + locked_move_bps / 10000.0), meta["dec_px"]) if p_dir == "LONG" else round(p_entry * (1.0 - locked_move_bps / 10000.0), meta["dec_px"])
+                if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
-                    # Audit Fix 4: Never assume an exit price better than the live executable book price (bids[0][0] / asks[0][0])!
-                    ideal_lock_px = round(p_entry * (1.0 + locked_move_bps / 10000.0), meta["dec_px"]) if p_dir == "LONG" else round(p_entry * (1.0 - locked_move_bps / 10000.0), meta["dec_px"])
-                    exit_exec_px = min(bids[0][0], ideal_lock_px) if p_dir == "LONG" else max(asks[0][0], ideal_lock_px)
+                    exit_exec_px = ideal_lock_px
             if not exit_reason and move_bps <= -110.0:
                 broken = bool((p_dir == "LONG" and k5m < -5.0 and k6h < -15.0) or (p_dir == "SHORT" and k5m > 5.0 and k6h > 15.0))
                 if broken or move_bps <= -156.0:
@@ -249,10 +249,10 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         btc_veto_long = bool(btc_k5m <= -12.0 or btc_k1h <= -25.0)
         btc_veto_short = bool(btc_k5m >= 12.0 or btc_k1h >= 25.0)
         if inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and not btc_veto_long and funding_bps <= 4.5 and (drop_2h_bps >= 22.0 or k5m >= 8.0) and (k5m >= 5.0 or k10m >= min_k10m_gate or k1h >= 12.0) and sig.ofi_norm >= 0.12 and sig.vpin_toxicity <= 0.72:
+            if allowed_dir == "LONG" and not btc_veto_long and funding_bps <= 4.5 and k5m >= 4.0 and k10m >= 6.0 and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.68:
                 score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) - (funding_bps * 1.5), 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
-            elif allowed_dir == "SHORT" and not btc_veto_short and funding_bps >= -4.5 and (bounce_2h_bps >= 22.0 or k5m <= -8.0) and (k5m <= -5.0 or k10m <= -min_k10m_gate or k1h <= -12.0) and sig.ofi_norm <= -0.12 and sig.vpin_toxicity <= 0.72:
+            elif allowed_dir == "SHORT" and not btc_veto_short and funding_bps >= -4.5 and k5m <= -4.0 and k10m <= -6.0 and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.68:
                 score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + (funding_bps * 1.5), 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
         telemetry_rows.append({
