@@ -320,9 +320,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 sl_px = round(avg_px * 0.9844, c_dec) if p_dir == "LONG" else round(avg_px * 1.0156, c_dec)
                 efee = round(not_u * MAKER_FEE_RATE, 4)
                 pid = f"XPERP_{okx_inst.split('-')[0]}_{int(okx_p.get('cTime') or int(time.time()*1000))}"
-                cur.execute("INSERT OR REPLACE INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 1, ?, 'OPEN', ?, NULL, NULL, NULL)",
+                cur.execute("INSERT OR REPLACE INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, ?, 'OPEN', ?, NULL, NULL, NULL)",
                             (pid, okx_inst, p_dir, LEVERAGE, mgn_u, not_u, avg_px, avg_px, tp_px, sl_px, efee, now_iso))
-                open_positions[okx_inst] = (pid, okx_inst, p_dir, LEVERAGE, mgn_u, not_u, avg_px, tp_px, sl_px, 0.0, 1, efee, now_iso)
+                open_positions[okx_inst] = (pid, okx_inst, p_dir, LEVERAGE, mgn_u, not_u, avg_px, tp_px, sl_px, 0.0, 0, efee, now_iso)
         conn.commit()
     cur.execute("SELECT inst_id, status, (julianday('now') - julianday(closed_at)) * 1440.0 FROM futures_demo_positions WHERE status != 'OPEN' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 40")
     cooldown_blocked_insts = set()
@@ -363,20 +363,20 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            eff_shield_gate = 12.0 if pos_age_mins >= 45.0 else 20.0
-            new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
+            eff_shield_gate = 12.0 if pos_age_mins >= 45.0 else max(22.0, fast_shield_gate_bps)
+            new_shield = 1 if (new_peak >= eff_shield_gate) else 0
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
                 exit_reason, exit_exec_px = "CLOSED_PROFIT", p_tp
             elif inst_id in brain_skills.get("force_close_inst_ids", []):
-                exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", mid, True
+                exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             elif new_shield == 1:
                 base_trail = float(brain_skills.get("trail_lock_ratio") or 0.65)
                 trail_ratio = 0.82 if new_peak >= 65.0 else base_trail
-                locked_move_bps = max(8.0, new_peak * trail_ratio)
-                ideal_lock_px = round(p_entry * (1.0 + locked_move_bps / 10000.0), meta["dec_px"]) if p_dir == "LONG" else round(p_entry * (1.0 - locked_move_bps / 10000.0), meta["dec_px"])
+                locked_move_bps = max(10.0, new_peak * trail_ratio)
                 if move_bps <= locked_move_bps:
-                    exit_reason, exit_exec_px = "CLOSED_SHIELD", ideal_lock_px
+                    exit_reason = "CLOSED_SHIELD"
+                    exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
             if not exit_reason and move_bps <= -25.0:
                 inv_1h = bool((p_dir == "LONG" and k5m <= -4.0 and k10m <= -6.0 and k1h <= -15.0) or (p_dir == "SHORT" and k5m >= 4.0 and k10m >= 6.0 and k1h >= 15.0))
                 broken = bool((p_dir == "LONG" and k5m < -5.0 and k6h < -15.0) or (p_dir == "SHORT" and k5m > 5.0 and k6h > 15.0))
