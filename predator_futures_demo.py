@@ -93,19 +93,22 @@ def init_futures_db(db_path: str) -> sqlite3.Connection:
 def _fetch_swap_book_and_trades(inst_id: str):
     ctx = _ssl_ctx()
     bids, asks, trades = [], [], []
-    high_2h, low_2h = 0.0, 0.0
+    real_15m_bps, real_1h_bps = 0.0, 0.0
     try:
         bids, asks = _OKX_CLIENT.get_orderbook(inst_id, sz=5)
         trades = _OKX_CLIENT.get_recent_trades(inst_id, limit=25)
         u_c = f"https://eea.okx.com/api/v5/market/candles?instId={inst_id}&bar=15m&limit=8"
-        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/14.0"}), timeout=5, context=ctx) as r:
+        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/14.7"}), timeout=5, context=ctx) as r:
             c_rows = json.loads(r.read().decode("utf-8")).get("data", [])
-            if c_rows:
-                high_2h = max(float(x[2]) for x in c_rows)
-                low_2h = min(float(x[3]) for x in c_rows)
+            if len(c_rows) >= 5:
+                c_now = float(c_rows[0][4])
+                o_15m = float(c_rows[0][1])
+                c_1h = float(c_rows[4][4])
+                real_15m_bps = ((c_now - o_15m) / o_15m * 10000.0) if o_15m > 0 else 0.0
+                real_1h_bps = ((c_now - c_1h) / c_1h * 10000.0) if c_1h > 0 else 0.0
     except Exception:
         pass
-    return inst_id, bids, asks, trades, high_2h, low_2h, 0.0
+    return inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, 0.0
 _LAST_GEMINI_AUDIT_TS = 0.0
 
 def load_gemini_brain_skills() -> Dict[str, Any]:
@@ -334,9 +337,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     btc_fc = kronos_map.get("BTC-USDC")
     btc_k5m = btc_fc.kronos_5m_bps if btc_fc else 0.0
     btc_k1h = btc_fc.expected_return_1h_bps if btc_fc else 0.0
+    btc_real_15m = next((r15 for iid, _, _, _, r15, _, _ in market_snaps if "BTC-" in iid), 0.0)
+    btc_real_1h = next((r1h for iid, _, _, _, _, r1h, _ in market_snaps if "BTC-" in iid), 0.0)
     telemetry_rows, actions_taken, candidates = [], [], []
     unrealized_total_usd, locked_margin_total_usd = 0.0, 0.0
-    for inst_id, bids, asks, trades, high_2h, low_2h, funding_bps in market_snaps:
+    for inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, funding_bps in market_snaps:
         if not bids or not asks:
             continue
         meta = FUTURES_UNIVERSE[inst_id]
@@ -352,8 +357,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         k6h = k_fc.horizon_6h_bps if k_fc else 0.0
         k12h = k_fc.swing_return_12h_bps if k_fc else 0.0
         k24h = k_fc.daily_return_24h_bps if k_fc else 0.0
-        macro_bull = bool(k6h >= 8.0 and (k12h >= 5.0 or k24h >= 5.0) and k2h >= -8.0 and k1h >= 4.0)
-        macro_bear = bool(k6h <= -8.0 and (k12h <= -5.0 or k24h <= -5.0) and k2h <= 8.0 and k1h <= -4.0)
+        # Real-Candle Price Momentum Gate: NEVER short a rising green candle (real_15m/1h > 0) and NEVER long a falling red candle!
+        macro_bull = bool(k6h >= 8.0 and (k12h >= 5.0 or k24h >= 5.0) and k2h >= -8.0 and k1h >= 6.0 and real_15m_bps >= 3.0 and real_1h_bps >= 8.0)
+        macro_bear = bool(k6h <= -8.0 and (k12h <= -5.0 or k24h <= -5.0) and k2h <= 8.0 and k1h <= -6.0 and real_15m_bps <= -3.0 and real_1h_bps <= -8.0)
         allowed_dir = "LONG" if macro_bull else ("SHORT" if macro_bear else "NEUTRAL")
         if inst_id in open_positions:
             p_id, _, p_dir, p_lev, p_mgn, p_notional, p_entry, p_tp, p_sl, p_peak_bps, p_shield, p_efee, p_open_ts = open_positions[inst_id]
@@ -363,7 +369,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            eff_shield_gate = 15.0 if pos_age_mins >= 45.0 else max(25.0, fast_shield_gate_bps)
+            eff_shield_gate = 22.0 if pos_age_mins >= 45.0 else max(35.0, fast_shield_gate_bps)
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
@@ -371,9 +377,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             elif inst_id in brain_skills.get("force_close_inst_ids", []):
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             elif new_shield == 1:
-                base_trail = float(brain_skills.get("trail_lock_ratio") or 0.68)
+                base_trail = float(brain_skills.get("trail_lock_ratio") or 0.70)
                 trail_ratio = 0.82 if new_peak >= 65.0 else base_trail
-                locked_move_bps = max(14.0, new_peak * trail_ratio)
+                locked_move_bps = max(20.0, new_peak * trail_ratio)
                 if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
@@ -411,8 +417,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 unrealized_total_usd += unr_usd
                 locked_margin_total_usd += p_mgn
                 cur.execute("UPDATE futures_demo_positions SET current_px=?, peak_move_bps=?, shield_armed=? WHERE pos_id=?", (mid, new_peak, new_shield, p_id))
-        btc_veto_long = bool(btc_k5m <= -12.0 or btc_k1h <= -25.0)
-        btc_veto_short = bool(btc_k5m >= 12.0 or btc_k1h >= 25.0)
+        btc_veto_long = bool(btc_k5m <= -10.0 or btc_k1h <= -20.0 or btc_real_15m <= -8.0 or btc_real_1h <= -15.0)
+        btc_veto_short = bool(btc_k5m >= 10.0 or btc_k1h >= 20.0 or btc_real_15m >= 8.0 or btc_real_1h >= 15.0)
         eff_k10m_gate = max(6.0, min(12.0, min_k10m_gate))
         boost_bonus = 15.0 if inst_id in brain_skills.get("priority_boost_inst_ids", []) else 0.0
         is_blacklisted = inst_id in brain_skills.get("blacklist_inst_ids", [])
@@ -443,10 +449,10 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             sz_str, actual_notional = _calc_contract_sz(c_id, target_notional, c_px)
             actual_margin = round(actual_notional / eff_lev, 2)
             if actual_margin > free_mgn: continue
-            # Anti-Cascade Free-Roll Pyramiding: max 2 unshielded slots in the same direction!
-            unshielded_same_dir = sum(1 for r in open_positions.values() if r[2] == c_dir and int(r[10]) == 0)
-            if unshielded_same_dir >= 2:
-                continue
+            # Anti-Cascade Free-Roll Pyramiding: max 1 unshielded slot + pending order at a time until shielded!
+            unshielded_total = sum(1 for r in open_positions.values() if int(r[10]) == 0) + len(live_okx_pend)
+            if unshielded_total >= 1:
+                break
             tp_px = round(c_px * 1.0110, c_dec) if c_dir == "LONG" else round(c_px * 0.9890, c_dec)
             sl_px = round(c_px * 0.9895, c_dec) if c_dir == "LONG" else round(c_px * 1.0105, c_dec)
             if live_mode:
@@ -459,7 +465,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 live_okx_pend.add(c_id)
                 free_mgn = round(free_mgn - actual_margin, 4)
                 actions_taken.append({"action": f"PLACE_POST_ONLY_{c_dir}_4.0X", "inst_id": c_id, "px": c_px, "sz_contracts": sz_str, "margin_usd": actual_margin, "notional_usd": actual_notional})
-                continue
+                break
             entry_fee_usd = round(actual_notional * MAKER_FEE_RATE, 4)
             pos_id = f"XPERP_{c_id.split('-')[0]}_{int(time.time()*1000)}"
             cur.execute("INSERT INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, ?, 'OPEN', ?, NULL, NULL, NULL)",
