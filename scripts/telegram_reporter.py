@@ -3,10 +3,10 @@
 TRE OS v14.0 — Sovereign Perpetual Futures 2.5x Isolated Telegram Executive Reporter (telegram_reporter.py)
 Reads config/futures_demo_snapshot.json and sends a brutally honest live executive report to Telegram.
 """
-import json, os, ssl, urllib.request
-from predator_daemon import load_dotenv
-
+import json, os, ssl, sys, urllib.request
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
+from predator_daemon import load_dotenv
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 def send_telegram_report() -> None:
