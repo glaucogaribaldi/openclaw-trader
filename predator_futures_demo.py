@@ -354,11 +354,12 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 cur.execute("UPDATE futures_demo_positions SET current_px=?, peak_move_bps=?, shield_armed=? WHERE pos_id=?", (mid, new_peak, new_shield, p_id))
         btc_veto_long = bool(btc_k5m <= -12.0 or btc_k1h <= -25.0)
         btc_veto_short = bool(btc_k5m >= 12.0 or btc_k1h >= 25.0)
+        eff_k10m_gate = max(6.0, min(14.0, min_k10m_gate))
         if inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 4.0 and k10m >= 6.0 and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.68:
+            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 4.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.68:
                 score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0), 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
-            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -4.0 and k10m <= -6.0 and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.68:
+            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -4.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.68:
                 score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0), 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
         telemetry_rows.append({
@@ -398,6 +399,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     cur.execute("UPDATE futures_demo_account SET current_nav_usd=?, free_margin_usd=?, realized_pnl_usd=?, total_fees_usd=?, wins_count=?, stops_count=?, shield_locks_count=?, updated_at=? WHERE id=1",
                 (curr_nav, round(free_mgn, 2), round(realized_pnl, 4), round(tot_fees, 4), wins_cnt, stops_cnt, shields_cnt, now_iso))
     conn.commit()
+    gross_prof_live = max(0.01, realized_pnl + tot_fees) if realized_pnl > 0 else 1.0
+    fee_drag_pct = round((tot_fees / gross_prof_live) * 100.0, 2) if tot_fees > 0 else 0.0
     if run_audit:
         aud_res = run_gemini_ordinary_futures_audit(conn, curr_nav, telemetry_rows)
         aud_model, aud_verdict, fee_drag_pct = aud_res["model_used"], aud_res["verdict"], aud_res["fee_drag_ratio_pct"]
