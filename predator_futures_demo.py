@@ -254,7 +254,7 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
         "instId": inst_id,
         "tdMode": "isolated",
         "side": side,
-        "ordType": "market" if urgent_stop else ("limit" if reduce_only else "post_only"),
+        "ordType": "market" if (urgent_stop or reduce_only) else "post_only",
         "sz": sz_str,
     }
     if body["ordType"] != "market":
@@ -363,20 +363,21 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            eff_shield_gate = 12.0 if pos_age_mins >= 45.0 else max(22.0, fast_shield_gate_bps)
-            new_shield = 1 if (new_peak >= eff_shield_gate) else 0
+            eff_shield_gate = 15.0 if pos_age_mins >= 45.0 else max(25.0, fast_shield_gate_bps)
+            new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
-                exit_reason, exit_exec_px = "CLOSED_PROFIT", p_tp
+                exit_reason, exit_exec_px, urgent_stop = "CLOSED_PROFIT", p_tp, True
             elif inst_id in brain_skills.get("force_close_inst_ids", []):
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             elif new_shield == 1:
-                base_trail = float(brain_skills.get("trail_lock_ratio") or 0.65)
+                base_trail = float(brain_skills.get("trail_lock_ratio") or 0.68)
                 trail_ratio = 0.82 if new_peak >= 65.0 else base_trail
-                locked_move_bps = max(10.0, new_peak * trail_ratio)
+                locked_move_bps = max(14.0, new_peak * trail_ratio)
                 if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
-                    exit_exec_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
+                    exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
+                    urgent_stop = True
             if not exit_reason and move_bps <= -55.0:
                 inv_1h = bool(pos_age_mins >= 15.0 and ((p_dir == "LONG" and k5m <= -5.0 and k10m <= -8.0 and k1h <= -18.0) or (p_dir == "SHORT" and k5m >= 5.0 and k10m >= 8.0 and k1h >= 18.0)))
                 broken = bool((p_dir == "LONG" and k5m < -6.0 and k6h < -18.0) or (p_dir == "SHORT" and k5m > 6.0 and k6h > 18.0))
@@ -468,6 +469,19 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             open_positions[c_id] = (pos_id, c_id, c_dir, LEVERAGE, actual_margin, actual_notional, c_px, tp_px, sl_px, 0.0, 0, entry_fee_usd, now_iso)
             actions_taken.append({"action": f"OPEN_{c_dir}_4.0X", "inst_id": c_id, "px": c_px, "sz_contracts": sz_str, "margin_usd": actual_margin, "notional_usd": actual_notional})
     curr_nav = live_nav_est
+    if live_mode and _OKX_CLIENT.is_authenticated:
+        try:
+            h_ords = _OKX_CLIENT._request("GET", "/api/v5/trade/orders-history?instType=FUTURES&limit=60", auth=True).get("data", [])
+            filled_ords = [o for o in h_ords if o.get("state") == "filled" and int(o.get("cTime") or 0) >= 1793362800000]
+            if filled_ords:
+                tot_fees = round(sum(abs(float(o.get("fee") or 0.0)) for o in filled_ords), 4)
+                gross_p = sum(float(o.get("pnl") or 0.0) for o in filled_ords)
+                realized_pnl = round(gross_p - tot_fees, 4)
+                close_ords = [o for o in filled_ords if str(o.get("reduceOnly", "")).lower() == "true"]
+                shields_cnt = sum(1 for o in close_ords if float(o.get("pnl") or 0.0) > 0.0)
+                stops_cnt = sum(1 for o in close_ords if float(o.get("pnl") or 0.0) <= 0.0)
+        except Exception:
+            pass
     cur.execute("UPDATE futures_demo_account SET current_nav_usd=?, free_margin_usd=?, realized_pnl_usd=?, total_fees_usd=?, wins_count=?, stops_count=?, shield_locks_count=?, updated_at=? WHERE id=1",
                 (curr_nav, round(free_mgn, 2), round(realized_pnl, 4), round(tot_fees, 4), wins_cnt, stops_cnt, shields_cnt, now_iso))
     conn.commit()
