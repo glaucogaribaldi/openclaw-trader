@@ -35,10 +35,10 @@ FUTURES_UNIVERSE: Dict[str, Dict[str, Any]] = {
 
 STARTING_DEMO_NAV_USDC = 268.95
 HISTORICAL_22OCT_SIM_NAV_USDC = 298.89
-LEVERAGE = 2.5
+LEVERAGE = 4.0
 MAKER_FEE_RATE = 0.0002  # 2 bps entry + 2 bps exit = 4 bps round-trip on notional
 MAX_SLOTS = 4
-SLOT_NAV_PCT = 0.125     # 12.5% of live NAV per slot (4 slots = 50% Chamber 1 Assault + 50% Chamber 2 Pure USDC Shield)
+SLOT_NAV_PCT = 0.20      # 20.0% of live NAV per slot (4 slots = 80% Chamber 1 Assault at 4.0x + 20% Chamber 2 Reserve)
 _IO_POOL = ThreadPoolExecutor(max_workers=6)
 _LEVERAGE_INITIALIZED = False
 
@@ -55,7 +55,7 @@ def ensure_isolated_leverage(live_mode: bool) -> None:
         return
     for inst_id in FUTURES_UNIVERSE:
         try:
-            _OKX_CLIENT._request("POST", "/api/v5/account/set-leverage", body_dict={"instId": inst_id, "lever": "2.5", "mgnMode": "isolated"}, auth=True)
+            _OKX_CLIENT._request("POST", "/api/v5/account/set-leverage", body_dict={"instId": inst_id, "lever": "4", "mgnMode": "isolated"}, auth=True)
         except Exception:
             pass
     _LEVERAGE_INITIALIZED = True
@@ -300,8 +300,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         k6h = k_fc.horizon_6h_bps if k_fc else 0.0
         k12h = k_fc.swing_return_12h_bps if k_fc else 0.0
         k24h = k_fc.daily_return_24h_bps if k_fc else 0.0
-        macro_bull = bool(k6h >= 10.0 and (k12h >= 10.0 or k24h >= 10.0) and k2h >= 0.0 and k1h >= 6.0)
-        macro_bear = bool(k6h <= -10.0 and (k12h <= -10.0 or k24h <= -10.0) and k2h <= 0.0 and k1h <= -6.0)
+        macro_bull = bool(k6h >= 8.0 and (k12h >= 5.0 or k24h >= 5.0) and k2h >= -8.0 and k1h >= 4.0)
+        macro_bear = bool(k6h <= -8.0 and (k12h <= -5.0 or k24h <= -5.0) and k2h <= 8.0 and k1h <= -4.0)
         allowed_dir = "LONG" if macro_bull else ("SHORT" if macro_bear else "NEUTRAL")
         if inst_id in open_positions:
             p_id, _, p_dir, p_lev, p_mgn, p_notional, p_entry, p_tp, p_sl, p_peak_bps, p_shield, p_efee, p_open_ts = open_positions[inst_id]
@@ -311,22 +311,24 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            eff_shield_gate = 14.0 if pos_age_mins >= 45.0 else min(28.0, fast_shield_gate_bps)
+            eff_shield_gate = 12.0 if pos_age_mins >= 45.0 else 20.0
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
                 exit_reason, exit_exec_px = "CLOSED_PROFIT", p_tp
             elif new_shield == 1:
-                locked_move_bps = max(18.0, new_peak * 0.82)
+                trail_ratio = 0.82 if new_peak >= 65.0 else 0.65
+                locked_move_bps = max(8.0, new_peak * trail_ratio)
                 ideal_lock_px = round(p_entry * (1.0 + locked_move_bps / 10000.0), meta["dec_px"]) if p_dir == "LONG" else round(p_entry * (1.0 - locked_move_bps / 10000.0), meta["dec_px"])
                 if move_bps <= locked_move_bps:
                     exit_reason, exit_exec_px = "CLOSED_SHIELD", ideal_lock_px
-            if not exit_reason and move_bps <= -110.0:
+            if not exit_reason and move_bps <= -25.0:
+                inv_1h = bool((p_dir == "LONG" and k5m <= -4.0 and k10m <= -6.0 and k1h <= -15.0) or (p_dir == "SHORT" and k5m >= 4.0 and k10m >= 6.0 and k1h >= 15.0))
                 broken = bool((p_dir == "LONG" and k5m < -5.0 and k6h < -15.0) or (p_dir == "SHORT" and k5m > 5.0 and k6h > 15.0))
-                if broken or move_bps <= -156.0:
+                if inv_1h or (move_bps <= -75.0 and broken) or move_bps <= -100.0:
                     exit_reason = "CLOSED_STOPLOSS"
                     exit_exec_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
-                    urgent_stop = bool(move_bps <= -156.0)
+                    urgent_stop = True
             if exit_reason:
                 if live_mode and inst_id in live_okx_pos:
                     pos_cts = abs(float(live_okx_pos[inst_id].get("pos") or 0.0))
@@ -354,12 +356,12 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 cur.execute("UPDATE futures_demo_positions SET current_px=?, peak_move_bps=?, shield_armed=? WHERE pos_id=?", (mid, new_peak, new_shield, p_id))
         btc_veto_long = bool(btc_k5m <= -12.0 or btc_k1h <= -25.0)
         btc_veto_short = bool(btc_k5m >= 12.0 or btc_k1h >= 25.0)
-        eff_k10m_gate = max(6.0, min(14.0, min_k10m_gate))
+        eff_k10m_gate = max(6.0, min(12.0, min_k10m_gate))
         if inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 4.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.68:
+            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 4.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.12 and sig.vpin_toxicity <= 0.85:
                 score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0), 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
-            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -4.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.68:
+            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -4.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.12 and sig.vpin_toxicity <= 0.85:
                 score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0), 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
         telemetry_rows.append({
@@ -387,7 +389,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 if not ok: continue
             entry_fee_usd = round(actual_notional * MAKER_FEE_RATE, 4)
             tp_px = round(c_px * 1.0110, c_dec) if c_dir == "LONG" else round(c_px * 0.9890, c_dec)
-            sl_px = round(c_px * 0.9844, c_dec) if c_dir == "LONG" else round(c_px * 1.0156, c_dec)
+            sl_px = round(c_px * 0.9900, c_dec) if c_dir == "LONG" else round(c_px * 1.0100, c_dec)
             pos_id = f"XPERP_{c_id.split('-')[0]}_{int(time.time()*1000)}"
             cur.execute("INSERT INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, ?, 'OPEN', ?, NULL, NULL, NULL)",
                         (pos_id, c_id, c_dir, LEVERAGE, actual_margin, actual_notional, c_px, c_px, tp_px, sl_px, entry_fee_usd, now_iso))
@@ -430,7 +432,7 @@ def main() -> None:
     load_dotenv(os.path.join(BASE_DIR, ".env"))
     live_mode = not args.demo and (os.environ.get("FUTURES_LIVE_EXECUTION", "true").lower() in ("1", "true", "yes"))
     conn = init_futures_db(os.path.join(BASE_DIR, "config", "okx_futures_demo.db"))
-    micro = MicrostructureEngine(bucket_volume_usd=2500.0)
+    micro = MicrostructureEngine(bucket_volume_usd=25000.0)
     kronos = KronosOracleClient()
     if args.once:
         s = run_futures_demo_cycle(conn, micro, kronos, run_audit=True, live_mode=live_mode)
