@@ -106,12 +106,33 @@ def _fetch_swap_book_and_trades(inst_id: str):
     except Exception:
         pass
     return inst_id, bids, asks, trades, high_2h, low_2h, 0.0
-def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, telemetry: List[Dict[str, Any]]) -> Dict[str, Any]:
-    default_audit = {
-        "model_used": "deterministic-7h-auditor",
-        "fee_drag_ratio_pct": 0.0, "min_kronos_10m_bps": 8.0, "fast_shield_bps": 28.0,
-        "verdict": "Fee-Drag 0.0% (4 bps Maker XPERP). Piramide Kronos a 7 Orizzonti (5m/10m + 1h..24h) e 3 Regole Auree attive.",
+_LAST_GEMINI_AUDIT_TS = 0.0
+
+def load_gemini_brain_skills() -> Dict[str, Any]:
+    p = os.path.join(BASE_DIR, "config", "gemini_brain_skills.json")
+    default_skills = {
+        "min_kronos_10m_bps": 7.5,
+        "fast_shield_bps": 20.0,
+        "trail_lock_ratio": 0.65,
+        "dynamic_slot_leverage": 4.0,
+        "force_close_inst_ids": [],
+        "priority_boost_inst_ids": [],
+        "blacklist_inst_ids": [],
+        "verdict": "TRE OS v14.4 Empowered Gemini Brain active.",
     }
+    try:
+        if os.path.exists(p):
+            d = json.load(open(p, encoding="utf-8"))
+            if isinstance(d, dict):
+                default_skills.update(d)
+    except Exception:
+        pass
+    return default_skills
+
+def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, telemetry: List[Dict[str, Any]]) -> Dict[str, Any]:
+    global _LAST_GEMINI_AUDIT_TS
+    default_audit = load_gemini_brain_skills()
+    default_audit["model_used"] = "deterministic-7h-auditor"
     cur = conn.cursor()
     cur.execute("SELECT realized_pnl_usd, total_fees_usd, wins_count, stops_count, shield_locks_count FROM futures_demo_account WHERE id=1")
     row = cur.fetchone() or (0.0, 0.0, 0, 0, 0)
@@ -122,12 +143,23 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
     gemini_key = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
     if not gemini_key:
         return default_audit
-    compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "k5m": t["kronos_5m_bps"], "k10m": t["kronos_10m_bps"], "k1h": t["kronos_1h_bps"], "k6h": t["kronos_6h_bps"], "k24h": t["kronos_24h_bps"]} for t in telemetry[:10]]
+    cur.execute("SELECT inst_id, direction, margin_usd, entry_px, current_px, peak_move_bps, shield_armed, opened_at FROM futures_demo_positions WHERE status='OPEN'")
+    open_pos_info = [{"inst_id": r[0], "dir": r[1], "mgn": r[2], "entry": r[3], "now": r[4], "peak_bps": round(float(r[5]), 1), "shield": bool(r[6]), "opened": r[7]} for r in cur.fetchall()]
+    cur.execute("SELECT inst_id, direction, realized_pnl_usd, status, closed_at FROM futures_demo_positions WHERE status != 'OPEN' ORDER BY closed_at DESC LIMIT 8")
+    recent_closed_info = [{"inst_id": r[0], "dir": r[1], "pnl_usd": r[2], "status": r[3], "closed": r[4]} for r in cur.fetchall()]
+    compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "k5m": t["kronos_5m_bps"], "k10m": t["kronos_10m_bps"], "k1h": t["kronos_1h_bps"], "k2h": t["kronos_2h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k24h": t["kronos_24h_bps"]} for t in telemetry]
     prompt = (
-        "Sei l'Auditor Ordinario Interno di TRE OS v14.0 Live Perpetual Futures (2.5x Isolated LONG+SHORT XPERP, OKX Maker Fee 4 bps round-trip). "
-        f"NAV={nav_usd:.2f} USDC, RealizedPnL={realized_pnl:+.2f}, Fees={tot_fees:.3f} (FeeDrag={fee_drag_pct:.1f}%), Wins={wins}, ShieldLocks={shields}, Stops={stops}. "
-        f"Telemetry 7-Horizons: {json.dumps(compact_t)}. "
-        "Verifica che le commissioni non superino il 12% dei profitti, calibra min_kronos_10m_bps [6.0..18.0] e fast_shield_bps [24.0..32.0], ed emetti verdict (1 frase in italiano). Rispondi SOLO JSON: {min_kronos_10m_bps, fast_shield_bps, verdict}."
+        "Sei il Cervello Quantitativo e Auditor di TRE OS v14.4 Anti-Crash Fortress su OKX EEA Perpetual Futures (*-USD_UM_XPERP-*, leva 4.0x Isolated LONG+SHORT, 4 slot x 20% NAV, Maker fee 2bps). "
+        f"NAV={nav_usd:.2f} USDC, RealizedPnL={realized_pnl:+.4f}, Fees={tot_fees:.4f} (FeeDrag={fee_drag_pct:.1f}%), Wins={wins}, Shields={shields}, Stops={stops}. "
+        f"OpenPositions={json.dumps(open_pos_info)}. RecentClosed={json.dumps(recent_closed_info)}. "
+        f"FullTelemetry12Pairs={json.dumps(compact_t)}. "
+        "Hai tutti i 5 poteri operativi (Skills): "
+        "1) force_close_inst_ids: lista di inst_id aperti da chiudere subito se la tesi 1h/6h è deteriorata; "
+        "2) trail_lock_ratio [0.58..0.85]: 0.60 largo per lasciar correre trend forti, 0.82 stretto in mercato laterale; "
+        "3) priority_boost_inst_ids (max 3 inst_id migliori) e blacklist_inst_ids (inst_id tossici da bloccare); "
+        "4) dynamic_slot_leverage [2.5..4.0] e min_kronos_10m_bps [6.0..12.0] e fast_shield_bps [18.0..28.0]; "
+        "5) verdict (1 frase incisiva in italiano). "
+        "Rispondi SOLO JSON: {min_kronos_10m_bps, fast_shield_bps, trail_lock_ratio, dynamic_slot_leverage, force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, verdict}."
     )
     for g_mod in ("gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"):
         try:
@@ -140,14 +172,23 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                 if txt and "{" in txt:
                     p = json.loads(txt)
                     res = {
+                        "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "model_used": f"google-free:{g_mod}", "fee_drag_ratio_pct": fee_drag_pct,
-                        "min_kronos_10m_bps": round(max(6.0, min(18.0, float(p.get("min_kronos_10m_bps") or 8.0))), 1),
-                        "fast_shield_bps": round(max(24.0, min(32.0, float(p.get("fast_shield_bps") or 28.0))), 1),
-                        "verdict": str(p.get("verdict") or default_audit["verdict"])[:260],
+                        "min_kronos_10m_bps": round(max(6.0, min(12.0, float(p.get("min_kronos_10m_bps") or 7.5))), 1),
+                        "fast_shield_bps": round(max(18.0, min(28.0, float(p.get("fast_shield_bps") or 20.0))), 1),
+                        "trail_lock_ratio": round(max(0.58, min(0.85, float(p.get("trail_lock_ratio") or 0.65))), 2),
+                        "dynamic_slot_leverage": round(max(2.5, min(4.0, float(p.get("dynamic_slot_leverage") or 4.0))), 1),
+                        "force_close_inst_ids": [str(x) for x in (p.get("force_close_inst_ids") or []) if isinstance(x, str)],
+                        "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
+                        "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
+                        "verdict": str(p.get("verdict") or default_audit["verdict"])[:280],
                     }
-                    now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    _LAST_GEMINI_AUDIT_TS = time.time()
+                    sp = os.path.join(BASE_DIR, "config", "gemini_brain_skills.json")
+                    with open(sp + ".tmp", "w", encoding="utf-8") as sf: json.dump(res, sf, indent=2)
+                    os.replace(sp + ".tmp", sp)
                     cur.execute("INSERT INTO futures_demo_audit_log (timestamp, model_used, fee_drag_ratio_pct, min_kronos_10m_bps, fast_shield_bps, verdict) VALUES (?, ?, ?, ?, ?, ?)",
-                                (now_iso, res["model_used"], fee_drag_pct, res["min_kronos_10m_bps"], res["fast_shield_bps"], res["verdict"]))
+                                (res["updated_at"], res["model_used"], fee_drag_pct, res["min_kronos_10m_bps"], res["fast_shield_bps"], res["verdict"]))
                     conn.commit()
                     return res
         except Exception:
@@ -252,10 +293,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     real_nav, real_free, live_okx_pos, live_okx_pend = _sync_live_okx_account_and_cancel_stale(live_mode)
     if live_mode and real_nav > 10.0:
         free_mgn = real_free
+    brain_skills = load_gemini_brain_skills()
     cur.execute("SELECT min_kronos_10m_bps, fast_shield_bps, model_used, verdict, fee_drag_ratio_pct FROM futures_demo_audit_log ORDER BY id DESC LIMIT 1")
     last_aud = cur.fetchone()
-    min_k10m_gate = float(last_aud[0]) if last_aud else 8.0
-    fast_shield_gate_bps = float(last_aud[1]) if last_aud else 28.0
+    min_k10m_gate = float(brain_skills.get("min_kronos_10m_bps") or (last_aud[0] if last_aud else 7.5))
+    fast_shield_gate_bps = float(brain_skills.get("fast_shield_bps") or (last_aud[1] if last_aud else 20.0))
     aud_model = str(last_aud[2]) if last_aud else "baseline-7h-auditor"
     aud_verdict = str(last_aud[3]) if last_aud else "7-Horizon Kronos + 4bps Maker XPERP Guard active."
     fee_drag_pct = float(last_aud[4]) if last_aud else 0.0
@@ -326,8 +368,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
                 exit_reason, exit_exec_px = "CLOSED_PROFIT", p_tp
+            elif inst_id in brain_skills.get("force_close_inst_ids", []):
+                exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", mid, True
             elif new_shield == 1:
-                trail_ratio = 0.82 if new_peak >= 65.0 else 0.65
+                base_trail = float(brain_skills.get("trail_lock_ratio") or 0.65)
+                trail_ratio = 0.82 if new_peak >= 65.0 else base_trail
                 locked_move_bps = max(8.0, new_peak * trail_ratio)
                 ideal_lock_px = round(p_entry * (1.0 + locked_move_bps / 10000.0), meta["dec_px"]) if p_dir == "LONG" else round(p_entry * (1.0 - locked_move_bps / 10000.0), meta["dec_px"])
                 if move_bps <= locked_move_bps:
@@ -367,12 +412,14 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         btc_veto_long = bool(btc_k5m <= -12.0 or btc_k1h <= -25.0)
         btc_veto_short = bool(btc_k5m >= 12.0 or btc_k1h >= 25.0)
         eff_k10m_gate = max(6.0, min(12.0, min_k10m_gate))
-        if inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
+        boost_bonus = 15.0 if inst_id in brain_skills.get("priority_boost_inst_ids", []) else 0.0
+        is_blacklisted = inst_id in brain_skills.get("blacklist_inst_ids", [])
+        if not is_blacklisted and inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
             if allowed_dir == "LONG" and not btc_veto_long and k5m >= 4.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.12 and sig.vpin_toxicity <= 0.85:
-                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0), 2)
+                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
             elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -4.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.12 and sig.vpin_toxicity <= 0.85:
-                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0), 2)
+                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
         telemetry_rows.append({
             "inst_id": inst_id, "mid_price": mid, "ofi_norm": round(sig.ofi_norm, 2), "vpin_toxicity": round(sig.vpin_toxicity, 2),
@@ -389,9 +436,10 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         for cand in candidates:
             if len(open_positions) >= MAX_SLOTS or free_mgn < slot_margin_usd: break
             c_id, c_dir, c_px, c_dec = cand["inst_id"], cand["dir"], cand["px"], cand["dec_px"]
-            target_notional = round(slot_margin_usd * LEVERAGE, 2)
+            eff_lev = float(brain_skills.get("dynamic_slot_leverage") or LEVERAGE)
+            target_notional = round(slot_margin_usd * eff_lev, 2)
             sz_str, actual_notional = _calc_contract_sz(c_id, target_notional, c_px)
-            actual_margin = round(actual_notional / LEVERAGE, 2)
+            actual_margin = round(actual_notional / eff_lev, 2)
             if actual_margin > free_mgn: continue
             # Anti-Cascade Free-Roll Pyramiding: max 2 unshielded slots in the same direction!
             unshielded_same_dir = sum(1 for r in open_positions.values() if r[2] == c_dir and int(r[10]) == 0)
@@ -417,7 +465,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     conn.commit()
     gross_prof_live = max(0.01, realized_pnl + tot_fees) if realized_pnl > 0 else 1.0
     fee_drag_pct = round((tot_fees / gross_prof_live) * 100.0, 2) if tot_fees > 0 else 0.0
-    if run_audit:
+    event_trigger = bool(len(actions_taken) > 0 or abs(btc_k5m) >= 15.0 or any(abs(float(r[9])) >= 30.0 for r in open_positions.values()))
+    should_audit = bool(run_audit or (event_trigger and (time.time() - _LAST_GEMINI_AUDIT_TS) >= 90.0))
+    if should_audit:
         aud_res = run_gemini_ordinary_futures_audit(conn, curr_nav, telemetry_rows)
         aud_model, aud_verdict, fee_drag_pct = aud_res["model_used"], aud_res["verdict"], aud_res["fee_drag_ratio_pct"]
     cur.execute("SELECT pos_id, inst_id, direction, margin_usd, notional_usd, entry_px, current_px, tp_px, sl_px, peak_move_bps, shield_armed, opened_at FROM futures_demo_positions WHERE status='OPEN'")
