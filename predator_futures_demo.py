@@ -35,10 +35,10 @@ FUTURES_UNIVERSE: Dict[str, Dict[str, Any]] = {
 
 STARTING_DEMO_NAV_USDC = 268.95
 HISTORICAL_22OCT_SIM_NAV_USDC = 298.89
-LEVERAGE = 4.0
+LEVERAGE = 2.0
 MAKER_FEE_RATE = 0.0002  # 2 bps entry + 2 bps exit = 4 bps round-trip on notional
 MAX_SLOTS = 4
-SLOT_NAV_PCT = 0.20      # 20.0% of live NAV per slot (4 slots = 80% Chamber 1 Assault at 4.0x + 20% Chamber 2 Reserve)
+SLOT_NAV_PCT = 0.20      # 20.0% of live NAV per slot (4 slots = 80% Chamber 1 Assault at 2.0x Anti-Wick + 20% Chamber 2 Reserve)
 _IO_POOL = ThreadPoolExecutor(max_workers=6)
 _LEVERAGE_INITIALIZED = False
 
@@ -55,7 +55,7 @@ def ensure_isolated_leverage(live_mode: bool) -> None:
         return
     for inst_id in FUTURES_UNIVERSE:
         try:
-            _OKX_CLIENT._request("POST", "/api/v5/account/set-leverage", body_dict={"instId": inst_id, "lever": "4", "mgnMode": "isolated"}, auth=True)
+            _OKX_CLIENT._request("POST", "/api/v5/account/set-leverage", body_dict={"instId": inst_id, "lever": "2", "mgnMode": "isolated"}, auth=True)
         except Exception:
             pass
     _LEVERAGE_INITIALIZED = True
@@ -117,7 +117,7 @@ def load_gemini_brain_skills() -> Dict[str, Any]:
         "min_kronos_10m_bps": 7.5,
         "fast_shield_bps": 20.0,
         "trail_lock_ratio": 0.65,
-        "dynamic_slot_leverage": 4.0,
+        "dynamic_slot_leverage": 2.0,
         "force_close_inst_ids": [],
         "priority_boost_inst_ids": [],
         "blacklist_inst_ids": [],
@@ -180,7 +180,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "min_kronos_10m_bps": round(max(6.0, min(12.0, float(p.get("min_kronos_10m_bps") or 7.5))), 1),
                         "fast_shield_bps": round(max(18.0, min(28.0, float(p.get("fast_shield_bps") or 20.0))), 1),
                         "trail_lock_ratio": round(max(0.58, min(0.85, float(p.get("trail_lock_ratio") or 0.65))), 2),
-                        "dynamic_slot_leverage": round(max(2.5, min(4.0, float(p.get("dynamic_slot_leverage") or 4.0))), 1),
+                        "dynamic_slot_leverage": round(max(1.5, min(2.0, float(p.get("dynamic_slot_leverage") or 2.0))), 1),
                         "force_close_inst_ids": [str(x) for x in (p.get("force_close_inst_ids") or []) if isinstance(x, str)],
                         "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
                         "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
@@ -335,8 +335,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 not_u = round(abs(pos_val) * float(FUTURES_UNIVERSE[okx_inst]["ct_val"]) * avg_px, 2)
                 p_dir = "LONG" if pos_val > 0 else "SHORT"
                 c_dec = int(FUTURES_UNIVERSE[okx_inst]["dec_px"])
-                tp_px = round(avg_px * 1.0110, c_dec) if p_dir == "LONG" else round(avg_px * 0.9890, c_dec)
-                sl_px = round(avg_px * 0.9844, c_dec) if p_dir == "LONG" else round(avg_px * 1.0156, c_dec)
+                tp_px = round(avg_px * 1.0130, c_dec) if p_dir == "LONG" else round(avg_px * 0.9870, c_dec)
+                sl_px = round(avg_px * 0.9780, c_dec) if p_dir == "LONG" else round(avg_px * 1.0220, c_dec)
                 efee = round(not_u * MAKER_FEE_RATE, 4)
                 pid = f"XPERP_{okx_inst.split('-')[0]}_{int(okx_p.get('cTime') or int(time.time()*1000))}"
                 cur.execute("INSERT OR REPLACE INTO futures_demo_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, ?, 'OPEN', ?, NULL, NULL, NULL)",
@@ -391,7 +391,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            eff_shield_gate = 22.0 if pos_age_mins >= 45.0 else max(35.0, fast_shield_gate_bps)
+            eff_shield_gate = 25.0 if pos_age_mins >= 45.0 else max(38.0, fast_shield_gate_bps)
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
@@ -399,17 +399,17 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             elif inst_id in brain_skills.get("force_close_inst_ids", []):
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             elif new_shield == 1:
-                base_trail = float(brain_skills.get("trail_lock_ratio") or 0.70)
+                base_trail = float(brain_skills.get("trail_lock_ratio") or 0.72)
                 trail_ratio = 0.82 if new_peak >= 65.0 else base_trail
-                locked_move_bps = max(20.0, new_peak * trail_ratio)
+                locked_move_bps = max(22.0, new_peak * trail_ratio)
                 if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
-            if not exit_reason and move_bps <= -55.0:
-                inv_1h = bool(pos_age_mins >= 15.0 and ((p_dir == "LONG" and k5m <= -5.0 and k10m <= -8.0 and k1h <= -18.0) or (p_dir == "SHORT" and k5m >= 5.0 and k10m >= 8.0 and k1h >= 18.0)))
-                broken = bool((p_dir == "LONG" and k5m < -6.0 and k6h < -18.0) or (p_dir == "SHORT" and k5m > 6.0 and k6h > 18.0))
-                if inv_1h or (move_bps <= -75.0 and broken) or move_bps <= -100.0:
+            if not exit_reason and move_bps <= -150.0:
+                inv_1h = bool(pos_age_mins >= 30.0 and ((p_dir == "LONG" and k5m <= -8.0 and k10m <= -12.0 and k1h <= -25.0) or (p_dir == "SHORT" and k5m >= 8.0 and k10m >= 12.0 and k1h >= 25.0)))
+                broken = bool((p_dir == "LONG" and k5m < -10.0 and k6h < -25.0) or (p_dir == "SHORT" and k5m > 10.0 and k6h > 25.0))
+                if inv_1h or (move_bps <= -180.0 and broken) or move_bps <= -220.0:
                     exit_reason = "CLOSED_STOPLOSS"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
@@ -466,7 +466,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         for cand in candidates:
             if len(open_positions) >= MAX_SLOTS or free_mgn < slot_margin_usd: break
             c_id, c_dir, c_px, c_dec = cand["inst_id"], cand["dir"], cand["px"], cand["dec_px"]
-            eff_lev = float(brain_skills.get("dynamic_slot_leverage") or LEVERAGE)
+            eff_lev = min(2.0, float(brain_skills.get("dynamic_slot_leverage") or LEVERAGE))
             target_notional = round(slot_margin_usd * eff_lev, 2)
             sz_str, actual_notional = _calc_contract_sz(c_id, target_notional, c_px)
             actual_margin = round(actual_notional / eff_lev, 2)
@@ -475,8 +475,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             unshielded_total = sum(1 for r in open_positions.values() if int(r[10]) == 0) + len(live_okx_pend)
             if unshielded_total >= 1:
                 break
-            tp_px = round(c_px * 1.0110, c_dec) if c_dir == "LONG" else round(c_px * 0.9890, c_dec)
-            sl_px = round(c_px * 0.9895, c_dec) if c_dir == "LONG" else round(c_px * 1.0105, c_dec)
+            tp_px = round(c_px * 1.0130, c_dec) if c_dir == "LONG" else round(c_px * 0.9870, c_dec)
+            sl_px = round(c_px * 0.9780, c_dec) if c_dir == "LONG" else round(c_px * 1.0220, c_dec)
             if live_mode:
                 if c_id in live_okx_pend or c_id in live_okx_pos:
                     continue
