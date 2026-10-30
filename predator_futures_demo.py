@@ -522,11 +522,16 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         if float(mins_ago or 0.0) < req_cd:
             cooldown_blocked_insts.add(str(c_inst))
     now_ms_cd = int(time.time() * 1000)
+    utc_hour = now_dt.hour
+    is_night_hours = bool(utc_hour >= 22 or utc_hour < 5)  # 23:00 - 06:00 CET
+    night_stop_lock = False
     for hiid, ho in okx_recent_ReduceOnly_map.items():
         mins_since_fill = (now_ms_cd - int(ho.get("uTime") or ho.get("cTime") or 0)) / 60000.0
         req_okx_cd = 120.0 if float(ho.get("pnl") or 0.0) <= 0.0 else 30.0
         if mins_since_fill < req_okx_cd:
             cooldown_blocked_insts.add(hiid)
+        if is_night_hours and float(ho.get("pnl") or 0.0) < -0.50 and mins_since_fill < 360.0:
+            night_stop_lock = True
     market_snaps = list(_IO_POOL.map(_fetch_swap_book_and_trades, list(FUTURES_UNIVERSE.keys())))
     btc_fc = kronos_map.get("BTC-USDC")
     btc_k5m = btc_fc.kronos_5m_bps if btc_fc else 0.0
@@ -626,14 +631,16 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         boost_bonus = 15.0 if inst_id in brain_skills.get("priority_boost_inst_ids", []) else 0.0
         is_blacklisted = inst_id in brain_skills.get("blacklist_inst_ids", [])
         gem_sniper_map = {str(x.get("inst_id")): str(x.get("dir")) for x in brain_skills.get("gemini_sniper_entries", []) if isinstance(x, dict)}
-        if not is_blacklisted and inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 5.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.78:
+        night_ok_long = (not is_night_hours) or bool(k5m >= 8.0 and k10m >= 10.0 and k1h >= 12.0 and k2h >= 8.0 and k6h >= 15.0 and k12h >= 15.0 and k24h >= 15.0 and sig.ofi_norm >= 0.28 and sig.vpin_toxicity <= 0.55)
+        night_ok_short = (not is_night_hours) or bool(k5m <= -8.0 and k10m <= -10.0 and k1h <= -12.0 and k2h <= -8.0 and k6h <= -15.0 and k12h <= -15.0 and k24h <= -15.0 and sig.ofi_norm <= -0.28 and sig.vpin_toxicity <= 0.55)
+        if not night_stop_lock and not is_blacklisted and inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
+            if allowed_dir == "LONG" and night_ok_long and not btc_veto_long and k5m >= 5.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.78:
                 score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus + sqz_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
-            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -5.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.78:
+            elif allowed_dir == "SHORT" and night_ok_short and not btc_veto_short and k5m <= -5.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.78:
                 score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus + sqz_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
-            elif inst_id in gem_sniper_map and sig.vpin_toxicity <= 0.80:
+            elif not is_night_hours and inst_id in gem_sniper_map and sig.vpin_toxicity <= 0.80:
                 g_dir = gem_sniper_map[inst_id]
                 if g_dir == "LONG" and not btc_veto_long and real_1h_bps >= -5.0 and sig.ofi_norm >= 0.12 and k1h >= 5.0:
                     candidates.append({"inst_id": inst_id, "dir": "LONG", "score": round(35.0 + boost_bonus + sqz_bonus, 2), "px": bids[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
