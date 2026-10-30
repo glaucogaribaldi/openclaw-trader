@@ -45,16 +45,16 @@ from execution.okx_hybrid_executor import OKXNativeClient
 DEFAULT_UNIVERSE: Dict[str, Dict[str, Any]] = {
     "HYPE-USDC":   {"coin": "HYPE",   "dec_px": 3, "dec_sz": 3, "harvest_only": False, "liq_bonus": 8.0},
     "ZEC-USDC":    {"coin": "ZEC",    "dec_px": 2, "dec_sz": 4, "harvest_only": False, "liq_bonus": 7.5},
-    "SOL-USDC":    {"coin": "SOL",    "dec_px": 2, "dec_sz": 3, "harvest_only": False, "liq_bonus": 5.0},
-    "SUI-USDC":    {"coin": "SUI",    "dec_px": 4, "dec_sz": 2, "harvest_only": True,  "liq_bonus": -10.0, "modo3_rally_px": 0.9320},
-    "NEAR-USDC":   {"coin": "NEAR",   "dec_px": 3, "dec_sz": 2, "harvest_only": True,  "liq_bonus": -10.0, "modo3_rally_px": 4.620},
+    "SOL-USDC":    {"coin": "SOL",    "dec_px": 2, "dec_sz": 3, "harvest_only": False, "liq_bonus": 6.0},
+    "SUI-USDC":    {"coin": "SUI",    "dec_px": 4, "dec_sz": 2, "harvest_only": False, "liq_bonus": 4.5},
+    "NEAR-USDC":   {"coin": "NEAR",   "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 4.5},
     "UNI-USDC":    {"coin": "UNI",    "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 5.0},
     "XRP-USDC":    {"coin": "XRP",    "dec_px": 4, "dec_sz": 2, "harvest_only": False, "liq_bonus": 4.5},
-    "LINK-USDC":   {"coin": "LINK",   "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 3.0},
-    "RENDER-USDC": {"coin": "RENDER", "dec_px": 3, "dec_sz": 2, "harvest_only": True,  "liq_bonus": -5.0, "modo3_rally_px": 1.7250},
-    "AVAX-USDC":   {"coin": "AVAX",   "dec_px": 3, "dec_sz": 2, "harvest_only": True,  "liq_bonus": -10.0, "modo3_rally_px": 9.020},
-    "FET-USDC":    {"coin": "FET",    "dec_px": 4, "dec_sz": 1, "harvest_only": True,  "liq_bonus": -10.0, "modo3_rally_px": 0.1775},
-    "SEI-USDC":    {"coin": "SEI",    "dec_px": 5, "dec_sz": 1, "harvest_only": True,  "liq_bonus": -15.0, "modo3_rally_px": 0.05330},
+    "LINK-USDC":   {"coin": "LINK",   "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 4.0},
+    "RENDER-USDC": {"coin": "RENDER", "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 3.5},
+    "AVAX-USDC":   {"coin": "AVAX",   "dec_px": 3, "dec_sz": 2, "harvest_only": False, "liq_bonus": 4.0},
+    "FET-USDC":    {"coin": "FET",    "dec_px": 4, "dec_sz": 1, "harvest_only": False, "liq_bonus": 3.0},
+    "SEI-USDC":    {"coin": "SEI",    "dec_px": 5, "dec_sz": 1, "harvest_only": False, "liq_bonus": 2.5},
 }
 
 MODO3_24H_DEADLINE_ISO = "2026-10-28T07:05:00Z"  # 24h Modo 3 Purified Run Unwind Deadline
