@@ -191,11 +191,13 @@ def load_gemini_brain_skills() -> Dict[str, Any]:
         "outlook_12h": "Swing 12h: cavalcare i runner sopra +35 bps col pavimento break-even a +12 bps fino a +135 bps.",
         "outlook_48h": "Macro 48h: riportare il NAV da $256.97 sopra $267.88 e poi verso la baseline storica di $298.89.",
         "learned_rules": [
-            "Mai shortare contro candele reali 15m/1h verdi o durante pump di BTC.",
-            "Usare stop anti-wick (-180 bps a 2.0x) per non farsi cacciare dagli spike di 1%.",
-            "Lasciar correre i vincitori tra +35 e +74 bps con solo pavimento break-even a +12 bps."
+            "TOOL 1 (OI & Squeeze): cavalcare SQUEEZE_LONG/SQUEEZE_SHORT quando Open Interest sale insieme a candela reale e OFI.",
+            "TOOL 2 (ATR Scaling): rispettare i target TP/Shield/SL scalati sull'ATR 1h specifico di ogni moneta (0.68x BTC .. 1.25x Alt).",
+            "TOOL 3 (Hot Scanner 257 XPERP): sfruttare i top mover dinamici con spread <= 4.5 bps scoperti dallo scanner.",
+            "TOOL 4 (Hardware Break-Even Amend): appena armato lo scudo, amend-algos sposta lo stop fisico nei server OKX a +12 bps.",
+            "LIMITE AUREO: max 1 solo slot scoperto alla volta a leva 1.8x-2.0x Anti-Wick, mai shortare candele verdi 15m/1h."
         ],
-        "verdict": "TRE OS v15.3 Autonomous 24/7 Self-Improving Quant Agent active.",
+        "verdict": "TRE OS v16.0 Derivative Alpha & Hardware Break-Even Agent active.",
     }
     try:
         if os.path.exists(p):

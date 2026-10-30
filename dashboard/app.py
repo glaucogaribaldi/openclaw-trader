@@ -574,7 +574,7 @@ def api_state():
 @app.route("/api/stream")
 def api_stream():
     def event_stream():
-        while True:
+        for _ in range(6):
             state = build_live_predator_state()
             yield f"data: {json.dumps(state)}\n\n"
             time.sleep(5.0)
