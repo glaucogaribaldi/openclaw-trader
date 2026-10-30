@@ -1,70 +1,32 @@
 #!/usr/bin/env python3
 """
-TRE OS v8.1 (Sovereign Predator) — Instant 1-Shot Executive & Diagnostic Query (`scripts/brody_fast_status.py`)
-Designed for AI models (Lehman Brody / OpenClaw / Sub-Agents) to inspect the entire live state of `brody`
-in < 150ms from cached JSON/SQLite WAL without triggering a redundant 15s cycle, OR with `--live` to run
-both a live Predator cycle and Telegram report in one shot.
+TRE OS v14.0 — Instant Live XPERP Perpetual Futures 2.5x Isolated Status Inspector (brody_fast_status.py)
 """
-import argparse
-import json
-import os
-import sqlite3
-import subprocess
+import json, os, sqlite3
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, "config", "okx_trader.db")
-SNAP_PATH = os.path.join(BASE_DIR, "config", "predator_live_snapshot.json")
-AUDIT_PATH = os.path.join(BASE_DIR, "config", "predator_audit_report.json")
-LLM_PATH = os.path.join(BASE_DIR, "config", "predator_llm_directive.json")
+SNAP_PATH = os.path.join(BASE_DIR, "config", "futures_demo_snapshot.json")
+DB_PATH = os.path.join(BASE_DIR, "config", "okx_futures_demo.db")
 
+if os.path.exists(SNAP_PATH):
+    s = json.load(open(SNAP_PATH, encoding="utf-8"))
+    print(f"=== TRE OS v14.0 ({s.get('execution_mode','LIVE_XPERP_2.5X')}) | {s.get('timestamp')} ===")
+    print(f"NAV=$${s.get('current_nav_usd',0):.2f} USDC (Start=$${s.get('baseline_nav_usd',268.95):.2f} | Sim22Oct=$${s.get('historical_22oct_sim_nav_usd',298.89):.2f}) | FreeMgn=$${s.get('free_margin_usd',0):.2f} | LockedMgn=$${s.get('locked_margin_usd',0):.2f}")
+    print(f"RealizedPnL=$${s.get('realized_pnl_usd',0):+.4f} | UnrPnL=$${s.get('unrealized_pnl_usd',0):+.3f} | Fees=$${s.get('total_fees_usd',0):.4f} (FeeDrag={s.get('fee_drag_ratio_pct',0):.2f}%) | Wins={s.get('wins_count',0)} Shields={s.get('shield_locks_count',0)} Stops={s.get('stops_count',0)}")
+    print(f"Auditor={s.get('auditor_model')} -> {s.get('auditor_verdict')}")
+    print("--- ACTIVE XPERP 2.5X ISOLATED POSITIONS ---")
+    pos_list = s.get("open_positions", [])
+    if not pos_list:
+        print("  (0 open positions — 100% Free USDC Margin ready)")
+    for p in pos_list:
+        print(f"  [{p.get('direction')} 2.5x] {p.get('inst_id'):26s} | Mgn=$${p.get('margin_usd')} (Notional=$${p.get('notional_usd')}) | Entry=$${p.get('entry_px')} -> Now=$${p.get('current_px')} | TP=$${p.get('tp_px')} SL=$${p.get('sl_px')} | Peak={p.get('peak_move_bps'):+.1f}bps Shield={p.get('shield_armed')}")
+    print("--- 7-HORIZON KRONOS + L2 OFI TELEMETRY (12 REGULATED XPERP CONTRACTS) ---")
+    for t in s.get("telemetry", []):
+        print(f"  {t.get('inst_id'):26s} | Mid=$${t.get('mid_price'):<9} | OFI={t.get('ofi_norm'):+.2f} VPIN={t.get('vpin_toxicity'):.2f} | K5m={t.get('kronos_5m_bps'):+5.1f} 10m={t.get('kronos_10m_bps'):+5.1f} 1h={t.get('kronos_1h_bps'):+5.1f} 2h={t.get('kronos_2h_bps'):+5.1f} 6h={t.get('kronos_6h_bps'):+6.1f} 12h={t.get('kronos_12h_bps'):+6.1f} 24h={t.get('kronos_24h_bps'):+6.1f} | Dir={t.get('allowed_direction')}")
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="TRE OS v8.1 Instant 1-Shot Status & Report Tool")
-    parser.add_argument("--live", action="store_true", help="Run a fresh predator_daemon --once --live --audit cycle + telegram_reporter first")
-    args = parser.parse_args()
-
-    if args.live:
-        r1 = subprocess.run(
-            [os.path.join(BASE_DIR, "venv/bin/python"), os.path.join(BASE_DIR, "predator_daemon.py"), "--once", "--live", "--audit"],
-            capture_output=True, text=True
-        )
-        print(r1.stdout)
-        r2 = subprocess.run(
-            [os.path.join(BASE_DIR, "venv/bin/python"), os.path.join(BASE_DIR, "scripts/telegram_reporter.py")],
-            capture_output=True, text=True
-        )
-        print(r2.stdout)
-
-    snap = json.load(open(SNAP_PATH)) if os.path.exists(SNAP_PATH) else {}
-    ld = json.load(open(LLM_PATH)) if os.path.exists(LLM_PATH) else {}
-
-    print(f"=== SNAPSHOT ({snap.get('timestamp')}) | NAV=${snap.get('nav_usdc')} | Free=${snap.get('free_usdc')} | BTC_Radar={snap.get('btc_lead_lag_bps')}bps | GlobalRegime={ld.get('global_regime')} ({ld.get('aggressiveness_multiplier')}x) ===")
-    for t in sorted(snap.get("telemetry", []), key=lambda x: x.get("opp_score", 0), reverse=True):
-        print(
-            f"  {t['inst_id']:<12} | Mid=${t['mid_price']:<8} | Avg=${t['open_avg_px']:<8} | Fl=${t.get('cost_basis_floor_px',0):<8} | "
-            f"OFI={t['ofi_norm']:>+5.2f} VPIN={t['vpin_toxicity']:<4.2f} | K1h={t['kronos_1h_bps']:>+5.1f} 2h={t.get('kronos_2h_bps',0):>+5.1f} 6h={t.get('kronos_6h_bps',0):>+5.1f} 12h={t.get('kronos_12h_bps',0):>+6.1f} 24h={t.get('kronos_24h_bps',0):>+6.1f} | "
-            f"Pred={t['predicted_return_bps']:>+6.2f} | Opp={t['opp_score']:>+6.2f} | {t['regime']:<18} | BuyPx={t.get('active_buy_px')} SellPx={t.get('active_sell_px')}"
-        )
-
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=3.0)
-    cur = conn.cursor()
-    print("=== LATEST 10 FILLS (predator_fills_ledger) ===")
-    cur.execute("SELECT fill_time, inst_id, side, fill_px, fill_sz, notional_usd, realized_pnl_usd FROM predator_fills_ledger ORDER BY fill_time DESC LIMIT 10")
-    for r in cur.fetchall():
+if os.path.exists(DB_PATH):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    print("=== RECENT XPERP POSITIONS LEDGER (futures_demo_positions) ===")
+    for r in c.execute("SELECT pos_id, inst_id, direction, margin_usd, entry_px, exit_px, realized_pnl_usd, status, opened_at, closed_at FROM futures_demo_positions ORDER BY opened_at DESC LIMIT 8"):
         print(" ", r)
-
-    print("=== ACTIVE / RECENT QUICK-SCALP TRANCHES (fresh_scalp_tranches) ===")
-    cur.execute("SELECT trade_id, inst_id, buy_px, buy_sz, tp_ord_id, tp_px, status, created_at FROM fresh_scalp_tranches ORDER BY created_at DESC LIMIT 8")
-    for r in cur.fetchall():
-        print(" ", r)
-    conn.close()
-    fut_snap_p = os.path.join(BASE_DIR, 'config', 'futures_demo_snapshot.json')
-    if os.path.exists(fut_snap_p):
-        fs = json.load(open(fut_snap_p))
-        print(f"=== PARALLEL FUTURES DEMO 2.5X ({fs.get('timestamp')}) | Start=${fs.get('baseline_nav_usd')} -> LiveNAV=${fs.get('current_nav_usd')} (Sim22Oct=${fs.get('historical_22oct_sim_nav_usd')}) | FreeMgn=${fs.get('free_margin_usd')} | RealizedPnL=${fs.get('realized_pnl_usd'):+.3f} | Fees=${fs.get('total_fees_usd'):.3f} (FeeDrag={fs.get('fee_drag_ratio_pct')}%) | Wins={fs.get('wins_count')} Shields={fs.get('shield_locks_count')} Stops={fs.get('stops_count')} | Auditor={fs.get('auditor_model')} ===")
-        for fp in fs.get('open_positions', []):
-            print(f"  [OPEN {fp['direction']} 2.5x] {fp['inst_id']:<14} | Entry=${fp['entry_px']} -> Now=${fp['current_px']} | TP=${fp['tp_px']} SL=${fp['sl_px']} | Peak={fp['peak_move_bps']:+.1f}bps Shield={fp['shield_armed']}")
-
-
-if __name__ == "__main__":
-    main()
