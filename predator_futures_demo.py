@@ -41,6 +41,51 @@ MAX_SLOTS = 4
 SLOT_NAV_PCT = 0.20      # 20.0% of live NAV per slot (4 slots = 80% Chamber 1 Assault at 2.0x Anti-Wick + 20% Chamber 2 Reserve)
 _IO_POOL = ThreadPoolExecutor(max_workers=6)
 _LEVERAGE_INITIALIZED = False
+_OI_CACHE: Dict[str, float] = {}
+_LAST_SCANNER_TS = 0.0
+
+def refresh_dynamic_xperp_universe() -> None:
+    global _LAST_SCANNER_TS
+    if (time.time() - _LAST_SCANNER_TS) < 1800.0:
+        return
+    _LAST_SCANNER_TS = time.time()
+    try:
+        ins = _OKX_CLIENT._request("GET", "/api/v5/public/instruments?instType=FUTURES").get("data", [])
+        tks = _OKX_CLIENT._request("GET", "/api/v5/market/tickers?instType=FUTURES").get("data", [])
+        ins_map = {x["instId"]: x for x in ins if x.get("ruleType") == "xperp" and x.get("state") == "live"}
+        hot_candidates = []
+        for t in tks:
+            iid = str(t.get("instId") or "")
+            if iid in FUTURES_UNIVERSE or iid not in ins_map:
+                continue
+            coin = iid.split("-")[0]
+            if coin in ("XAU", "XAG", "CL", "SPY", "QQQ", "NVDA", "TSLA", "AAPL", "MSFT", "GOOGL", "AMZN", "META"):
+                continue
+            bid, ask, last = float(t.get("bidPx") or 0), float(t.get("askPx") or 0), float(t.get("last") or 0)
+            open24 = float(t.get("open24h") or last)
+            if bid <= 0 or ask <= 0 or last <= 0:
+                continue
+            mid = 0.5 * (bid + ask)
+            sp_bps = (ask - bid) / mid * 10000.0
+            vol_usd = float(t.get("volCcy24h") or 0) * mid
+            ret24_bps = abs((last - open24) / open24 * 10000.0) if open24 > 0 else 0.0
+            if sp_bps <= 4.5 and vol_usd >= 6000000.0 and 80.0 <= ret24_bps <= 1400.0:
+                hot_candidates.append((vol_usd * (1.0 + ret24_bps / 500.0), iid, coin, ins_map[iid]))
+        hot_candidates.sort(key=lambda x: x[0], reverse=True)
+        for _, iid, coin, spec in hot_candidates[:2]:
+            tick_s = str(spec.get("tickSz") or "0.001")
+            dec_px = len(tick_s.split(".")[1].rstrip("0")) if "." in tick_s else 0
+            lot_s = str(spec.get("lotSz") or "1")
+            dec_sz = len(lot_s.split(".")[1].rstrip("0")) if "." in lot_s else 0
+            FUTURES_UNIVERSE[iid] = {
+                "spot_id": f"{coin}-USDC", "coin": coin,
+                "ct_val": float(spec.get("ctVal") or 1.0),
+                "dec_px": dec_px, "dec_sz": dec_sz,
+                "min_sz": float(spec.get("minSz") or 1.0),
+                "dynamic_hot": True,
+            }
+    except Exception:
+        pass
 
 def _ssl_ctx() -> ssl.SSLContext:
     try:
@@ -94,11 +139,12 @@ def _fetch_swap_book_and_trades(inst_id: str):
     ctx = _ssl_ctx()
     bids, asks, trades = [], [], []
     real_15m_bps, real_1h_bps, real_48h_bps = 0.0, 0.0, 0.0
+    atr_1h_bps, oi_delta_bps, funding_bps = 55.0, 0.0, 0.0
     try:
         bids, asks = _OKX_CLIENT.get_orderbook(inst_id, sz=5)
         trades = _OKX_CLIENT.get_recent_trades(inst_id, limit=25)
         u_c = f"https://eea.okx.com/api/v5/market/candles?instId={inst_id}&bar=15m&limit=8"
-        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/15.3"}), timeout=5, context=ctx) as r:
+        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/16.0"}), timeout=5, context=ctx) as r:
             c_rows = json.loads(r.read().decode("utf-8")).get("data", [])
             if len(c_rows) >= 5:
                 c_now = float(c_rows[0][4])
@@ -106,16 +152,26 @@ def _fetch_swap_book_and_trades(inst_id: str):
                 c_1h = float(c_rows[4][4])
                 real_15m_bps = ((c_now - o_15m) / o_15m * 10000.0) if o_15m > 0 else 0.0
                 real_1h_bps = ((c_now - c_1h) / c_1h * 10000.0) if c_1h > 0 else 0.0
+                ranges = [((float(x[2]) - float(x[3])) / max(1e-9, float(x[3])) * 10000.0) for x in c_rows[:4]]
+                atr_1h_bps = max(25.0, min(140.0, (sum(ranges) / len(ranges)) * 2.0))
         u_4h = f"https://eea.okx.com/api/v5/market/candles?instId={inst_id}&bar=4H&limit=13"
-        with urllib.request.urlopen(urllib.request.Request(u_4h, headers={"User-Agent": "TRE-OS-Fut/15.3"}), timeout=4, context=ctx) as r4:
+        with urllib.request.urlopen(urllib.request.Request(u_4h, headers={"User-Agent": "TRE-OS-Fut/16.0"}), timeout=4, context=ctx) as r4:
             c4 = json.loads(r4.read().decode("utf-8")).get("data", [])
             if len(c4) >= 12:
                 c_now4 = float(c4[0][4])
                 c_48h = float(c4[-1][4])
                 real_48h_bps = ((c_now4 - c_48h) / c_48h * 10000.0) if c_48h > 0 else 0.0
+        u_oi = f"https://eea.okx.com/api/v5/public/open-interest?instType=FUTURES&instId={inst_id}"
+        with urllib.request.urlopen(urllib.request.Request(u_oi, headers={"User-Agent": "TRE-OS-Fut/16.0"}), timeout=3, context=ctx) as roi:
+            oi_d = json.loads(roi.read().decode("utf-8")).get("data", [])
+            if oi_d:
+                cur_oi = float(oi_d[0].get("oi") or 0.0)
+                prev_oi = _OI_CACHE.get(inst_id, cur_oi)
+                oi_delta_bps = ((cur_oi - prev_oi) / prev_oi * 10000.0) if prev_oi > 0 else 0.0
+                _OI_CACHE[inst_id] = cur_oi
     except Exception:
         pass
-    return inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps
+    return inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps, atr_1h_bps, oi_delta_bps, funding_bps
 _LAST_GEMINI_AUDIT_TS = 0.0
 
 def load_gemini_brain_skills() -> Dict[str, Any]:
@@ -179,9 +235,10 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "prev_sniper": default_audit.get("gemini_sniper_entries"),
         "learned_rules": default_audit.get("learned_rules", []),
     }
-    compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "r1h": t.get("real_1h_bps", 0.0), "k1h": t["kronos_1h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k48h": t.get("kronos_48h_bps", 0.0)} for t in telemetry]
+    compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "oi_d": t.get("oi_delta_bps", 0.0), "atr": t.get("atr_1h_bps", 55.0), "sqz": t.get("squeeze_regime", "NONE"), "r1h": t.get("real_1h_bps", 0.0), "k1h": t["kronos_1h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k48h": t.get("kronos_48h_bps", 0.0)} for t in telemetry]
     prompt = (
-        "Sei l'Agente Trader Quantitativo H24 Auto-Migliorante di TRE OS v15.3 (VPS brody, OKX EEA Regulated Perpetual Futures *-USD_UM_XPERP-*). "
+        "Sei l'Agente Trader Quantitativo H24 Auto-Migliorante di TRE OS v16.0 Derivative Alpha & Hardware Fortress (VPS brody, OKX EEA Regulated Perpetual Futures *-USD_UM_XPERP-*). "
+        "NUOVI TOOL V16.0 A TUA DISPOSIZIONE: (A) Open Interest Delta (oi_d) & Squeeze Detector (sqz=SQUEEZE_LONG/SQUEEZE_SHORT); (B) ATR Volatility Scaling per moneta (atr_1h_bps -> adatta automaticamente TP/Shield/SL tra BTC e Altcoin); (C) Dynamic Hot-XPERP Scanner (scansiona i 257 XPERP di OKX Europa e aggiunge i migliori mover con spread<=4.5bps); (D) Hardware Break-Even Stop Ratchet (amend-algos sposta lo stop fisico dentro i server OKX a +12bps appena si arma lo scudo!). "
         "SISTEMA, OBIETTIVI E LIMITI INVALICABILI: "
         f"- Capitale Attuale Conto Trading: ${nav_usd:.2f} USDC (Cutover Futures: $267.88 | Baseline 28/10: $285.74 | Baseline Storica 22/10: $298.89 | Gap da recuperare: ${267.88 - nav_usd:.2f} USDC per il cutover e ${298.89 - nav_usd:.2f} USDC per il massimo storico). "
         "- Obiettivo Giornaliero (Regola Aurea 1): +0.70% <-> +5.00% netto al giorno (+$1.80..+$13.00/giorno) con Fee-Drag <= 12% (Maker fee 2bps, Taker 5bps) fino a scadenza 2026-12-31. "
@@ -336,6 +393,24 @@ def _sync_live_okx_account_and_cancel_stale(live_mode: bool) -> Tuple[float, flo
         pass
     return real_nav, real_free, live_pos_map, live_pend_set
 
+def _amend_okx_hardware_sl_to_breakeven(inst_id: str, p_dir: str, p_entry: float, lock_bps: float, dec_px: int) -> bool:
+    if not _OKX_CLIENT.is_authenticated:
+        return False
+    new_sl = round(p_entry * (1.0 + lock_bps / 10000.0), dec_px) if p_dir == "LONG" else round(p_entry * (1.0 - lock_bps / 10000.0), dec_px)
+    new_sl_str = f"{new_sl:.{dec_px}f}"
+    for otype in ("conditional", "oco"):
+        try:
+            algos = _OKX_CLIENT._request("GET", f"/api/v5/trade/orders-algo-pending?instType=FUTURES&ordType={otype}&instId={inst_id}", auth=True).get("data", [])
+            for a in algos:
+                aid = a.get("algoId")
+                if aid:
+                    r = _OKX_CLIENT._request("POST", "/api/v5/trade/amend-algos", body_dict={"instId": inst_id, "algoId": aid, "newSlTriggerPx": new_sl_str}, auth=True)
+                    if str((r.get("data") or [{}])[0].get("sCode", "")) == "0":
+                        return True
+        except Exception:
+            pass
+    return False
+
 def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, dec_px: int, reduce_only: bool = False, urgent_stop: bool = False, tp_px: float = 0.0, sl_px: float = 0.0) -> bool:
     if not _OKX_CLIENT.is_authenticated:
         return False
@@ -372,6 +447,7 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
 def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: MicrostructureEngine, kronos_client: KronosOracleClient, run_audit: bool = False, live_mode: bool = True) -> Dict[str, Any]:
     now_dt = datetime.datetime.now(datetime.timezone.utc)
     now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    refresh_dynamic_xperp_universe()
     ensure_isolated_leverage(live_mode)
     lifecycle = evaluate_run_lifecycle()
     spot_ids = [m["spot_id"] for m in FUTURES_UNIVERSE.values()]
@@ -446,11 +522,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     btc_fc = kronos_map.get("BTC-USDC")
     btc_k5m = btc_fc.kronos_5m_bps if btc_fc else 0.0
     btc_k1h = btc_fc.expected_return_1h_bps if btc_fc else 0.0
-    btc_real_15m = next((r15 for iid, _, _, _, r15, _, _ in market_snaps if "BTC-" in iid), 0.0)
-    btc_real_1h = next((r1h for iid, _, _, _, _, r1h, _ in market_snaps if "BTC-" in iid), 0.0)
+    btc_real_15m = next((r15 for iid, _, _, _, r15, _, _, _, _, _ in market_snaps if "BTC-" in iid), 0.0)
+    btc_real_1h = next((r1h for iid, _, _, _, _, r1h, _, _, _, _ in market_snaps if "BTC-" in iid), 0.0)
     telemetry_rows, actions_taken, candidates = [], [], []
     unrealized_total_usd, locked_margin_total_usd = 0.0, 0.0
-    for inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps in market_snaps:
+    for inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps, atr_1h_bps, oi_delta_bps, funding_bps in market_snaps:
         if not bids or not asks:
             continue
         meta = FUTURES_UNIVERSE[inst_id]
@@ -478,8 +554,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            eff_shield_gate = 25.0 if pos_age_mins >= 45.0 else max(35.0, fast_shield_gate_bps)
+            vol_mult = max(0.68, min(1.25, atr_1h_bps / 55.0))
+            eff_shield_gate = round((22.0 if pos_age_mins >= 45.0 else max(32.0, fast_shield_gate_bps)) * vol_mult, 1)
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
+            if live_mode and int(p_shield) == 0 and new_shield == 1:
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 12.0, meta["dec_px"])
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_PROFIT", p_tp, True
@@ -532,26 +611,30 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 cur.execute("UPDATE futures_demo_positions SET current_px=?, peak_move_bps=?, shield_armed=? WHERE pos_id=?", (mid, new_peak, new_shield, p_id))
         btc_veto_long = bool(btc_k5m <= -10.0 or btc_k1h <= -20.0 or btc_real_15m <= -8.0 or btc_real_1h <= -15.0)
         btc_veto_short = bool(btc_k5m >= 10.0 or btc_k1h >= 20.0 or btc_real_15m >= 8.0 or btc_real_1h >= 15.0)
+        vol_mult_c = max(0.68, min(1.25, atr_1h_bps / 55.0))
+        sqz_reg = "SQUEEZE_LONG" if (real_15m_bps >= 5.0 and oi_delta_bps >= 0.0 and sig.ofi_norm >= 0.25) else ("SQUEEZE_SHORT" if (real_15m_bps <= -5.0 and oi_delta_bps >= 0.0 and sig.ofi_norm <= -0.25) else "NORMAL")
+        sqz_bonus = 12.0 if sqz_reg != "NORMAL" else 0.0
         eff_k10m_gate = max(6.0, min(12.0, min_k10m_gate))
         boost_bonus = 15.0 if inst_id in brain_skills.get("priority_boost_inst_ids", []) else 0.0
         is_blacklisted = inst_id in brain_skills.get("blacklist_inst_ids", [])
         gem_sniper_map = {str(x.get("inst_id")): str(x.get("dir")) for x in brain_skills.get("gemini_sniper_entries", []) if isinstance(x, dict)}
         if not is_blacklisted and inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
             if allowed_dir == "LONG" and not btc_veto_long and k5m >= 5.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.78:
-                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus, 2)
-                candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
+                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus + sqz_bonus, 2)
+                candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
             elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -5.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.78:
-                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus, 2)
-                candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
+                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus + sqz_bonus, 2)
+                candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
             elif inst_id in gem_sniper_map and sig.vpin_toxicity <= 0.80:
                 g_dir = gem_sniper_map[inst_id]
                 if g_dir == "LONG" and not btc_veto_long and real_1h_bps >= -5.0 and sig.ofi_norm >= 0.12 and k1h >= 5.0:
-                    candidates.append({"inst_id": inst_id, "dir": "LONG", "score": round(35.0 + boost_bonus, 2), "px": bids[0][0], "dec_px": meta["dec_px"]})
+                    candidates.append({"inst_id": inst_id, "dir": "LONG", "score": round(35.0 + boost_bonus + sqz_bonus, 2), "px": bids[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
                 elif g_dir == "SHORT" and not btc_veto_short and real_1h_bps <= -3.0 and sig.ofi_norm <= -0.12 and k1h <= -5.0:
-                    candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": round(35.0 + boost_bonus, 2), "px": asks[0][0], "dec_px": meta["dec_px"]})
+                    candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": round(35.0 + boost_bonus + sqz_bonus, 2), "px": asks[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
         k48h = round((k24h * 1.35) + (real_48h_bps * 0.25), 1)
         telemetry_rows.append({
             "inst_id": inst_id, "mid_price": mid, "ofi_norm": round(sig.ofi_norm, 2), "vpin_toxicity": round(sig.vpin_toxicity, 2),
+            "atr_1h_bps": round(atr_1h_bps, 1), "oi_delta_bps": round(oi_delta_bps, 1), "squeeze_regime": sqz_reg,
             "real_15m_bps": round(real_15m_bps, 1), "real_1h_bps": round(real_1h_bps, 1),
             "kronos_5m_bps": round(k5m, 1), "kronos_10m_bps": round(k10m, 1), "kronos_1h_bps": round(k1h, 1),
             "kronos_2h_bps": round(k2h, 1), "kronos_6h_bps": round(k6h, 1), "kronos_12h_bps": round(k12h, 1), "kronos_24h_bps": round(k24h, 1), "kronos_48h_bps": k48h,
@@ -575,8 +658,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             unshielded_total = sum(1 for r in open_positions.values() if int(r[10]) == 0) + len(live_okx_pend)
             if unshielded_total >= 1:
                 break
-            tp_px = round(c_px * 1.0135, c_dec) if c_dir == "LONG" else round(c_px * 0.9865, c_dec)
-            sl_px = round(c_px * 0.9820, c_dec) if c_dir == "LONG" else round(c_px * 1.0180, c_dec)
+            vm = float(cand.get("vol_mult") or 1.0)
+            tp_bps_dyn = round(135.0 * vm, 1) / 10000.0
+            sl_bps_dyn = round(180.0 * vm, 1) / 10000.0
+            tp_px = round(c_px * (1.0 + tp_bps_dyn), c_dec) if c_dir == "LONG" else round(c_px * (1.0 - tp_bps_dyn), c_dec)
+            sl_px = round(c_px * (1.0 - sl_bps_dyn), c_dec) if c_dir == "LONG" else round(c_px * (1.0 + sl_bps_dyn), c_dec)
             if live_mode:
                 if c_id in live_okx_pend or c_id in live_okx_pos:
                     continue
