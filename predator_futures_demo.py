@@ -93,12 +93,12 @@ def init_futures_db(db_path: str) -> sqlite3.Connection:
 def _fetch_swap_book_and_trades(inst_id: str):
     ctx = _ssl_ctx()
     bids, asks, trades = [], [], []
-    real_15m_bps, real_1h_bps = 0.0, 0.0
+    real_15m_bps, real_1h_bps, real_48h_bps = 0.0, 0.0, 0.0
     try:
         bids, asks = _OKX_CLIENT.get_orderbook(inst_id, sz=5)
         trades = _OKX_CLIENT.get_recent_trades(inst_id, limit=25)
         u_c = f"https://eea.okx.com/api/v5/market/candles?instId={inst_id}&bar=15m&limit=8"
-        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/14.7"}), timeout=5, context=ctx) as r:
+        with urllib.request.urlopen(urllib.request.Request(u_c, headers={"User-Agent": "TRE-OS-Fut/15.3"}), timeout=5, context=ctx) as r:
             c_rows = json.loads(r.read().decode("utf-8")).get("data", [])
             if len(c_rows) >= 5:
                 c_now = float(c_rows[0][4])
@@ -106,9 +106,16 @@ def _fetch_swap_book_and_trades(inst_id: str):
                 c_1h = float(c_rows[4][4])
                 real_15m_bps = ((c_now - o_15m) / o_15m * 10000.0) if o_15m > 0 else 0.0
                 real_1h_bps = ((c_now - c_1h) / c_1h * 10000.0) if c_1h > 0 else 0.0
+        u_4h = f"https://eea.okx.com/api/v5/market/candles?instId={inst_id}&bar=4H&limit=13"
+        with urllib.request.urlopen(urllib.request.Request(u_4h, headers={"User-Agent": "TRE-OS-Fut/15.3"}), timeout=4, context=ctx) as r4:
+            c4 = json.loads(r4.read().decode("utf-8")).get("data", [])
+            if len(c4) >= 12:
+                c_now4 = float(c4[0][4])
+                c_48h = float(c4[-1][4])
+                real_48h_bps = ((c_now4 - c_48h) / c_48h * 10000.0) if c_48h > 0 else 0.0
     except Exception:
         pass
-    return inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, 0.0
+    return inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps
 _LAST_GEMINI_AUDIT_TS = 0.0
 
 def load_gemini_brain_skills() -> Dict[str, Any]:
@@ -122,14 +129,17 @@ def load_gemini_brain_skills() -> Dict[str, Any]:
         "priority_boost_inst_ids": [],
         "blacklist_inst_ids": [],
         "gemini_sniper_entries": [],
-        "self_critique": "Inizializzazione memoria episodica agentica.",
-        "active_hypothesis": "In osservazione convergenza 7 orizzonti Kronos + candele reali 1h.",
+        "self_critique": "Inizializzazione memoria episodica agentica h24.",
+        "outlook_1h": "Tattica 1h: attendere conferma OFI >= +0.18 sui leader rialzisti evitando micro-rumore.",
+        "outlook_6h": "Sessione 6h: focus su recupero graduale con max 1 slot scoperto alla volta a leva 2.0x Anti-Wick.",
+        "outlook_12h": "Swing 12h: cavalcare i runner sopra +35 bps col pavimento break-even a +12 bps fino a +135 bps.",
+        "outlook_48h": "Macro 48h: riportare il NAV da $256.97 sopra $267.88 e poi verso la baseline storica di $298.89.",
         "learned_rules": [
             "Mai shortare contro candele reali 15m/1h verdi o durante pump di BTC.",
-            "Usare stop anti-wick (-180/-220 bps a 2.0x) per non farsi cacciare dagli spike di 1%.",
+            "Usare stop anti-wick (-180 bps a 2.0x) per non farsi cacciare dagli spike di 1%.",
             "Lasciar correre i vincitori tra +35 e +74 bps con solo pavimento break-even a +12 bps."
         ],
-        "verdict": "TRE OS v15.2 Agentic Memory Co-Pilot active.",
+        "verdict": "TRE OS v15.3 Autonomous 24/7 Self-Improving Quant Agent active.",
     }
     try:
         if os.path.exists(p):
@@ -162,25 +172,29 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
     coin_scoreboard = [{"inst_id": r[0], "trades": r[1], "wins": r[2], "net_pnl": r[3]} for r in cur.fetchall()]
     prev_memory = {
         "prev_updated_at": default_audit.get("updated_at"),
-        "prev_hypothesis": default_audit.get("active_hypothesis"),
+        "prev_outlook_1h": default_audit.get("outlook_1h"),
+        "prev_outlook_6h": default_audit.get("outlook_6h"),
+        "prev_outlook_12h": default_audit.get("outlook_12h"),
+        "prev_outlook_48h": default_audit.get("outlook_48h"),
         "prev_sniper": default_audit.get("gemini_sniper_entries"),
-        "prev_boost": default_audit.get("priority_boost_inst_ids"),
-        "prev_blacklist": default_audit.get("blacklist_inst_ids"),
         "learned_rules": default_audit.get("learned_rules", []),
     }
-    compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "k5m": t["kronos_5m_bps"], "k10m": t["kronos_10m_bps"], "k1h": t["kronos_1h_bps"], "k2h": t["kronos_2h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k24h": t["kronos_24h_bps"]} for t in telemetry]
+    compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "r1h": t.get("real_1h_bps", 0.0), "k1h": t["kronos_1h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k48h": t.get("kronos_48h_bps", 0.0)} for t in telemetry]
     prompt = (
-        "Sei l'Agente Quantitativo Autonomo con Memoria Episodica di TRE OS v15.2 su OKX EEA Perpetual Futures (*-USD_UM_XPERP-*, leva 2.0x Anti-Wick, Stop -180bps, Break-Even +12bps a +35bps, Runner Trail sopra +75bps). "
-        f"NAV={nav_usd:.2f} USDC, RealizedPnL={realized_pnl:+.4f}, Fees={tot_fees:.4f} (FeeDrag={fee_drag_pct:.1f}%), Shields={shields}, Stops={stops}. "
-        f"LA TUA MEMORIA PRECEDENTE (Decisioni, Ipotesi e Regole Imparate): {json.dumps(prev_memory)}. "
-        f"ScoreboardPerMoneta={json.dumps(coin_scoreboard)}. OpenPositions={json.dumps(open_pos_info)}. RecentClosed={json.dumps(recent_closed_info)}. "
-        f"FullTelemetry12Pairs={json.dumps(compact_t)}. "
-        "Esegui il tuo ciclo agentico: "
-        "1) self_critique: valuta se la tua prev_hypothesis e prev_sniper si sono rivelati corretti rispetto ai prezzi attuali; "
-        "2) active_hypothesis: formula la tua ipotesi operativa per i prossimi 15-60 minuti; "
-        "3) learned_rules: mantieni/aggiorna fino a 5 regole auree apprese dall'esperienza reale su questo conto; "
-        "4) Azioni operative: force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries (max 1 {inst_id, dir} ad altissima convinzione), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict. "
-        "Rispondi SOLO JSON: {self_critique, active_hypothesis, learned_rules, min_kronos_10m_bps, fast_shield_bps, trail_lock_ratio, dynamic_slot_leverage, force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries, verdict}."
+        "Sei l'Agente Trader Quantitativo H24 Auto-Migliorante di TRE OS v15.3 (VPS brody, OKX EEA Regulated Perpetual Futures *-USD_UM_XPERP-*). "
+        "SISTEMA, OBIETTIVI E LIMITI INVALICABILI: "
+        f"- Capitale Attuale Conto Trading: ${nav_usd:.2f} USDC (Cutover Futures: $267.88 | Baseline 28/10: $285.74 | Baseline Storica 22/10: $298.89 | Gap da recuperare: ${267.88 - nav_usd:.2f} USDC per il cutover e ${298.89 - nav_usd:.2f} USDC per il massimo storico). "
+        "- Obiettivo Giornaliero (Regola Aurea 1): +0.70% <-> +5.00% netto al giorno (+$1.80..+$13.00/giorno) con Fee-Drag <= 12% (Maker fee 2bps, Taker 5bps) fino a scadenza 2026-12-31. "
+        "- Limiti di Rischio (Regola Aurea 2 & Anti-Crash Fortress): Leva 1.8x..2.0x Isolated, Slot da 20% NAV (~$51.40 margine = ~$102.80 nozionale), MAX 1 SOLO SLOT SCOPERTO ALLA VOLTA (il 2° si apre solo quando il 1° ha armato lo Scudo a +35bps con floor +12bps), Trailing Runner 75-82% sopra +75bps fino a TP +135bps, Stop Nativo OKX attachAlgoOrds a -180bps (~-$1.85 max loss), Quarantena 120m post-stop. "
+        f"- Bilancio Attuale: RealizedPnL={realized_pnl:+.4f}, Fees={tot_fees:.4f} (FeeDrag={fee_drag_pct:.1f}%), Shields={shields}, Stops={stops}. "
+        f"- LA TUA MEMORIA EPISODICA PRECEDENTE: {json.dumps(prev_memory)}. "
+        f"- ScoreboardPerMoneta={json.dumps(coin_scoreboard)}. OpenPositions={json.dumps(open_pos_info)}. RecentClosed={json.dumps(recent_closed_info)}. "
+        f"- Telemetria Multi-Orizzonte (1h, 6h, 12h, 48h): {json.dumps(compact_t)}. "
+        "COMPITO AGENTICO H24 (Rispondi SOLO JSON in italiano): "
+        "1) self_critique: auto-analisi su cosa ha funzionato o fallito nelle scelte precedenti; "
+        "2) Prospettive Multi-Orizzonte: outlook_1h (piano tattico prossima 1h), outlook_6h (piano sessione 6h), outlook_12h (piano swing 12h), outlook_48h (strategia macro 48h per recuperare i $267.88 e puntare a $298.89); "
+        "3) learned_rules: fino a 5 regole operative auto-apprese; "
+        "4) Controlli operativi: force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
     )
     for g_mod in ("gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"):
         try:
@@ -204,7 +218,10 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
                         "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
                         "self_critique": str(p.get("self_critique") or default_audit.get("self_critique", ""))[:280],
-                        "active_hypothesis": str(p.get("active_hypothesis") or default_audit.get("active_hypothesis", ""))[:280],
+                        "outlook_1h": str(p.get("outlook_1h") or default_audit.get("outlook_1h", ""))[:260],
+                        "outlook_6h": str(p.get("outlook_6h") or default_audit.get("outlook_6h", ""))[:260],
+                        "outlook_12h": str(p.get("outlook_12h") or default_audit.get("outlook_12h", ""))[:260],
+                        "outlook_48h": str(p.get("outlook_48h") or default_audit.get("outlook_48h", ""))[:260],
                         "learned_rules": [str(x) for x in (p.get("learned_rules") or default_audit.get("learned_rules", [])) if isinstance(x, str)][:5],
                         "verdict": str(p.get("verdict") or default_audit["verdict"])[:280],
                     }
@@ -247,6 +264,12 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
                         "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
                         "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
+                        "self_critique": str(p.get("self_critique") or default_audit.get("self_critique", ""))[:280],
+                        "outlook_1h": str(p.get("outlook_1h") or default_audit.get("outlook_1h", ""))[:260],
+                        "outlook_6h": str(p.get("outlook_6h") or default_audit.get("outlook_6h", ""))[:260],
+                        "outlook_12h": str(p.get("outlook_12h") or default_audit.get("outlook_12h", ""))[:260],
+                        "outlook_48h": str(p.get("outlook_48h") or default_audit.get("outlook_48h", ""))[:260],
+                        "learned_rules": [str(x) for x in (p.get("learned_rules") or default_audit.get("learned_rules", [])) if isinstance(x, str)][:5],
                         "verdict": str(p.get("verdict") or default_audit["verdict"])[:280],
                     }
                     _LAST_GEMINI_AUDIT_TS = time.time()
@@ -426,7 +449,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     btc_real_1h = next((r1h for iid, _, _, _, _, r1h, _ in market_snaps if "BTC-" in iid), 0.0)
     telemetry_rows, actions_taken, candidates = [], [], []
     unrealized_total_usd, locked_margin_total_usd = 0.0, 0.0
-    for inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, funding_bps in market_snaps:
+    for inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps in market_snaps:
         if not bids or not asks:
             continue
         meta = FUTURES_UNIVERSE[inst_id]
@@ -525,10 +548,12 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     candidates.append({"inst_id": inst_id, "dir": "LONG", "score": round(35.0 + boost_bonus, 2), "px": bids[0][0], "dec_px": meta["dec_px"]})
                 elif g_dir == "SHORT" and not btc_veto_short and real_1h_bps <= -3.0 and sig.ofi_norm <= -0.12 and k1h <= -5.0:
                     candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": round(35.0 + boost_bonus, 2), "px": asks[0][0], "dec_px": meta["dec_px"]})
+        k48h = round((k24h * 1.35) + (real_48h_bps * 0.25), 1)
         telemetry_rows.append({
             "inst_id": inst_id, "mid_price": mid, "ofi_norm": round(sig.ofi_norm, 2), "vpin_toxicity": round(sig.vpin_toxicity, 2),
+            "real_15m_bps": round(real_15m_bps, 1), "real_1h_bps": round(real_1h_bps, 1),
             "kronos_5m_bps": round(k5m, 1), "kronos_10m_bps": round(k10m, 1), "kronos_1h_bps": round(k1h, 1),
-            "kronos_2h_bps": round(k2h, 1), "kronos_6h_bps": round(k6h, 1), "kronos_12h_bps": round(k12h, 1), "kronos_24h_bps": round(k24h, 1),
+            "kronos_2h_bps": round(k2h, 1), "kronos_6h_bps": round(k6h, 1), "kronos_12h_bps": round(k12h, 1), "kronos_24h_bps": round(k24h, 1), "kronos_48h_bps": k48h,
             "allowed_direction": allowed_dir,
         })
     live_nav_est = round(real_nav if (live_mode and real_nav > 10.0) else (base_nav + realized_pnl + unrealized_total_usd), 2)
