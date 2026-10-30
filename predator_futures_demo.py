@@ -306,10 +306,26 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     fee_drag_pct = float(last_aud[4]) if last_aud else 0.0
     cur.execute("SELECT pos_id, inst_id, direction, leverage, margin_usd, notional_usd, entry_px, tp_px, sl_px, peak_move_bps, shield_armed, entry_fee_usd, opened_at FROM futures_demo_positions WHERE status='OPEN'")
     open_positions = {r[1]: r for r in cur.fetchall()}
+    okx_recent_ReduceOnly_map: Dict[str, Dict[str, Any]] = {}
+    if live_mode and _OKX_CLIENT.is_authenticated:
+        try:
+            h_sync = _OKX_CLIENT._request("GET", "/api/v5/trade/orders-history?instType=FUTURES&limit=40", auth=True).get("data", [])
+            for ho in h_sync:
+                if ho.get("state") == "filled" and str(ho.get("reduceOnly", "")).lower() == "true":
+                    hiid = str(ho.get("instId") or "")
+                    if hiid and hiid not in okx_recent_ReduceOnly_map:
+                        okx_recent_ReduceOnly_map[hiid] = ho
+        except Exception:
+            pass
     if live_mode:
         for db_inst, db_row in list(open_positions.items()):
-            if db_inst not in live_okx_pos and db_inst not in live_okx_pend:
-                cur.execute("DELETE FROM futures_demo_positions WHERE pos_id=?", (db_row[0],))
+            if db_inst not in live_okx_pos:
+                ro_ord = okx_recent_ReduceOnly_map.get(db_inst, {})
+                ro_pnl = float(ro_ord.get("pnl") or 0.0) + float(ro_ord.get("fee") or 0.0) - float(db_row[11] or 0.0)
+                ro_px = float(ro_ord.get("avgPx") or db_row[6] or 0.0)
+                ro_st = "CLOSED_SHIELD" if ro_pnl >= 0.0 else "CLOSED_STOPLOSS"
+                cur.execute("UPDATE futures_demo_positions SET status=?, closed_at=?, exit_px=?, realized_pnl_usd=?, current_px=? WHERE pos_id=?",
+                            (ro_st, now_iso, ro_px, round(ro_pnl, 4), ro_px, db_row[0]))
                 del open_positions[db_inst]
         for okx_inst, okx_p in live_okx_pos.items():
             if okx_inst in FUTURES_UNIVERSE and okx_inst not in open_positions:
@@ -333,6 +349,12 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         req_cd = 120.0 if c_st == "CLOSED_STOPLOSS" else 30.0
         if float(mins_ago or 0.0) < req_cd:
             cooldown_blocked_insts.add(str(c_inst))
+    now_ms_cd = int(time.time() * 1000)
+    for hiid, ho in okx_recent_ReduceOnly_map.items():
+        mins_since_fill = (now_ms_cd - int(ho.get("uTime") or ho.get("cTime") or 0)) / 60000.0
+        req_okx_cd = 120.0 if float(ho.get("pnl") or 0.0) <= 0.0 else 30.0
+        if mins_since_fill < req_okx_cd:
+            cooldown_blocked_insts.add(hiid)
     market_snaps = list(_IO_POOL.map(_fetch_swap_book_and_trades, list(FUTURES_UNIVERSE.keys())))
     btc_fc = kronos_map.get("BTC-USDC")
     btc_k5m = btc_fc.kronos_5m_bps if btc_fc else 0.0
@@ -423,10 +445,10 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         boost_bonus = 15.0 if inst_id in brain_skills.get("priority_boost_inst_ids", []) else 0.0
         is_blacklisted = inst_id in brain_skills.get("blacklist_inst_ids", [])
         if not is_blacklisted and inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 4.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.12 and sig.vpin_toxicity <= 0.85:
+            if allowed_dir == "LONG" and not btc_veto_long and k5m >= 5.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.20 and sig.vpin_toxicity <= 0.75:
                 score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"]})
-            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -4.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.12 and sig.vpin_toxicity <= 0.85:
+            elif allowed_dir == "SHORT" and not btc_veto_short and k5m <= -5.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.20 and sig.vpin_toxicity <= 0.75:
                 score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"]})
         telemetry_rows.append({
