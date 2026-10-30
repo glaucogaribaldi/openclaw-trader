@@ -194,7 +194,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "1) self_critique: auto-analisi su cosa ha funzionato o fallito nelle scelte precedenti; "
         "2) Prospettive Multi-Orizzonte: outlook_1h (piano tattico prossima 1h), outlook_6h (piano sessione 6h), outlook_12h (piano swing 12h), outlook_48h (strategia macro 48h per recuperare i $267.88 e puntare a $298.89); "
         "3) learned_rules: fino a 5 regole operative auto-apprese; "
-        "4) Controlli operativi: force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids, gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
+        "4) Controlli operativi: force_close_inst_ids, priority_boost_inst_ids (top 2-3 monete migliori), blacklist_inst_ids (MAX 3 monete più tossiche, VIETATO bloccare tutto il paniere: devi trovare i migliori setup con VPIN<=0.78 per recuperare il NAV!), gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [32.0..42.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
     )
     for g_mod in ("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-4-argon"):
         try:
@@ -216,7 +216,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "dynamic_slot_leverage": round(max(1.5, min(2.0, float(p.get("dynamic_slot_leverage") or 2.0))), 1),
                         "force_close_inst_ids": [str(x) for x in (p.get("force_close_inst_ids") or []) if isinstance(x, str)],
                         "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
-                        "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
+                        "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)][:3],
                         "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
                         "self_critique": str(p.get("self_critique") or default_audit.get("self_critique", ""))[:280],
                         "outlook_1h": str(p.get("outlook_1h") or default_audit.get("outlook_1h", ""))[:260],
@@ -263,7 +263,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "dynamic_slot_leverage": round(max(1.5, min(2.0, float(p.get("dynamic_slot_leverage") or 2.0))), 1),
                         "force_close_inst_ids": [str(x) for x in (p.get("force_close_inst_ids") or []) if isinstance(x, str)],
                         "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
-                        "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
+                        "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)][:3],
                         "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
                         "self_critique": str(p.get("self_critique") or default_audit.get("self_critique", ""))[:280],
                         "outlook_1h": str(p.get("outlook_1h") or default_audit.get("outlook_1h", ""))[:260],
