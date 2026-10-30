@@ -198,6 +198,47 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                     return res
         except Exception:
             continue
+    or_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if or_key:
+        try:
+            or_payload = {
+                "model": "nvidia/llama-3.3-nemotron-super-49b-v1:free",
+                "models": ["nvidia/llama-3.3-nemotron-super-49b-v1:free", "google/gemma-3-27b-it:free", "openrouter/free"],
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.15,
+                "response_format": {"type": "json_object"},
+            }
+            req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=json.dumps(or_payload).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {or_key}"})
+            with urllib.request.urlopen(req, timeout=12, context=_ssl_ctx()) as resp:
+                d = json.loads(resp.read().decode("utf-8"))
+                txt = (d.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
+                if txt and "{" in txt:
+                    s_idx, e_idx = txt.find("{"), txt.rfind("}")
+                    p = json.loads(txt[s_idx:e_idx+1])
+                    used_m = d.get("model", "openrouter/free")
+                    res = {
+                        "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "model_used": f"openrouter-free:{used_m}", "fee_drag_ratio_pct": fee_drag_pct,
+                        "min_kronos_10m_bps": round(max(6.0, min(12.0, float(p.get("min_kronos_10m_bps") or 7.5))), 1),
+                        "fast_shield_bps": round(max(18.0, min(28.0, float(p.get("fast_shield_bps") or 20.0))), 1),
+                        "trail_lock_ratio": round(max(0.58, min(0.85, float(p.get("trail_lock_ratio") or 0.65))), 2),
+                        "dynamic_slot_leverage": round(max(1.5, min(2.0, float(p.get("dynamic_slot_leverage") or 2.0))), 1),
+                        "force_close_inst_ids": [str(x) for x in (p.get("force_close_inst_ids") or []) if isinstance(x, str)],
+                        "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
+                        "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)],
+                        "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
+                        "verdict": str(p.get("verdict") or default_audit["verdict"])[:280],
+                    }
+                    _LAST_GEMINI_AUDIT_TS = time.time()
+                    sp = os.path.join(BASE_DIR, "config", "gemini_brain_skills.json")
+                    with open(sp + ".tmp", "w", encoding="utf-8") as sf: json.dump(res, sf, indent=2)
+                    os.replace(sp + ".tmp", sp)
+                    cur.execute("INSERT INTO futures_demo_audit_log (timestamp, model_used, fee_drag_ratio_pct, min_kronos_10m_bps, fast_shield_bps, verdict) VALUES (?, ?, ?, ?, ?, ?)",
+                                (res["updated_at"], res["model_used"], fee_drag_pct, res["min_kronos_10m_bps"], res["fast_shield_bps"], res["verdict"]))
+                    conn.commit()
+                    return res
+        except Exception:
+            pass
     return default_audit
 
 def _calc_contract_sz(inst_id: str, notional_usd: float, px: float) -> Tuple[str, float]:
