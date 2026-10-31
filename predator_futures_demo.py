@@ -598,8 +598,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         k12h = k_fc.swing_return_12h_bps if k_fc else round(real_48h_bps * 0.45, 1)
         k24h = k_fc.daily_return_24h_bps if k_fc else round(real_48h_bps * 0.70, 1)
         # True Asymmetric Swing-Scalper Gate: unlock clean 7-horizon trends while blocking counter-candle traps!
-        macro_bull = bool(k6h >= 10.0 and (k12h >= 8.0 or k24h >= 8.0) and k2h >= -6.0 and k1h >= 6.0 and real_15m_bps >= -8.0 and (real_1h_bps >= -10.0 or (k5m >= 8.0 and k10m >= 8.0)))
-        macro_bear = bool(k6h <= -10.0 and (k12h <= -8.0 or k24h <= -8.0) and k2h <= 6.0 and k1h <= -6.0 and real_15m_bps <= -2.0 and (real_1h_bps <= -5.0 or (k5m <= -10.0 and k10m <= -10.0 and k1h <= -12.0)))
+        macro_bull = bool((k6h >= 8.0 or (k6h >= 2.0 and k12h >= 20.0 and k24h >= 30.0)) and (k12h >= 8.0 or k24h >= 8.0) and k2h >= -6.0 and k1h >= 6.0 and real_15m_bps >= -8.0 and (real_1h_bps >= -10.0 or (k5m >= 8.0 and k10m >= 8.0)))
+        macro_bear = bool((k6h <= -8.0 or (k6h <= -2.0 and k12h <= -20.0 and k24h <= -30.0)) and (k12h <= -8.0 or k24h <= -8.0) and k2h <= 6.0 and k1h <= -6.0 and real_15m_bps <= -2.0 and (real_1h_bps <= -5.0 or (k5m <= -10.0 and k10m <= -10.0 and k1h <= -12.0)))
         allowed_dir = "LONG" if macro_bull else ("SHORT" if macro_bear else "NEUTRAL")
         if inst_id in open_positions:
             p_id, _, p_dir, p_lev, p_mgn, p_notional, p_entry, p_tp, p_sl, p_peak_bps, p_shield, p_efee, p_open_ts = open_positions[inst_id]
@@ -629,8 +629,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     locked_move_bps = new_peak * max(0.75, base_trail)
                 if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
-                    exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
-                    urgent_stop = True
+                    exit_exec_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
+                    urgent_stop = False
             if not exit_reason and move_bps <= -85.0:
                 inv_1h = bool(pos_age_mins >= 20.0 and ((p_dir == "LONG" and k5m <= -8.0 and k10m <= -12.0 and k1h <= -20.0) or (p_dir == "SHORT" and k5m >= 8.0 and k10m >= 12.0 and k1h >= 20.0)))
                 broken = bool((p_dir == "LONG" and k5m < -10.0 and k6h < -25.0) or (p_dir == "SHORT" and k5m > 10.0 and k6h > 25.0))
