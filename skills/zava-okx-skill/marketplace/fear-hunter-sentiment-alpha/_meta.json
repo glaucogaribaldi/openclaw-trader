@@ -1,0 +1,6 @@
+{
+  "name": "fear-hunter-sentiment-alpha",
+  "version": "1.0",
+  "title": "恐惧猎手 · Sentiment Dislocation Alpha",
+  "description": "基于情绪-费率背离的AI逆向交易策略。当市场恐惧且空头拥挤时做多，当市场贪婪且多头拥挤时做空。三层过滤器（情绪扫描→费率背离→技术确认）+ ATR动态仓位管理，适用100-1000 USDT小资金账户。"
+}

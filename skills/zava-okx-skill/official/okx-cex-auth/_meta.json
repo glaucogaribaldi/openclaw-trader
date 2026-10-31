@@ -1,0 +1,13 @@
+{
+  "description" : "Use this skill when the user wants to 'login/log in/sign in', 'authenticate', 'authorize', 'connect OKX account', 'set up credentials', 'first time setup', 'configure okx', '登录', '授权', '认证', '连接账户', '首次配置'. Also when any OKX CLI command fails with an auth error: 'Run okx auth login first', 'Session expired', 'not authenticated', 'requires_auth', '401 Unauthorized', 'token expired/not found', 'StorageNotFoundError', '会话过期', '未认证', '需要登录'. Also when the user asks about login status or the login was interrupted. Also when the user wants to install/update/check/remove the okx-auth binary — 'install/update/remove auth', 'download okx-auth', '安装/更新/卸载认证', 'auth binary status', 'Failed to spawn okx-auth'. Also use before using okx-cex-trade/portfolio/earn/bot for the first time. Do NOT use for market data queries (use okx-cex-market).",
+  "name" : "okx-cex-auth",
+  "signing" : {
+    "files" : {
+      "SKILL.md" : "sha256:528265c64f0b28cacc784ab191df4100352b25ea11c1ac19e3a0315de24be418"
+    },
+    "public_key_id" : "okx-skill-signing-key-2026",
+    "signature" : "UAAEN+D5bceleReyHCQGWzS7sWwtczRtBG3DchEur+QWWk7EX1fIR0Y/93cm4mfNq9CVk0bFp1E0nC0HO7vcDQ=="
+  },
+  "title" : "okx-cex-auth",
+  "version" : "1.5.0"
+}

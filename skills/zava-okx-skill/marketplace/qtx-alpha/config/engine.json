@@ -1,0 +1,31 @@
+{
+  "scan": {
+    "pc": 0.15,
+    "px": 1.50,
+    "vl": 20000000,
+    "va": 1000000,
+    "fh": 0.0,
+    "pa": 0,
+    "vd": false,
+    "wd": true,
+    "vf": false,
+    "ex": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "USDC-USDT-SWAP"]
+  },
+  "exec": {
+    "tp": 0.30,
+    "sl": 0.50,
+    "th": 72,
+    "ch": 24,
+    "ru": 5.0,
+    "lv": 3,
+    "mp": 3,
+    "mm": 0.50,
+    "tr": 30.0,
+    "tf": 0.0005,
+    "lf": 0.002,
+    "mr": 0.005,
+    "sb": 5,
+    "xb": 5,
+    "ic": 10000
+  }
+}

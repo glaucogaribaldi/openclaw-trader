@@ -1,0 +1,6 @@
+{
+  "name": "dragon-regret",
+  "version": "1.0",
+  "title": "dragon-regret",
+  "description": "Use when analyzing, tuning, backtesting, or extending the Dragon's Regret mean-reversion strategy, especially for ATR/z-score normalized entry logic, higher-timeframe trend filtering, execution-cost modeling, parameter scans, and walk-forward validation."
+}

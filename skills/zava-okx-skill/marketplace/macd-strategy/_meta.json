@@ -1,0 +1,6 @@
+{
+  "name": "macd-strategy",
+  "version": "1.0",
+  "title": "macd-strategy",
+  "description": "Execute OKX CEX open/close decisions using MACD pivot rules (4h, MACD 12/26/9, threshold gate, pivot-based entry/exit, one-signal-per-candle). Use when user asks to open or close positions on OKX according to this logic only (no portfolio/earn tasks). Requires OKX skills from `npx skills add okx/agent-skills` to be installed."
+}

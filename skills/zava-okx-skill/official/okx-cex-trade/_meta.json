@@ -1,0 +1,21 @@
+{
+  "description" : "Use when the user asks to 'buy BTC', 'sell ETH', 'place a limit order', 'place a market order', 'cancel my order', 'amend my order', 'long BTC perp', 'short ETH swap', 'open a position', 'close a position', 'set take profit', 'limit take profit', 'immediate TP', 'set stop loss', 'self-trade prevention', 'stpMode', 'auto-cancel on close', 'trailing stop', 'pending order', 'chase order', 'iceberg', 'TWAP', 'split order', 'large order', 'set leverage', 'check my orders', 'fill history', 'buy a call', 'sell a put', 'option chain', 'implied volatility', 'IV', 'Greeks', 'delta', 'gamma', 'event contract', 'buy Yes', 'buy No', 'buy Up', 'buy Down', 'prediction market', or any request to place, cancel, or amend spot, swap, futures, options, or event contract orders on OKX CEX. Covers conditional (TP/SL/trailing) algo orders. Requires API credentials. Do NOT use for market data (okx-cex-market), account balance (okx-cex-portfolio), or bots (okx-cex-bot).",
+  "name" : "okx-cex-trade",
+  "signing" : {
+    "files" : {
+      "SKILL.md" : "sha256:98cead6e2c5648eb857668e3d61e14bfa5448c7d71c84d295c36d5b2e763b2b7",
+      "references/event-commands.md" : "sha256:b005ad1087d98ef24dd68ec27de09b6ef80e9ac14b7f64c3b5a162811c4c45e2",
+      "references/event-workflows.md" : "sha256:8cef0c2350db6d3778daa91c18b7cc0556061379c58a6abf3c4b56494d9f8c27",
+      "references/futures-commands.md" : "sha256:4f0a5525dc9c4181050ad89415008b8bd853e36c4e5e27c4047f94ba2bfec5a1",
+      "references/options-commands.md" : "sha256:52a268a77dbb8e3affc27e25d3f2f5f73b86d44eeedb4d094fdeb9cd31db048b",
+      "references/spot-commands.md" : "sha256:52ba6ab2d7002b1431240df022bdd936b1f6d1372e164fd663307318f107cdf4",
+      "references/swap-commands.md" : "sha256:795903e881e351aa0380187797eae9162aa8def930bb4b17b8c5277a3c188e8a",
+      "references/templates.md" : "sha256:8778e1a76f0995ed7df515d72ce06907598d0353abb526a1a363ad105aa0a1bc",
+      "references/workflows.md" : "sha256:456b8ca38e83611701fc24f6b73604aed8744528f4210346120d63db5753491c"
+    },
+    "public_key_id" : "okx-skill-signing-key-2026",
+    "signature" : "01AJKcS2NOIizsDzkwZFHRqr3Si+b5UcHX8z+3KWcLv8cN4lIFQw6vUIVYEnUCBRT3FkN3KfqAAsYvoLb1luBQ=="
+  },
+  "title" : "okx-cex-trade",
+  "version" : "1.5.0"
+}

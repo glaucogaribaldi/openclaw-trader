@@ -1,0 +1,7 @@
+interface:
+  display_name: "亢龙有悔"
+  short_description: "Analyze and improve Dragon's Regret strategy logic"
+  default_prompt: "Use $dragon-regret to analyze, backtest, or improve a Dragon's Regret style mean-reversion strategy in the current workspace."
+
+policy:
+  allow_implicit_invocation: true

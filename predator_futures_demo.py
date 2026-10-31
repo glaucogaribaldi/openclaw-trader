@@ -294,7 +294,8 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         f"- ScoreboardPerMoneta={json.dumps(coin_scoreboard)}. OpenPositions={json.dumps(open_pos_info)}. RecentClosed={json.dumps(recent_closed_info)}. "
         f"- Telemetria Multi-Orizzonte (1h, 6h, 12h, 48h): {json.dumps(compact_t)}. "
         "COMPITO AGENTICO H24 (Rispondi SOLO JSON in italiano): "
-        "1) self_critique: auto-analisi su cosa ha funzionato o fallito nelle scelte precedenti; "
+        "0) ZAVA-OKX-SKILL HUB ATTIVO (76 Skills: 10 Ufficiali v1.5.0 + 63 Marketplace + 3 EEA/TRE OS): applica i 3 pilastri di kline-indicator (Macro Cycle x Volume-Price WorldQuant x Derivatives OI/Funding), okx-maker-entry (esecuzione Maker limit per abbattere il fee-drag), position-sizer (controllo ATR e distanza liquidazione), tri-asset-adaptive-fusion (correlazione XAU/BTC/ETH), bb-momentum-breakout (Squeeze + MACD) e hindsight-reviewer (analisi controfattuale post-trade); "
+        "1) self_critique: auto-analisi controfattuale (hindsight-reviewer & okx-trade-review-suite) su cosa ha funzionato o fallito nelle scelte precedenti; "
         "2) Prospettive Multi-Orizzonte: outlook_1h (piano tattico prossima 1h), outlook_6h (piano sessione 6h), outlook_12h (piano swing 12h), outlook_48h (strategia macro 48h per recuperare i $267.88 e puntare a $298.89); "
         "3) learned_rules: fino a 5 regole operative auto-apprese; "
         "4) CAMBIO AUTOMATICO DI STRATEGIA (strategy_mode): se vedi che gli ultimi trade stanno perdendo o facendo micro-profitti mangiati dalle fee, DEVI CAMBIARE STRATEGIA scegliendo tra: (a) 'TREND_SWING_RUNNER' (entra sui trend netti 7-orizzonti e tiene per +52..+160bps), (b) 'SNIPER_PULLBACK_LIMIT' (entra solo con ordini limit scontati di -25bps sotto il prezzo per comprare gli spike invece di farsi stoppare dagli spike!), (c) 'CRISIS_RECOVERY_FORTRESS' (opera solo sulle Top 3 monete vincenti dello ScoreboardPerMoneta con SQUEEZE attivo). "
@@ -315,7 +316,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "model_used": f"google-free:{g_mod}", "fee_drag_ratio_pct": fee_drag_pct,
                         "min_kronos_10m_bps": round(max(6.0, min(12.0, float(p.get("min_kronos_10m_bps") or 7.5))), 1),
-                        "fast_shield_bps": round(max(18.0, min(28.0, float(p.get("fast_shield_bps") or 20.0))), 1),
+                        "fast_shield_bps": round(max(38.0, min(58.0, float(p.get("fast_shield_bps") or 52.0))), 1),
                         "trail_lock_ratio": round(max(0.58, min(0.85, float(p.get("trail_lock_ratio") or 0.65))), 2),
                         "dynamic_slot_leverage": round(max(1.5, min(2.0, float(p.get("dynamic_slot_leverage") or 2.0))), 1),
                         "force_close_inst_ids": [str(x) for x in (p.get("force_close_inst_ids") or []) if isinstance(x, str)],
@@ -363,7 +364,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "updated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "model_used": f"openrouter-free:{used_m}", "fee_drag_ratio_pct": fee_drag_pct,
                         "min_kronos_10m_bps": round(max(6.0, min(12.0, float(p.get("min_kronos_10m_bps") or 7.5))), 1),
-                        "fast_shield_bps": round(max(18.0, min(28.0, float(p.get("fast_shield_bps") or 20.0))), 1),
+                        "fast_shield_bps": round(max(38.0, min(58.0, float(p.get("fast_shield_bps") or 52.0))), 1),
                         "trail_lock_ratio": round(max(0.58, min(0.85, float(p.get("trail_lock_ratio") or 0.65))), 2),
                         "dynamic_slot_leverage": round(max(1.5, min(2.0, float(p.get("dynamic_slot_leverage") or 2.0))), 1),
                         "force_close_inst_ids": [str(x) for x in (p.get("force_close_inst_ids") or []) if isinstance(x, str)],

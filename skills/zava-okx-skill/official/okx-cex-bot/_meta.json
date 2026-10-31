@@ -1,0 +1,17 @@
+{
+  "description" : "Manage Grid bots (spot/contract/coin-margined), DCA Martingale bots (Spot DCA 现货马丁 / Contract DCA 合约马丁), and Smart Portfolio bots (智能组合, auto-rebalancing multi-asset portfolio) on OKX. Covers create, stop, amend, monitor P&L, TP/SL, margin/investment adjustment, AI-recommended parameters, and recommended zone backtest. Requires API credentials. Not for regular orders (okx-cex-trade), market data (okx-cex-market), or account info (okx-cex-portfolio).",
+  "name" : "okx-cex-bot",
+  "signing" : {
+    "files" : {
+      "SKILL.md" : "sha256:42c2f8eff4fc8afec45bed69fb80dc9f2187fb7dbd92ae39df3cfb73e490f275",
+      "references/dca-commands.md" : "sha256:62586176f7df406318ba09d40b54bc4d90102a0b1695b970c55d919d61a7b0ed",
+      "references/grid-commands.md" : "sha256:4db3bd814a692cdb52c9045e62920993bb3a72eb663181c877ab0d48b5b66c4d",
+      "references/smart-portfolio-commands.md" : "sha256:cd0ef06e890d7f870e1dd9e45ad4d97668cd68afd691e8d4a4c6df74004859c9",
+      "references/workflows.md" : "sha256:cd3367bc8e378512dbd9a846e0f419cf035fb21689596609698d9173ad99e806"
+    },
+    "public_key_id" : "okx-skill-signing-key-2026",
+    "signature" : "gJEkIY2sD4GCfaq1uW3/wYc9+a5brwidOxV1Z01gkHEmQka90XDRaCFOw20SWGzy6tUBBVKcUIlhlfXyNbWnAA=="
+  },
+  "title" : "okx-cex-bot",
+  "version" : "1.5.0"
+}

@@ -1,0 +1,17 @@
+{
+  "description" : "Smart Money analytics on OKX: leaderboard traders, position tracking, trade records, closed-position history, aggregated consensus signals, and signal history. Use this skill when the user asks about 聪明钱, smart money, 牛人榜, leaderboard, top traders, 交易员排行, trader ranking, trader positions, trader PnL, 交易员持仓, 交易员收益, 历史平仓, closed positions, realized PnL track record, trade history, 成交记录, smart money signal, 聪明钱信号, long/short ratio, 多空比, capital flow, 资金流向, position conviction, 仓位强度, entry price distribution, smart money overview, 聪明钱总览, signal history, 信号历史, trader search, 搜索交易员, who is trading BTC, 谁在交易BTC, recommend traders, 推荐交易员, best traders, top performers.",
+  "name" : "okx-cex-smartmoney",
+  "signing" : {
+    "files" : {
+      "SKILL.md" : "sha256:b457db9e2014711362497538c892471bd420a8c8dd3c3b2898fd916a47383f8b",
+      "references/signal-commands.md" : "sha256:537ea755bbeec9087082e1df472d52c40214dc9d50f1e4a32f39611a5b3f30b8",
+      "references/templates.md" : "sha256:efd85edadd3a35fe3120987a5f19ad48b0ca5abc123b3e4713d6ac0ddbc9adeb",
+      "references/trader-commands.md" : "sha256:0295cfebd770624ab2192cc044805070484e13a04f69b9e2f6363ede249a4ff6",
+      "references/workflows.md" : "sha256:9cb725b1ab27857fb2538b217a82d32b926770d6ca162b741838229a2a6e4b8e"
+    },
+    "public_key_id" : "okx-skill-signing-key-2026",
+    "signature" : "VPFRWYoGCUTA7JFfue2ghQ3Qh1vkqsxe/XAQvqZKgNXe+cLJKKtFG73yv5wYVcIADEKZx4ZR7n6aIapd+uqsCA=="
+  },
+  "title" : "okx-cex-smartmoney",
+  "version" : "1.5.0"
+}

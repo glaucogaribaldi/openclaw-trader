@@ -1,0 +1,13 @@
+{
+  "description" : "Use this skill when the user asks to: 'find a trading skill', 'search for skills', 'install a skill', 'add a skill', 'download a skill', 'browse skill marketplace', 'what skills are available', 'update a skill', 'check for skill updates', 'remove a skill', 'uninstall a skill', 'list installed skills', 'show my skills', 'skill categories', 'verify skill signature', 'verify installed skill', 're-verify a skill', 'check skill integrity', or any request to discover, install, update, verify, or manage AI trading skills from the OKX Skills Marketplace. This skill covers searching, browsing categories, installing via CLI, downloading zip packages, checking for updates, removing installed skills, and verifying Ed25519 signatures of installed skills. Requires API credentials for marketplace API access. Do NOT use for placing orders (use okx-cex-trade), market data (use okx-cex-market), or bot management (use okx-cex-bot).",
+  "name" : "okx-cex-skill-mp",
+  "signing" : {
+    "files" : {
+      "SKILL.md" : "sha256:71e9ef52e7a64e2bfd84382371241d46e9d2618f05eb10cf34d6a87ca25980b4"
+    },
+    "public_key_id" : "okx-skill-signing-key-2026",
+    "signature" : "G1X0UQ89AMazA7ggePzETtgvPjArMV9/bnMeYQpfQ/jRIZPYRw5BL0Py72VbSEtJBoLQJNYsHl3ev44qSx75CA=="
+  },
+  "title" : "okx-cex-skill-mp",
+  "version" : "1.5.0"
+}
