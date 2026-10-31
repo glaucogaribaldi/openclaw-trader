@@ -226,6 +226,7 @@ def load_gemini_brain_skills() -> Dict[str, Any]:
         "priority_boost_inst_ids": [],
         "blacklist_inst_ids": [],
         "gemini_sniper_entries": [],
+        "strategy_mode": "TREND_SWING_RUNNER",
         "self_critique": "Inizializzazione memoria episodica agentica h24.",
         "outlook_1h": "Tattica 1h: attendere conferma OFI >= +0.18 sui leader rialzisti evitando micro-rumore.",
         "outlook_6h": "Sessione 6h: focus su recupero graduale con max 1 slot scoperto alla volta a leva 2.0x Anti-Wick.",
@@ -296,7 +297,8 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "1) self_critique: auto-analisi su cosa ha funzionato o fallito nelle scelte precedenti; "
         "2) Prospettive Multi-Orizzonte: outlook_1h (piano tattico prossima 1h), outlook_6h (piano sessione 6h), outlook_12h (piano swing 12h), outlook_48h (strategia macro 48h per recuperare i $267.88 e puntare a $298.89); "
         "3) learned_rules: fino a 5 regole operative auto-apprese; "
-        "4) Controlli operativi: force_close_inst_ids, priority_boost_inst_ids (top 2-3 monete migliori), blacklist_inst_ids (MAX 3 monete più tossiche, VIETATO bloccare tutto il paniere: devi trovare i migliori setup con VPIN<=0.78 per recuperare il NAV!), gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [18.0..25.0], trail_lock_ratio [0.70..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
+        "4) CAMBIO AUTOMATICO DI STRATEGIA (strategy_mode): se vedi che gli ultimi trade stanno perdendo o facendo micro-profitti mangiati dalle fee, DEVI CAMBIARE STRATEGIA scegliendo tra: (a) 'TREND_SWING_RUNNER' (entra sui trend netti 7-orizzonti e tiene per +52..+160bps), (b) 'SNIPER_PULLBACK_LIMIT' (entra solo con ordini limit scontati di -25bps sotto il prezzo per comprare gli spike invece di farsi stoppare dagli spike!), (c) 'CRISIS_RECOVERY_FORTRESS' (opera solo sulle Top 3 monete vincenti dello ScoreboardPerMoneta con SQUEEZE attivo). "
+        "5) Controlli operativi: strategy_mode, force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids (max 3), gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [38.0..55.0], trail_lock_ratio [0.72..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
     )
     for g_mod in ("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-4-argon"):
         try:
@@ -320,6 +322,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
                         "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)][:3],
                         "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
+                        "strategy_mode": str(p.get("strategy_mode") if p.get("strategy_mode") in ("TREND_SWING_RUNNER", "SNIPER_PULLBACK_LIMIT", "CRISIS_RECOVERY_FORTRESS") else default_audit.get("strategy_mode", "TREND_SWING_RUNNER")),
                         "self_critique": str(p.get("self_critique") or default_audit.get("self_critique", ""))[:280],
                         "outlook_1h": str(p.get("outlook_1h") or default_audit.get("outlook_1h", ""))[:260],
                         "outlook_6h": str(p.get("outlook_6h") or default_audit.get("outlook_6h", ""))[:260],
@@ -367,6 +370,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
                         "priority_boost_inst_ids": [str(x) for x in (p.get("priority_boost_inst_ids") or []) if isinstance(x, str)][:3],
                         "blacklist_inst_ids": [str(x) for x in (p.get("blacklist_inst_ids") or []) if isinstance(x, str)][:3],
                         "gemini_sniper_entries": [x for x in (p.get("gemini_sniper_entries") or []) if isinstance(x, dict) and x.get("inst_id") in FUTURES_UNIVERSE and x.get("dir") in ("LONG", "SHORT")][:1],
+                        "strategy_mode": str(p.get("strategy_mode") if p.get("strategy_mode") in ("TREND_SWING_RUNNER", "SNIPER_PULLBACK_LIMIT", "CRISIS_RECOVERY_FORTRESS") else default_audit.get("strategy_mode", "TREND_SWING_RUNNER")),
                         "self_critique": str(p.get("self_critique") or default_audit.get("self_critique", ""))[:280],
                         "outlook_1h": str(p.get("outlook_1h") or default_audit.get("outlook_1h", ""))[:260],
                         "outlook_6h": str(p.get("outlook_6h") or default_audit.get("outlook_6h", ""))[:260],
@@ -710,6 +714,13 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             unshielded_total = sum(1 for r in open_positions.values() if int(r[10]) == 0) + len(live_okx_pend)
             if unshielded_total >= 1:
                 break
+            active_strat = str(brain_skills.get("strategy_mode") or "TREND_SWING_RUNNER")
+            cur.execute("SELECT realized_pnl_usd FROM futures_demo_positions WHERE status != 'OPEN' AND realized_pnl_usd IS NOT NULL ORDER BY closed_at DESC LIMIT 3")
+            last3_pnls = [float(r[0]) for r in cur.fetchall()]
+            if len(last3_pnls) >= 2 and sum(last3_pnls[:2]) <= -0.80:
+                active_strat = "SNIPER_PULLBACK_LIMIT"
+            if active_strat == "SNIPER_PULLBACK_LIMIT":
+                c_px = round(c_px * 0.9975, c_dec) if c_dir == "LONG" else round(c_px * 1.0025, c_dec)
             vm = float(cand.get("vol_mult") or 1.0)
             tp_bps_dyn = round(160.0 * vm, 1) / 10000.0
             sl_bps_dyn = round(135.0 * vm, 1) / 10000.0
