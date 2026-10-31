@@ -10,6 +10,7 @@ sys.path.insert(0, BASE_DIR)
 from predator_futures_demo import init_futures_db, load_gemini_brain_skills, run_gemini_ordinary_futures_audit
 from predator_daemon import load_dotenv
 from scripts.telegram_reporter import send_telegram_report
+from scripts.subagent_auditor_trader import run_subagent_auditor
 
 def run_hourly_guardian() -> None:
     load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -25,6 +26,8 @@ def run_hourly_guardian() -> None:
     if tel:
         run_gemini_ordinary_futures_audit(conn, nav, tel)
     conn.close()
+    now_h = datetime.datetime.now(datetime.timezone.utc).hour
+    run_subagent_auditor(deep_3h=(now_h % 3 == 0))
     send_telegram_report()
     print(f"[HOURLY GUARDIAN OK] {datetime.datetime.now(datetime.timezone.utc).isoformat()} | NAV=${nav:.2f}")
 

@@ -675,12 +675,15 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         gem_sniper_map = {str(x.get("inst_id")): str(x.get("dir")) for x in brain_skills.get("gemini_sniper_entries", []) if isinstance(x, dict)}
         night_ok_long = (not is_night_hours) or bool(k5m >= 8.0 and k10m >= 10.0 and k1h >= 12.0 and k2h >= 8.0 and k6h >= 15.0 and k12h >= 15.0 and k24h >= 15.0 and sig.ofi_norm >= 0.28 and sig.vpin_toxicity <= 0.55)
         night_ok_short = (not is_night_hours) or bool(k5m <= -8.0 and k10m <= -10.0 and k1h <= -12.0 and k2h <= -8.0 and k6h <= -15.0 and k12h <= -15.0 and k24h <= -15.0 and sig.ofi_norm <= -0.28 and sig.vpin_toxicity <= 0.55)
+        is_boosted = inst_id in brain_skills.get("priority_boost_inst_ids", [])
+        pullback_long_ok = bool(is_boosted and k1h >= 7.0 and k2h >= 15.0 and k6h >= 18.0 and k5m >= -4.0 and sig.ofi_norm >= 0.20)
+        pullback_short_ok = bool(is_boosted and k1h <= -7.0 and k2h <= -15.0 and k6h <= -18.0 and k5m <= 4.0 and sig.ofi_norm <= -0.20)
         if not night_stop_lock and not is_blacklisted and inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and night_ok_long and not btc_veto_long and k5m >= 5.0 and k10m >= eff_k10m_gate and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.78:
-                score = round((k5m * 0.8) + (k10m * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus + sqz_bonus, 2)
+            if allowed_dir == "LONG" and night_ok_long and not btc_veto_long and ((k5m >= 5.0 and k10m >= eff_k10m_gate) or pullback_long_ok) and sig.ofi_norm >= 0.18 and sig.vpin_toxicity <= 0.78:
+                score = round((max(2.0, k5m) * 0.8) + (max(4.0, k10m) * 1.1) + (k1h * 0.4) + (k6h * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus + sqz_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
-            elif allowed_dir == "SHORT" and night_ok_short and not btc_veto_short and k5m <= -5.0 and k10m <= -eff_k10m_gate and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.78:
-                score = round((abs(k5m) * 0.8) + (abs(k10m) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus + sqz_bonus, 2)
+            elif allowed_dir == "SHORT" and night_ok_short and not btc_veto_short and ((k5m <= -5.0 and k10m <= -eff_k10m_gate) or pullback_short_ok) and sig.ofi_norm <= -0.18 and sig.vpin_toxicity <= 0.78:
+                score = round((max(2.0, abs(k5m)) * 0.8) + (max(4.0, abs(k10m)) * 1.1) + (abs(k1h) * 0.4) + (abs(k6h) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus + sqz_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
             elif not is_night_hours and inst_id in gem_sniper_map and sig.vpin_toxicity <= 0.80:
                 g_dir = gem_sniper_map[inst_id]
@@ -720,8 +723,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             last3_pnls = [float(r[0]) for r in cur.fetchall()]
             if len(last3_pnls) >= 2 and sum(last3_pnls[:2]) <= -0.80:
                 active_strat = "SNIPER_PULLBACK_LIMIT"
-            if active_strat == "SNIPER_PULLBACK_LIMIT":
-                c_px = round(c_px * 0.9975, c_dec) if c_dir == "LONG" else round(c_px * 1.0025, c_dec)
+            # Top-of-book post_only Maker (bids[0][0] / asks[0][0]) so order fills within 1.2s without cancel-loop bug
             vm = float(cand.get("vol_mult") or 1.0)
             tp_bps_dyn = round(160.0 * vm, 1) / 10000.0
             sl_bps_dyn = round(135.0 * vm, 1) / 10000.0
