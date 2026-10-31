@@ -475,7 +475,7 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
         # Anti-Crash Hardware Shield: attach native TP and SL directly inside OKX Matching Engine!
         body["attachAlgoOrds"] = [{
             "tpTriggerPx": f"{tp_px:.{dec_px}f}",
-            "tpOrdPx": "-1",
+            "tpOrdPx": f"{tp_px:.{dec_px}f}",
             "tpTriggerPxType": "last",
             "slTriggerPx": f"{sl_px:.{dec_px}f}",
             "slOrdPx": "-1",
@@ -592,9 +592,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         k6h = k_fc.horizon_6h_bps if k_fc else round(real_48h_bps * 0.25, 1)
         k12h = k_fc.swing_return_12h_bps if k_fc else round(real_48h_bps * 0.45, 1)
         k24h = k_fc.daily_return_24h_bps if k_fc else round(real_48h_bps * 0.70, 1)
-        # Real-Candle Price Momentum Gate: NEVER short a rising green candle (real_15m/1h > 0) and NEVER long a falling red candle!
-        macro_bull = bool(k6h >= 8.0 and (k12h >= 5.0 or k24h >= 5.0) and k2h >= -8.0 and k1h >= 6.0 and real_1h_bps >= 0.0 and real_15m_bps >= -12.0)
-        macro_bear = bool(k6h <= -8.0 and (k12h <= -5.0 or k24h <= -5.0) and k2h <= 8.0 and k1h <= -6.0 and real_1h_bps <= -5.0 and real_15m_bps <= -2.0)
+        # True Asymmetric Swing-Scalper Gate: unlock clean 7-horizon trends while blocking counter-candle traps!
+        macro_bull = bool(k6h >= 10.0 and (k12h >= 8.0 or k24h >= 8.0) and k2h >= -6.0 and k1h >= 6.0 and real_15m_bps >= -8.0 and (real_1h_bps >= -10.0 or (k5m >= 8.0 and k10m >= 8.0)))
+        macro_bear = bool(k6h <= -10.0 and (k12h <= -8.0 or k24h <= -8.0) and k2h <= 6.0 and k1h <= -6.0 and real_15m_bps <= -2.0 and (real_1h_bps <= -5.0 or (k5m <= -10.0 and k10m <= -10.0 and k1h <= -12.0)))
         allowed_dir = "LONG" if macro_bull else ("SHORT" if macro_bear else "NEUTRAL")
         if inst_id in open_positions:
             p_id, _, p_dir, p_lev, p_mgn, p_notional, p_entry, p_tp, p_sl, p_peak_bps, p_shield, p_efee, p_open_ts = open_positions[inst_id]
@@ -604,31 +604,32 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 pos_age_mins = (now_dt - datetime.datetime.fromisoformat(str(p_open_ts).replace("Z", "+00:00"))).total_seconds() / 60.0
             except Exception:
                 pos_age_mins = 0.0
-            eff_shield_gate = 16.0 if pos_age_mins >= 30.0 else min(24.0, fast_shield_gate_bps)
+            # NEVER arm shield below +52 bps (or +38 bps after 60m) so winners NEVER close for $0.01 at +10 bps!
+            eff_shield_gate = 38.0 if pos_age_mins >= 60.0 else 52.0
             new_shield = 1 if (int(p_shield) == 1 or new_peak >= eff_shield_gate) else 0
             if live_mode and int(p_shield) == 0 and new_shield == 1:
-                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 10.0, meta["dec_px"])
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 32.0, meta["dec_px"])
             exit_reason, exit_exec_px, urgent_stop = None, mid, False
             if (p_dir == "LONG" and bids[0][0] >= p_tp) or (p_dir == "SHORT" and asks[0][0] <= p_tp):
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_PROFIT", p_tp, True
-            elif inst_id in brain_skills.get("force_close_inst_ids", []):
+            elif inst_id in brain_skills.get("force_close_inst_ids", []) and move_bps >= 35.0:
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             elif new_shield == 1:
-                # Stage 1 (+24..+64 bps): pure Break-Even Floor at +10 bps so a trade that reached +24..+36 bps NEVER turns into a stop-loss!
-                # Stage 2 (>= +65 bps): lock 75%..82% of the big runner!
-                if new_peak < 65.0:
-                    locked_move_bps = 10.0
+                # Stage 1 (+52..+84 bps): lock at +32 bps (+$0.25+ net minimum, 20+ bps breathing cushion!)
+                # Stage 2 (>= +85 bps): lock 76%..82% of the big runner up to +160 bps!
+                if new_peak < 85.0:
+                    locked_move_bps = 32.0
                 else:
-                    base_trail = float(brain_skills.get("trail_lock_ratio") or 0.75)
-                    locked_move_bps = new_peak * max(0.72, base_trail)
+                    base_trail = float(brain_skills.get("trail_lock_ratio") or 0.76)
+                    locked_move_bps = new_peak * max(0.75, base_trail)
                 if move_bps <= locked_move_bps:
                     exit_reason = "CLOSED_SHIELD"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
-            if not exit_reason and move_bps <= -110.0:
-                inv_1h = bool(pos_age_mins >= 15.0 and ((p_dir == "LONG" and k5m <= -8.0 and k10m <= -12.0 and k1h <= -25.0) or (p_dir == "SHORT" and k5m >= 8.0 and k10m >= 12.0 and k1h >= 25.0)))
+            if not exit_reason and move_bps <= -85.0:
+                inv_1h = bool(pos_age_mins >= 20.0 and ((p_dir == "LONG" and k5m <= -8.0 and k10m <= -12.0 and k1h <= -20.0) or (p_dir == "SHORT" and k5m >= 8.0 and k10m >= 12.0 and k1h >= 20.0)))
                 broken = bool((p_dir == "LONG" and k5m < -10.0 and k6h < -25.0) or (p_dir == "SHORT" and k5m > 10.0 and k6h > 25.0))
-                if inv_1h or (move_bps <= -150.0 and broken) or move_bps <= -180.0:
+                if inv_1h or (move_bps <= -110.0 and broken) or move_bps <= -135.0:
                     exit_reason = "CLOSED_STOPLOSS"
                     exit_exec_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
                     urgent_stop = True
@@ -710,8 +711,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             if unshielded_total >= 1:
                 break
             vm = float(cand.get("vol_mult") or 1.0)
-            tp_bps_dyn = round(135.0 * vm, 1) / 10000.0
-            sl_bps_dyn = round(180.0 * vm, 1) / 10000.0
+            tp_bps_dyn = round(160.0 * vm, 1) / 10000.0
+            sl_bps_dyn = round(135.0 * vm, 1) / 10000.0
             tp_px = round(c_px * (1.0 + tp_bps_dyn), c_dec) if c_dir == "LONG" else round(c_px * (1.0 - tp_bps_dyn), c_dec)
             sl_px = round(c_px * (1.0 - sl_bps_dyn), c_dec) if c_dir == "LONG" else round(c_px * (1.0 + sl_bps_dyn), c_dec)
             if live_mode:
