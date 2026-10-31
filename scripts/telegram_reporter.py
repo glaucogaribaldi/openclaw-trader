@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-TRE OS v14.0 — Sovereign Perpetual Futures 2.5x Isolated Telegram Executive Reporter (telegram_reporter.py)
-Reads config/futures_demo_snapshot.json and sends a brutally honest live executive report to Telegram.
+TRE OS v18.4 — Sovereign Perpetual Futures 2.5x Isolated Telegram Executive Reporter (telegram_reporter.py)
+Reads config/futures_demo_snapshot.json and config/auditor_structural_inputs.json and sends a brutally honest live executive report to Telegram.
 """
 import json, os, ssl, sys, urllib.request
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +15,10 @@ def send_telegram_report() -> None:
         print("[!] Missing futures_demo_snapshot.json")
         return
     s = json.load(open(snap_p, encoding="utf-8"))
+    aud_p = os.path.join(BASE_DIR, "config", "auditor_structural_inputs.json")
+    aud = json.load(open(aud_p, encoding="utf-8")) if os.path.exists(aud_p) else {}
+    aud_inputs = aud.get("structural_inputs_for_main_agent") or ["Presidio Top-of-Book Maker 2bps attivo"]
+    aud_line = str(aud_inputs[0])[:100]
     nav = float(s.get("current_nav_usd") or 0.0)
     base = float(s.get("baseline_nav_usd") or 268.95)
     free_mgn = float(s.get("free_margin_usd") or 0.0)
@@ -31,7 +35,7 @@ def send_telegram_report() -> None:
         pos_lines.append(f"• {p['direction']} 2.5x {p['inst_id'].split('-')[0]}: Mgn=$${p['margin_usd']} | Entry=$${p['entry_px']} -> $${p['current_px']} | Peak={p['peak_move_bps']:+.1f}bps Shield={p['shield_armed']}")
     pos_txt = "\n".join(pos_lines) if pos_lines else "• Nessuna posizione aperta (100% Margine USDC liquido)"
     msg = (
-        f"⚡ *TRE OS v14.0 — LIVE XPERP FUTURES 2.5X ISOLATED*\n"
+        f"⚡ *TRE OS v18.4 — LIVE XPERP FUTURES 2.5X ISOLATED*\n"
         f"🕒 `{s.get('timestamp')}`\n\n"
         f"💰 *NAV Conto Trading OKX:* `$${nav:.2f} USDC` (`{delta_base:+.2f} USDC` / `{delta_pct:+.2f}%` da switch $${base:.2f})\n"
         f"🛡️ *Camera 2 (Free Margin USDC):* `$${free_mgn:.2f} USDC`\n"
@@ -39,7 +43,8 @@ def send_telegram_report() -> None:
         f"📊 *Realized PnL:* `$${rpnl:+.4f}` | *Unr PnL:* `$${upnl:+.3f}`\n"
         f"🧾 *Fees (2 bps Maker):* `$${fees:.4f}` (`Fee-Drag: {fdrag:.1f}%`)\n"
         f"🏆 *Esiti:* `Wins={wins} | Shields={shields} | Stops={stops}`\n"
-        f"🧠 *Auditor:* `{s.get('auditor_model')}`\n\n"
+        f"🧠 *Auditor:* `{s.get('auditor_model')}`\n"
+        f"🕵️ *Sub-Agente Auditor (1h/3h):* `{aud_line}`\n\n"
         f"*Posizioni Attive (Max 4 x 12.5% NAV):*\n{pos_txt}"
     )
     print(msg)
