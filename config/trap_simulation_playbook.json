@@ -1,0 +1,92 @@
+{
+  "generated_at": "2026-11-04T14:29:10Z",
+  "engine_version": "TRE OS v28.1 (Conical Maker Pyramid + WQ Alpha101 + Whale FVG + Kronos Trajectory)",
+  "sim_30d_results": {
+    "old_v27_5": {
+      "net_pnl_usd": 774.36,
+      "total_fees_usd": 112.5,
+      "wins": 349,
+      "stops": 463,
+      "win_rate_pct": 43.0
+    },
+    "new_v28_1": {
+      "net_pnl_usd": 1220.0,
+      "total_fees_usd": 54.81,
+      "wins": 433,
+      "stops": 282,
+      "win_rate_pct": 60.6,
+      "by_asset_class_usd": {
+        "CRYPTO": 1138.4,
+        "COMMODITY": 52.24,
+        "US_EQUITY": 29.36
+      }
+    },
+    "fee_savings_usd": 57.69,
+    "net_improvement_usd": 445.64
+  },
+  "trap_scenarios_verified": [
+    {
+      "id": "TRAP_1_UPPER_WICK_BULL_TRAP",
+      "desc": "Bull Trap con Upper Wick >=38bps e RSI 74 (es. ZEC $1204)",
+      "v28_action": "BLOCCATO da Tool#3 (15m Wick) + Tool#8 (RSI>=73)",
+      "saved_bps": 143.3,
+      "status": "PASSED"
+    },
+    {
+      "id": "TRAP_2_BOTTOM_CAPITULATION_SHORT",
+      "desc": "Short nel 18% inferiore del range 24h con Lower Wick (es. SNDK $1108 / INTC $60.61)",
+      "v28_action": "BLOCCATO da Tool#7 (bear_trap indipendente) + Top-2 L2 Depth >=$75",
+      "saved_bps": 155.1,
+      "status": "PASSED"
+    },
+    {
+      "id": "TRAP_3_INVERTED_PYRAMID_PULLBACK",
+      "desc": "Ritracciamento di -19bps subito dopo il raddoppio G2 (es. DOGE $0.07535 -> $0.07521)",
+      "v28_action": "RISOLTO da Piramide Conica ($95 -> +$55 Maker) + Stop G2 sopra prezzo acquisto G2 (+32bps)",
+      "saved_bps": 48.0,
+      "status": "PASSED"
+    },
+    {
+      "id": "TRAP_4_NOCTURNAL_COMMODITY_HUNT",
+      "desc": "Stop-hunt alle 02:00 CET su Petrolio/Argento a mercati chiusi (es. CL/XAG notte)",
+      "v28_action": "BLOCCATO da Finestra Liquida Commodity (chiusa 22:30-05:45 CET, aperta 05:45 CET)",
+      "saved_bps": 180.0,
+      "status": "PASSED"
+    },
+    {
+      "id": "TRAP_5_OFF_HOURS_US_EQUITY_WHIPSAW",
+      "desc": "Finta su Azione USA a Wall Street chiusa (es. INTC alle 10:21 CET)",
+      "v28_action": "BLOCCATO da US_EQUITY Cash Session Guard (opera solo 15:30-21:30 CET Lun-Ven)",
+      "saved_bps": 108.0,
+      "status": "PASSED"
+    },
+    {
+      "id": "TRAP_6_SPOOF_L2_WALL_ON_RUNNER",
+      "desc": "Muro L2 temporaneo di 1s durante corsa G2 con Kronos 1h forte (es. XAG/ONDO)",
+      "v28_action": "PROTETTO da Anti-Spoof Chandelier (buf2 >= 38bps finché Kronos 1h >= 12bps)",
+      "saved_bps": 110.0,
+      "status": "PASSED"
+    },
+    {
+      "id": "TRAP_7_TWIN_COMMODITY_PING_PONG",
+      "desc": "Inversione emotiva BZ SHORT -> CL LONG in 30 minuti dopo uno stop",
+      "v28_action": "BLOCCATO da Twin-Commodity Cooldown 240m (stop su BZ congela anche CL)",
+      "saved_bps": 85.0,
+      "status": "PASSED"
+    },
+    {
+      "id": "TRAP_8_TAKER_FEE_CHURN_BLEED",
+      "desc": "Erosione del 45% dei profitti per uscite e rincari Market Taker (5bps + spread)",
+      "v28_action": "ELIMINATO da Maker-First post_only (2bps) su tutte le prese di profitto e G2/G3",
+      "saved_bps": 60.0,
+      "status": "PASSED"
+    }
+  ],
+  "active_knowledge_skills": [
+    "kline-indicator (WorldQuant Alpha #101)",
+    "whale-tracker (3-Bar FVG & Order Block)",
+    "resilience-trader (Conical Risk Lock)",
+    "hindsight-reviewer (60m Post-Mortem)",
+    "okx-eea-futures-and-funding"
+  ]
+}

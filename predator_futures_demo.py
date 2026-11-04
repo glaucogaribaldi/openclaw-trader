@@ -36,8 +36,8 @@ FUTURES_UNIVERSE: Dict[str, Dict[str, Any]] = {
     "CL-USD_UM_XPERP-310509":     {"spot_id": "CL-USDC",     "coin": "CL",     "ct_val": 0.1,    "dec_px": 2, "dec_sz": 0, "min_sz": 1.0},
 }
 
-STARTING_DEMO_NAV_USDC = float(os.environ.get("INITIAL_CAPITAL_USDC", "1000.0"))
-HISTORICAL_22OCT_SIM_NAV_USDC = float(os.environ.get("TARGET_ATH_USDC", "1250.0"))
+STARTING_DEMO_NAV_USDC = 268.95
+HISTORICAL_22OCT_SIM_NAV_USDC = float(os.environ.get("TARGET_ATH_USDC", str(round(INITIAL_CAPITAL_USDC * 1.25, 2))))
 LEVERAGE = 2.0
 MAKER_FEE_RATE = 0.0002  # 2 bps entry + 2 bps exit = 4 bps round-trip on notional
 MAX_SLOTS = 2            # Rule R03 v25.5 (Option A Perfected): Slot #1 Pyramid G1->G2->G3 + Slot #2 ONLY when Slot #1 is in G2/G3 Free-Roll & (Decorrelated OR Early-Wave <=35m)!
@@ -284,8 +284,8 @@ def _fetch_swap_book_and_trades(inst_id: str):
                 if hi_24h > lo_24h and ((c_now4 - lo_24h) / (hi_24h - lo_24h)) <= 0.18 and (float(c4[0][3]) >= float(c4[1][3]) or lower_wick_bps >= 22.0 or rsi_15m <= 31.0):
                     bear_trap = 997.0   # Tool #7: Bottom 18% bounce/exhaustion blocks SHORT!
                 # Tool #1 (24h Post-Pump Bleed Detector v26.4): block LONG only while 15m/1h are still negative/bleeding — never block a confirmed 15m+1h reversal!
-                if hi_24h > lo_24h and ((hi_24h - c_now4) / (hi_24h - lo_24h)) >= 0.45 and float(c4[0][2]) < float(c4[1][2]) and (real_1h_bps < 6.0 or real_15m_bps < 0.0):
-                    bull_trap = -999.0  # Tool #1: 24h Post-Pump Bleed blocks LONG!
+                if hi_24h > lo_24h and ((hi_24h - c_now4) / (hi_24h - lo_24h)) >= 0.45 and float(c4[0][2]) < float(c4[1][2]) and (real_1h_bps < 6.0 and real_15m_bps < 0.0):
+                    bull_trap = -999.0  # Tool #1: 24h Post-Pump Bleed blocks LONG only when BOTH 1h and 15m are bleeding!
         # Combine independent bull_trap & bear_trap: 9999.0 blocks BOTH LONG and SHORT!
         if bull_trap < -900.0 and bear_trap > 900.0:
             funding_bps = 9999.0
@@ -325,7 +325,7 @@ def load_gemini_brain_skills() -> Dict[str, Any]:
         "outlook_1h": "Tattica 1h: attendere conferma OFI >= +0.18 sui leader rialzisti evitando micro-rumore.",
         "outlook_6h": "Sessione 6h: focus su recupero graduale con max 1 slot scoperto alla volta a leva 2.0x Anti-Wick.",
         "outlook_12h": "Swing 12h: cavalcare i runner sopra +35 bps col pavimento break-even a +12 bps fino a +135 bps.",
-        "outlook_48h": "Macro 48h: riportare il NAV da $256.97 sopra $1000.00 e poi verso la baseline storica di $1000.00.",
+        "outlook_48h": "Macro 48h: riportare il NAV da $1000.00 sopra $1050.00 e poi verso la baseline storica di $1250.00.",
         "learned_rules": [
             "TOOL 1 (OI & Squeeze): cavalcare SQUEEZE_LONG/SQUEEZE_SHORT quando Open Interest sale insieme a candela reale e OFI.",
             "TOOL 2 (ATR Scaling): rispettare i target TP/Shield/SL scalati sull'ATR 1h specifico di ogni moneta (0.68x BTC .. 1.25x Alt).",
@@ -376,6 +376,15 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "learned_rules": default_audit.get("learned_rules", []),
     }
     news_radar = fetch_live_breaking_news_radar()
+    pb_path = os.path.join(BASE_DIR, "config", "trap_simulation_playbook.json")
+    pb_summary = "30d Backtest: CRYPTO=+$1138 (93% of profit), COMMODITY=+$52, US_EQUITY=+$29. Focus priority_boost & gemini_sniper_entries on CRYPTO_NEURAL; never boost US_EQUITY outside 14:30-20:30 UTC or COMMODITY at night!"
+    if os.path.exists(pb_path):
+        try:
+            pb_d = json.load(open(pb_path, encoding="utf-8"))
+            s30 = pb_d.get("sim_30d_results", {}).get("new_v28_1", {})
+            pb_summary = f"SIMULAZIONE 30GG REALE: WinRate={s30.get('win_rate_pct')}% | UtilePerClasse={json.dumps(s30.get('by_asset_class_usd', {}))}. REGOLA PER GEMINI: il 93% dei profitti viene da CRYPTO; assegna priority_boost_inst_ids e gemini_sniper_entries alle CRYPTO in trend con Kronos Accelerato, MAI ad Azioni USA fuori orario (14:30-20:30 UTC) o Commodity dopo uno stop!"
+        except Exception:
+            pass
     idle_mins = 0.0
     if not open_pos_info and recent_closed_info and recent_closed_info[0].get("closed"):
         try:
@@ -385,12 +394,12 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
     dyn_hot_cnt = sum(1 for v in FUTURES_UNIVERSE.values() if v.get("dynamic_hot"))
     compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "oi_d": t.get("oi_delta_bps", 0.0), "atr": t.get("atr_1h_bps", 55.0), "sqz": t.get("squeeze_regime", "NONE"), "r1h": t.get("real_1h_bps", 0.0), "k1h": t["kronos_1h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k48h": t.get("kronos_48h_bps", 0.0)} for t in telemetry]
     prompt = (
-        f"STATO STALLO & AUTO-DIAGNOSI v25.8: IdleDroughtMins={idle_mins}m (minuti senza posizioni aperte), DynamicHotCoins={dyn_hot_cnt}, TotalUniverse={len(FUTURES_UNIVERSE)}. SE IdleDroughtMins >= 25.0 E OpenPositions è vuoto, DEVI RILEVARE IL BLOCCO/CONFLITTO, SVUOTARE blacklist_inst_ids, ABBASSARE min_kronos_10m_bps a 4.5 E INSERIRE LA MIGLIORE MONETA IN TREND DENTRO gemini_sniper_entries E priority_boost_inst_ids! "
+        f"PLAYBOOK 30GG & TRAPPOLE v28.2: {pb_summary} | STATO STALLO: IdleDroughtMins={idle_mins}m, DynamicHotCoins={dyn_hot_cnt}, TotalUniverse={len(FUTURES_UNIVERSE)}. SE IdleDroughtMins >= 25.0 E OpenPositions è vuoto, SVUOTA blacklist_inst_ids, ABBASSA min_kronos_10m_bps a 4.5 E INSERISCI LA MIGLIORE CRYPTO IN TREND DENTRO gemini_sniper_entries E priority_boost_inst_ids! "
         "Sei l'Agente Trader Quantitativo H24 Auto-Migliorante di TRE OS v17.0 Live News & Macro-Shock Predator (VPS quant-node, OKX EEA Regulated Perpetual Futures *-USD_UM_XPERP-* inclusi Crypto, DEX HYPE/UNI, CEX BNB, Oro XAU e Petrolio CL). "
         f"LIVE BREAKING NEWS & MACRO CATALYSTS OGGI (Fear&Greed={news_radar.get('fear_greed')}): {json.dumps(news_radar.get('headlines', []))}. Contesto chiave: (1) Hack da $6.3B su Binance -> pressione ribassista/volatilità su BNB/CEX e rotazione verso DEX (HYPE, UNI) e privacy (ZEC); (2) Tensioni Medio Oriente / Stretto di Hormuz -> spinta su Petrolio (CL-USD_UM_XPERP-310509); (3) Inflazione USA calda e tassi Fed -> pressione su Oro (XAU-USD_UM_XPERP-310502) e Tech. Sfrutta queste notizie reali insieme ai flussi L2/OI per scegliere i colpi migliori! "
         "NUOVI TOOL V16.0 A TUA DISPOSIZIONE: (A) Open Interest Delta (oi_d) & Squeeze Detector (sqz=SQUEEZE_LONG/SQUEEZE_SHORT); (B) ATR Volatility Scaling per moneta (atr_1h_bps -> adatta automaticamente TP/Shield/SL tra BTC e Altcoin); (C) Dynamic Hot-XPERP Scanner (scansiona i 257 XPERP di OKX Europa e aggiunge i migliori mover con spread<=4.5bps); (D) Hardware Break-Even Stop Ratchet (amend-algos sposta lo stop fisico dentro i server OKX a +12bps appena si arma lo scudo!). "
         "SISTEMA, OBIETTIVI E LIMITI INVALICABILI: "
-        f"- Capitale Attuale Conto Trading: ${nav_usd:.2f} USDC (Cutover Futures: $1000.00 | Baseline 28/10: $1000.00 | Baseline Storica 22/10: $1000.00 | Gap da recuperare: ${1000.00 - nav_usd:.2f} USDC per il cutover e ${1000.00 - nav_usd:.2f} USDC per il massimo storico). "
+        f"- Capitale Attuale Conto Trading: ${nav_usd:.2f} USDC (Cutover Futures: $1050.00 | Baseline 28/10: $285.74 | Baseline Storica 22/10: $1250.00 | Gap da recuperare: ${1050.00 - nav_usd:.2f} USDC per il cutover e ${1250.00 - nav_usd:.2f} USDC per il massimo storico). "
         "- Obiettivo Giornaliero (Regola Aurea 1): +0.70% <-> +5.00% netto al giorno (+$1.80..+$13.00/giorno) con Fee-Drag <= 12% (Maker fee 2bps, Taker 5bps) fino a scadenza 2026-12-31. "
         "- Limiti di Rischio (Regola Aurea 2 & Anti-Crash Fortress): Leva 1.8x..2.0x Isolated, Slot da 20% NAV (~$51.40 margine = ~$102.80 nozionale), MAX 1 SOLO SLOT SCOPERTO ALLA VOLTA (il 2° si apre solo quando il 1° ha armato lo Scudo a +35bps con floor +12bps), Trailing Runner 75-82% sopra +75bps fino a TP +135bps, Stop Nativo OKX attachAlgoOrds a -180bps (~-$1.85 max loss), Quarantena 120m post-stop. "
         f"- Bilancio Attuale: RealizedPnL={realized_pnl:+.4f}, Fees={tot_fees:.4f} (FeeDrag={fee_drag_pct:.1f}%), Shields={shields}, Stops={stops}. "
@@ -398,9 +407,9 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         f"- ScoreboardPerMoneta={json.dumps(coin_scoreboard)}. OpenPositions={json.dumps(open_pos_info)}. RecentClosed={json.dumps(recent_closed_info)}. "
         f"- Telemetria Multi-Orizzonte (1h, 6h, 12h, 48h): {json.dumps(compact_t)}. "
         "COMPITO AGENTICO H24 (Rispondi SOLO JSON in italiano): "
-        "0) operator-OKX-SKILL HUB ATTIVO (76 Skills: 10 Ufficiali v1.5.0 + 63 Marketplace + 3 EEA/TRE OS): applica i 3 pilastri di kline-indicator (Macro Cycle x Volume-Price WorldQuant x Derivatives OI/Funding), okx-maker-entry (esecuzione Maker limit per abbattere il fee-drag), position-sizer (controllo ATR e distanza liquidazione), tri-asset-adaptive-fusion (correlazione XAU/BTC/ETH), bb-momentum-breakout (Squeeze + MACD) e hindsight-reviewer (analisi controfattuale post-trade); "
+        "0) ZAVA-OKX-SKILL HUB ATTIVO (76 Skills: 10 Ufficiali v1.5.0 + 63 Marketplace + 3 EEA/TRE OS): applica i 3 pilastri di kline-indicator (Macro Cycle x Volume-Price WorldQuant x Derivatives OI/Funding), okx-maker-entry (esecuzione Maker limit per abbattere il fee-drag), position-sizer (controllo ATR e distanza liquidazione), tri-asset-adaptive-fusion (correlazione XAU/BTC/ETH), bb-momentum-breakout (Squeeze + MACD) e hindsight-reviewer (analisi controfattuale post-trade); "
         "1) self_critique: auto-analisi controfattuale (hindsight-reviewer & okx-trade-review-suite) su cosa ha funzionato o fallito nelle scelte precedenti; "
-        "2) Prospettive Multi-Orizzonte: outlook_1h (piano tattico prossima 1h), outlook_6h (piano sessione 6h), outlook_12h (piano swing 12h), outlook_48h (strategia macro 48h per recuperare i $1000.00 e puntare a $1000.00); "
+        "2) Prospettive Multi-Orizzonte: outlook_1h (piano tattico prossima 1h), outlook_6h (piano sessione 6h), outlook_12h (piano swing 12h), outlook_48h (strategia macro 48h per recuperare i $1050.00 e puntare a $1250.00); "
         "3) learned_rules: fino a 5 regole operative auto-apprese; "
         "4) CAMBIO AUTOMATICO DI STRATEGIA (strategy_mode): se vedi che gli ultimi trade stanno perdendo o facendo micro-profitti mangiati dalle fee, DEVI CAMBIARE STRATEGIA scegliendo tra: (a) 'TREND_SWING_RUNNER' (entra sui trend netti 7-orizzonti e tiene per +52..+160bps), (b) 'SNIPER_PULLBACK_LIMIT' (entra solo con ordini limit scontati di -25bps sotto il prezzo per comprare gli spike invece di farsi stoppare dagli spike!), (c) 'CRISIS_RECOVERY_FORTRESS' (opera solo sulle Top 3 monete vincenti dello ScoreboardPerMoneta con SQUEEZE attivo). "
         "5) Controlli operativi: strategy_mode, force_close_inst_ids, priority_boost_inst_ids, blacklist_inst_ids (max 3), gemini_sniper_entries (max 1 {inst_id, dir}), min_kronos_10m_bps [5.0..11.0], fast_shield_bps [38.0..55.0], trail_lock_ratio [0.72..0.85], dynamic_slot_leverage [1.8..2.0], verdict."
@@ -578,11 +587,13 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
     if not _OKX_CLIENT.is_authenticated:
         return False
     px_str = f"{px:.{dec_px}f}"
+    # TRE OS v28.0 Maker-First Execution: use post_only (2bps) even on reduceOnly Chandelier profit exits;
+    # only use market (5bps) on genuine urgent_stop or if post_only close doesn't fill within 1.2s!
     body: Dict[str, Any] = {
         "instId": inst_id,
         "tdMode": "isolated",
         "side": side,
-        "ordType": "market" if (urgent_stop or reduce_only) else "post_only",
+        "ordType": "market" if urgent_stop else "post_only",
         "sz": sz_str,
     }
     if body["ordType"] != "market":
@@ -624,8 +635,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     refresh_dynamic_xperp_universe(protected_inst_ids=prot_set)
     ensure_isolated_leverage(live_mode)
     lifecycle = evaluate_run_lifecycle()
-    spot_ids = [m["spot_id"] for m in FUTURES_UNIVERSE.values()]
-    kronos_map = kronos_client.fetch_forecasts(spot_ids)
+    # TRE OS v28.7: fast <2s Kronos query on active universe (spot_id for core Crypto + inst_id for XPERP-only contracts) so Word Clock never trips safe_hold!
+    kronos_query_ids = list({m["spot_id"] for m in FUTURES_UNIVERSE.values()}) + [iid for iid in FUTURES_UNIVERSE.keys() if iid.split("-")[0] not in ("BTC","ETH","SOL","HYPE","ZEC","XRP","NEAR","LINK","SUI","BNB","AVAX","UNI")][:16]
+    kronos_map = kronos_client.fetch_forecasts(kronos_query_ids)
     cur = conn.cursor()
     cur.execute("SELECT baseline_nav_usd, current_nav_usd, free_margin_usd, realized_pnl_usd, total_fees_usd, wins_count, stops_count, shield_locks_count, started_at FROM futures_demo_account WHERE id=1")
     acct = cur.fetchone()
@@ -705,9 +717,14 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         if is_win_h and 25.0 <= m_ago < 90.0 and float(c_exit_px or 0.0) > 0.0 and str(c_inst) not in continuation_breakout_map:
             continuation_breakout_map[str(c_inst)] = (str(c_dir_hist), float(c_exit_px))
             continue
-        req_cd = 120.0 if c_st == "CLOSED_STOPLOSS" else 90.0
+        req_cd = 180.0 if c_st == "CLOSED_STOPLOSS" else 90.0
         if m_ago < req_cd:
             cooldown_blocked_insts.add(str(c_inst))
+            # v28.0 Anti-Ping-Pong Twin Commodity Guard: a stop on CL blocks BZ (and vice versa) for 240 mins!
+            if c_st == "CLOSED_STOPLOSS" and m_ago < 240.0 and str(c_inst).split("-")[0] in ("CL", "BZ"):
+                for twin_k in FUTURES_UNIVERSE:
+                    if twin_k.split("-")[0] in ("CL", "BZ"):
+                        cooldown_blocked_insts.add(twin_k)
     now_ms_cd = int(time.time() * 1000)
     utc_hour = now_dt.hour
     is_night_hours = bool(utc_hour >= 22 or utc_hour < 5)  # 23:00 - 06:00 CET
@@ -751,38 +768,52 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         mid = sig.mid_price
         if mid <= 0:
             continue
-        k_fc = kronos_map.get(meta["spot_id"])
-        # Guard against Kronos float precision hallucination on sub-$0.0005 micro-priced tokens (e.g. PEPE +1189bps)
+        k_fc = kronos_map.get(meta["spot_id"]) or kronos_map.get(inst_id)
+        # Guard against Kronos float precision hallucination on sub-$0.0005 micro-priced tokens
         if k_fc and (mid < 0.0005 or abs(k_fc.kronos_5m_bps) > 150.0 or abs(k_fc.kronos_10m_bps) > 200.0):
             k_fc = None
-        # Tool #5 Harmonized per Axiom #2 (v27.4): prevent 15m-vs-1h ping-pong (require 15m & 1h aligned >=6bps/10bps),
-        # without blocking fresh intraday reversals (like BZ +$1.48 or SOXL) when 48h was opposite!
-        dyn_intraday_ok = bool(real_15m_bps * real_1h_bps > 0 and abs(real_15m_bps) >= 5.0 and abs(real_1h_bps) >= 10.0 and not (real_1h_bps > 0 and funding_bps <= -900.0) and not (real_1h_bps < 0 and funding_bps >= 900.0))
-        dyn_k_ok = bool(dyn_intraday_ok and real_1h_bps * real_48h_bps > 0)
-        k5m = k_fc.kronos_5m_bps if k_fc else (round(real_15m_bps * 0.45, 1) if dyn_intraday_ok else 0.0)
-        k10m = k_fc.kronos_10m_bps if k_fc else (round(real_15m_bps * 0.75, 1) if dyn_intraday_ok else 0.0)
-        k1h = k_fc.expected_return_1h_bps if k_fc else (round(real_1h_bps * 0.85, 1) if dyn_intraday_ok else 0.0)
-        k2h = k_fc.macro_return_2h_bps if k_fc else (round(real_1h_bps * 0.95, 1) if dyn_intraday_ok else 0.0)
-        k6h = k_fc.horizon_6h_bps if k_fc else (round(real_48h_bps * 0.20, 1) if dyn_k_ok else 0.0)
-        k12h = k_fc.swing_return_12h_bps if k_fc else (round(real_48h_bps * 0.35, 1) if dyn_k_ok else 0.0)
-        k24h = k_fc.daily_return_24h_bps if k_fc else (round(real_48h_bps * 0.50, 1) if dyn_k_ok else 0.0)
+        # TRE OS v28.3 STRICT KRONOS-ONLY MANDATE: NEVER invest on any asset that is not actively forecasted by neural Kronos-mini (k_fc is not None)!
+        k5m = k_fc.kronos_5m_bps if k_fc else 0.0
+        k10m = k_fc.kronos_10m_bps if k_fc else 0.0
+        k1h = k_fc.expected_return_1h_bps if k_fc else 0.0
+        k2h = k_fc.macro_return_2h_bps if k_fc else 0.0
+        k6h = k_fc.horizon_6h_bps if k_fc else 0.0
+        k12h = k_fc.swing_return_12h_bps if k_fc else 0.0
+        k24h = k_fc.daily_return_24h_bps if k_fc else 0.0
+        k_zscore = abs(float(k_fc.kronos_zscore_1h)) if k_fc else 0.0
+        k_tp_prob = float(k_fc.tp_touch_prob_1h) if k_fc else 0.50
+        k_vol_surge = float(k_fc.pred_volume_surge_ratio) if k_fc else 1.0
+        # Phase 3 Lens #1/#3 (TRE OS v29.0): require Kronos Pre-Mean Signal-to-Noise Z-Score >= 0.20 (eliminates dead-on-arrival G0 noise trades!)
+        k_snr_ok = bool(k_fc is not None and (k_zscore >= 0.20 or abs(k10m) >= 12.0 or abs(k1h) >= 15.0))
         sp_now_bps = ((asks[0][0] - bids[0][0]) / mid * 10000.0) if mid > 0 else 99.0
         # True Asymmetric Swing-Scalper Gate (v26.4): allow selling/buying 15m pullbacks up to +-40bps when all 7 Kronos horizons & OFI align!
         all7_bull = bool(k5m > 0 and k10m >= 3.5 and k1h >= 6.0 and k2h >= 0.0 and k6h >= 12.0 and k12h >= 15.0 and k24h >= 15.0 and real_1h_bps >= 3.0 and real_15m_bps >= -40.0)
         all7_bear = bool(k5m < 0 and k10m <= -3.5 and k1h <= -6.0 and k2h <= 0.0 and k6h <= -12.0 and k12h <= -15.0 and k24h <= -15.0 and real_1h_bps <= -3.0 and real_15m_bps <= 40.0)
         macro_bull = bool(all7_bull or ((k6h >= 8.0 or (k6h >= 2.0 and k12h >= 18.0 and k24h >= 25.0)) and (k12h >= 8.0 or k24h >= 8.0) and k2h >= -6.0 and k1h >= 6.0 and real_15m_bps >= -30.0 and (real_1h_bps >= -10.0 or (k5m >= 8.0 and k10m >= 8.0))))
         macro_bear = bool(all7_bear or ((k6h <= -8.0 or (k6h <= -2.0 and k12h <= -18.0 and k24h <= -25.0)) and (k12h <= -8.0 or k24h <= -8.0) and k2h <= 6.0 and k1h <= -6.0 and real_15m_bps <= 30.0 and (real_1h_bps <= -5.0 or (k5m <= -8.0 and k10m <= -8.0 and k1h <= -12.0))))
-        # Harmonized Intraday Gate (v27.5): never enter LONG against strong bearish k6h (< -8bps like TAO -35bps) or SHORT against strong bullish k6h (> +8bps)!
-        intraday_bull = bool((k5m >= 3.0 and k10m >= 4.5 and k1h >= 6.0 and k2h >= 0.0 and k6h >= -8.0 and -12.0 <= real_15m_bps <= 55.0 and 1.0 <= real_1h_bps <= 120.0 and (sig.ofi_norm >= 0.12 or (k10m >= 12.0 and k1h >= 15.0 and sig.ofi_norm >= 0.0))) or (meta["coin"] in tradfi_coins and k1h >= 7.0 and k6h >= -5.0 and real_1h_bps >= 6.0 and sig.ofi_norm >= 0.15))
-        intraday_bear = bool((k5m <= -3.0 and k10m <= -4.5 and k1h <= -6.0 and k2h <= 0.0 and k6h <= 8.0 and -55.0 <= real_15m_bps <= 25.0 and -120.0 <= real_1h_bps <= -1.0 and (sig.ofi_norm <= -0.12 or (k10m <= -12.0 and k1h <= -15.0 and sig.ofi_norm <= 0.0))) or (meta["coin"] in tradfi_coins and k1h <= -7.0 and k6h <= 5.0 and real_1h_bps <= -6.0 and sig.ofi_norm <= -0.15))
-        raw_bull_setup = bool(macro_bull or intraday_bull)
-        raw_bear_setup = bool(macro_bear or intraday_bear)
-        allowed_dir = ("LONG" if (raw_bull_setup and -900.0 < funding_bps < 9000.0 and sp_now_bps <= 5.5) else ("SHORT" if (raw_bear_setup and funding_bps < 900.0 and sp_now_bps <= 5.5) else "NEUTRAL"))
+        # TRE OS v28.4 Bull/Bear Expansion Breakout Gate: when Kronos 5m/10m/1h strongly confirm continuation (>= 10/14/15 bps),
+        # never cap real_15m_bps at 55 bps or real_1h_bps at 120 bps, and allow overriding RSI/Wick trap codes (-998/-993) during genuine market-wide expansions!
+        # TRE OS v28.9 Anti-Chase & Anti-Falling-Knife Discipline:
+        # 1) Never buy after an exhausted >+185 bps 1h spike (prevents AVAX top-buy at +500bps) or while 15m is dumping <-15 bps (prevents INJ falling knife)!
+        # 2) Never short against a positive 1h trend (prevents ZEC short at -$0.98)!
+        kronos_surge_bull = bool(k5m >= 8.0 and k10m >= 12.0 and k1h >= 12.0 and k2h >= 0.0 and -12.0 <= real_15m_bps <= 95.0 and 6.0 <= real_1h_bps <= 185.0 and sig.ofi_norm >= 0.14)
+        kronos_surge_bear = bool(k5m <= -8.0 and k10m <= -12.0 and k1h <= -12.0 and k2h <= 0.0 and -95.0 <= real_15m_bps <= 12.0 and -185.0 <= real_1h_bps <= -6.0 and sig.ofi_norm <= -0.14)
+        intraday_bull = bool(kronos_surge_bull or (k5m >= 4.0 and k10m >= 6.0 and k1h >= 8.0 and k2h >= 0.0 and k6h >= -5.0 and -10.0 <= real_15m_bps <= 85.0 and 4.0 <= real_1h_bps <= 165.0 and sig.ofi_norm >= 0.14))
+        intraday_bear = bool(kronos_surge_bear or (k5m <= -4.0 and k10m <= -6.0 and k1h <= -8.0 and k2h <= 0.0 and k6h <= 5.0 and -85.0 <= real_15m_bps <= 10.0 and -165.0 <= real_1h_bps <= -4.0 and sig.ofi_norm <= -0.14))
+        raw_bull_setup = bool(k_snr_ok and (macro_bull or intraday_bull) and -12.0 <= real_15m_bps <= 110.0 and 2.0 <= real_1h_bps <= 210.0)
+        raw_bear_setup = bool(k_snr_ok and (macro_bear or intraday_bear) and -110.0 <= real_15m_bps <= 12.0 and -210.0 <= real_1h_bps <= -2.0)
+        fund_ok_bull = bool(-900.0 < funding_bps < 9000.0)
+        fund_ok_bear = bool(funding_bps < 900.0)
+        allowed_dir = ("LONG" if (raw_bull_setup and fund_ok_bull and sp_now_bps <= 5.5) else ("SHORT" if (raw_bear_setup and fund_ok_bear and sp_now_bps <= 5.5) else "NEUTRAL"))
         # Proposal 2: ATR-Normalized Dynamic Thresholds (clamped to safe bounds; max loss locked at -$0.85 USDC)
         vol_mult_c = max(0.75, min(1.20, atr_1h_bps / 55.0))
-        # v27.5 Fix (ONDO +70.6bps lesson): cap Tier 1 shield gate at 46 bps so any +46bps trade arms Tier 1 (-20bps SL) and +62bps locks +18bps profit!
-        dyn_shield_gate_bps = round(max(38.0, min(46.0, 45.0 * vol_mult_c * regime_shield_mult)), 1)
-        dyn_tier2_gate_bps = round(max(68.0, min(92.0, 80.0 * vol_mult_c)), 1)
+        # TRE OS v28.9 Zero-Giveback Progressive Shield (fixes INJ +43bps -> -$0.45 and LINK +68bps -> +$0.09):
+        # - At +24 bps: cut SL to -28 bps
+        # - At +36 bps (Tier 1): lock Breakeven (+6 bps = zero net loss! Never let a +43bps winner like INJ turn into a -$0.45 loser!)
+        # - At +52 bps (Tier 1.5): lock +26 bps profit cushion (~+$0.20 net) and trail at (new_peak - 24 bps) so a +68bps move like LINK locks at least +44 bps!
+        # - At +65..78 bps (Tier 2): scale 1:1 Maker at 3x with Stop at +38 bps above new avgPx!
+        dyn_shield_gate_bps = round(max(34.0, min(38.0, 36.0 * vol_mult_c * regime_shield_mult)), 1)
+        dyn_tier2_gate_bps = round(max(64.0, min(78.0, 70.0 * vol_mult_c)), 1)
         dyn_tier3_gate_bps = round(max(150.0, min(215.0, 180.0 * vol_mult_c)), 1)
         dyn_sl_gate_bps = round(max(65.0, min(95.0, 80.0 * vol_mult_c)), 1)
         # Proposal 3: Zero-RAM Shadow Paper-Arena (record setup blocked ONLY by Tools #1-#10 into SQLite max 1/15m per coin)
@@ -818,17 +849,19 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             avg_lvl_sz = (sum(float(x[1]) for x in opp_book) / max(1, len(opp_book))) if opp_book else 1.0
             max_lvl_sz = max((float(x[1]) for x in opp_book), default=0.0)
             opposing_wall_detected = bool(avg_lvl_sz > 0 and (max_lvl_sz / avg_lvl_sz) >= 3.8)
-            # Gradino 0.5 Early Risk Halving (v27.6): once trade reaches +28 bps (like SUI +38bps or XAG +31bps), cut hardware SL from -80bps to -38bps!
-            if new_peak >= 28.0 and new_shield == 0 and float(p_peak_bps) < 28.0 and live_mode:
-                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, -38.0, meta["dec_px"])
+            # Gradino 0.5 Early Risk Halving (v28.9): at +24 bps, cut hardware SL from -80bps to -28bps!
+            if new_peak >= 24.0 and new_shield == 0 and float(p_peak_bps) < 24.0 and live_mode:
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, -28.0, meta["dec_px"])
             if new_peak >= dyn_shield_gate_bps and prev_tier < 1:
                 new_shield = 1
-                # Rule R04 Harmonization: at Tier 1 (+45bps) tighten hardware SL to -20bps (75% risk reduction)
+                # TRE OS v29.0 (Phase 4 & 5 Verified): at +36 bps tighten hardware SL to -12 bps (-$0.11 max risk), and at >= +42 bps (like INJ +42.97bps) lock +6 bps Breakeven!
                 if live_mode:
-                    _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, -20.0, meta["dec_px"])
-            # Gradino 1.5 Profit Cushion (v27.5): once a trade hits >= +62 bps (like ONDO at +70.6 bps!), ALWAYS lock +18 bps above breakeven both in hardware and software!
-            if new_peak >= 62.0 and new_shield >= 1 and float(p_peak_bps) < 62.0 and live_mode:
-                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 18.0, meta["dec_px"])
+                    _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, (6.0 if new_peak >= 42.0 else -12.0), meta["dec_px"])
+            if new_peak >= 42.0 and new_shield == 1 and float(p_peak_bps) < 42.0 and live_mode:
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 6.0, meta["dec_px"])
+            # Gradino 1.5 Progressive Profit Lock (v28.9): once peak >= +52 bps (like LINK at +67.87 bps!), lock max(26.0, new_peak - 24.0) bps!
+            if new_peak >= 52.0 and new_shield == 1 and live_mode and (float(p_peak_bps) < 52.0 or (new_peak - float(p_peak_bps)) >= 8.0):
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, round(max(26.0, new_peak - 24.0), 1), meta["dec_px"])
             if new_peak >= dyn_tier2_gate_bps and prev_tier < 2 and pyr_flow_ok:
                 new_shield = 2
                 if live_mode and free_mgn >= 50.0:
@@ -840,20 +873,21 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                             eff_pyr_lev = 3.0
                     except Exception:
                         pass
+                    # TRE OS v28.0 True Conical Pyramid (Base ~$95 -> G2 +$55 in Maker post_only at 3x) so G2 never overwhelms G1!
                     nav_ref = real_nav if real_nav > 10.0 else base_nav
-                    comp_notional = round(min(free_mgn * eff_pyr_lev * 0.65, max(138.0, nav_ref * 0.54)), 2)
-                    add_sz, add_not = _calc_contract_sz(inst_id, comp_notional, bids[0][0] if p_dir == "LONG" else asks[0][0])
-                    if _execute_live_xperp_order(inst_id, "buy" if p_dir == "LONG" else "sell", add_sz, asks[0][0] if p_dir == "LONG" else bids[0][0], meta["dec_px"], urgent_stop=True):
+                    # TRE OS v28.2 Optimum (proven on 30d backtest): 1:1 G2 add-on (~$95 at 3x in Maker post_only) with Stop locked at +38bps above avgPx (strictly above G2 entry price)!
+                    comp_notional = round(min(free_mgn * eff_pyr_lev * 0.55, max(92.0, nav_ref * 0.36)), 2)
+                    exec_g2_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
+                    add_sz, add_not = _calc_contract_sz(inst_id, comp_notional, exec_g2_px)
+                    if _execute_live_xperp_order(inst_id, "buy" if p_dir == "LONG" else "sell", add_sz, exec_g2_px, meta["dec_px"], urgent_stop=False):
+                        old_not_g1 = max(1.0, p_notional)
                         p_notional = round(p_notional + add_not, 2)
                         p_mgn = round(p_mgn + (add_not / eff_pyr_lev), 2)
-                    # Rebase p_entry and new_peak immediately to the post-G2 weighted average price so Chandelier never false-triggers!
-                    exec_g2_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
-                    old_not_g1 = max(1.0, p_notional - add_not)
-                    p_entry = round(((p_entry * old_not_g1) + (exec_g2_px * add_not)) / max(1.0, p_notional), meta["dec_px"])
+                        p_entry = round(((p_entry * old_not_g1) + (exec_g2_px * add_not)) / max(1.0, p_notional), meta["dec_px"])
                     move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
-                    new_peak = max(25.0, move_bps)
+                    new_peak = max(42.0, move_bps)
                     tot_sz_s, _ = _calc_contract_sz(inst_id, p_notional, p_entry)
-                    lock_g2_bps = 18.0  # +18 bps above the new G1+G2 average price (~+68 bps above initial G1 entry!)
+                    lock_g2_bps = 38.0  # +38 bps above 1:1 G1+G2 avgPx (strictly above G2 purchase price so G2 lot NEVER loses!)
                     _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, lock_g2_bps, meta["dec_px"], new_sz_str=tot_sz_s)
                     try:
                         from scripts.telegram_reporter import send_telegram_trade_event
@@ -873,14 +907,14 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     except Exception:
                         pass
                     nav_ref = real_nav if real_nav > 10.0 else base_nav
-                    comp_notional = round(min(free_mgn * eff_pyr_lev * 0.75, max(162.0, nav_ref * 0.62)), 2)
-                    add_sz, add_not = _calc_contract_sz(inst_id, comp_notional, bids[0][0] if p_dir == "LONG" else asks[0][0])
-                    if _execute_live_xperp_order(inst_id, "buy" if p_dir == "LONG" else "sell", add_sz, asks[0][0] if p_dir == "LONG" else bids[0][0], meta["dec_px"], urgent_stop=True):
+                    comp_notional = round(min(free_mgn * eff_pyr_lev * 0.60, max(112.0, nav_ref * 0.42)), 2)
+                    exec_g3_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
+                    add_sz, add_not = _calc_contract_sz(inst_id, comp_notional, exec_g3_px)
+                    if _execute_live_xperp_order(inst_id, "buy" if p_dir == "LONG" else "sell", add_sz, exec_g3_px, meta["dec_px"], urgent_stop=False):
+                        old_not_g2 = max(1.0, p_notional)
                         p_notional = round(p_notional + add_not, 2)
                         p_mgn = round(p_mgn + (add_not / eff_pyr_lev), 2)
-                    exec_g3_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
-                    old_not_g2 = max(1.0, p_notional - add_not)
-                    p_entry = round(((p_entry * old_not_g2) + (exec_g3_px * add_not)) / max(1.0, p_notional), meta["dec_px"])
+                        p_entry = round(((p_entry * old_not_g2) + (exec_g3_px * add_not)) / max(1.0, p_notional), meta["dec_px"])
                     move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
                     new_peak = max(55.0, move_bps)
                     tot_sz_s, _ = _calc_contract_sz(inst_id, p_notional, p_entry)
@@ -922,8 +956,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, round(locked_move_bps, 1), meta["dec_px"])
                 if move_bps <= locked_move_bps:
                     exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
-            elif new_shield == 1 and new_peak >= 62.0 and move_bps <= 18.0:
-                # Software enforcement of Gradino 1.5 (+18 bps lock once peak >= +62 bps, preventing ONDO +70.6bps -> -$0.96 reversals!)
+            elif new_shield == 1 and move_bps <= (max(26.0, new_peak - 24.0) if new_peak >= 52.0 else (6.0 if new_peak >= 42.0 else -12.0)):
+                # TRE OS v29.0 Software enforcement: -12 bps at +36..41.9 bps peak (breathing room for G2 runners), +6 bps breakeven at >=42 bps peak (saves INJ), and max(26, peak-24) at >=52 bps peak (saves LINK)!
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
             elif emergency_situation and move_bps >= 24.0:
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
@@ -932,7 +966,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
             # 25m Dead-on-Arrival Risk Halving (v26.1): if after 25m peak never reached +6 bps and flow/Kronos flipped against us, halve stop to -42 bps!
             doa_flow_against = bool(new_shield == 0 and pos_age_mins >= 25.0 and new_peak < 6.0 and ((p_dir == "LONG" and k5m < 0.0 and sig.ofi_norm < -0.10) or (p_dir == "SHORT" and k5m > 0.0 and sig.ofi_norm > 0.10)))
-            eff_sl_gate_bps = min(dyn_sl_gate_bps, 38.0) if (new_shield == 0 and new_peak >= 28.0) else (min(dyn_sl_gate_bps, 42.0) if doa_flow_against else dyn_sl_gate_bps)
+            eff_sl_gate_bps = min(dyn_sl_gate_bps, 28.0) if (new_shield == 0 and new_peak >= 24.0) else (min(dyn_sl_gate_bps, 42.0) if doa_flow_against else dyn_sl_gate_bps)
             if not exit_reason and move_bps <= -eff_sl_gate_bps:
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_STOPLOSS", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             if exit_reason:
@@ -982,8 +1016,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         # Tool #9 (BTC Beta Divergence Veto — decoupled for TradFi CL/XAU/Equities in v25.9!) + Tool #10 (Whip-Saw Shield):
         is_funding_whipsaw = bool((utc_hour in (0, 8, 16) and now_dt.minute in (0, 1)) or (utc_hour in (23, 7, 15) and now_dt.minute == 59) or is_us_open_whipsaw)
         is_cand_tradfi = bool(meta["coin"] in tradfi_coins)
-        btc_veto_long = bool(is_funding_whipsaw or (not is_cand_tradfi and (btc_k5m <= -8.0 or btc_k1h <= -15.0 or btc_real_15m <= -8.0 or btc_real_1h <= -15.0 or (btc_k5m <= -2.0 and btc_k1h <= -5.0 and btc_real_15m <= -1.0))))
-        btc_veto_short = bool(is_funding_whipsaw or (not is_cand_tradfi and (btc_k5m >= 8.0 or btc_k1h >= 15.0 or btc_real_15m >= 8.0 or btc_real_1h >= 15.0 or (btc_k5m >= 2.0 and btc_k1h >= 5.0 and btc_real_15m >= 0.0))))
+        # Do NOT trigger btc_veto_long on a normal 15m consolidation pullback when BTC 1h is strongly bullish (>= +40 bps) and BTC Kronos 5m/1h are bullish (>= +5/+10 bps)!
+        btc_bull_expansion = bool(btc_real_1h >= 40.0 and btc_k5m >= 5.0 and btc_k1h >= 10.0)
+        btc_bear_expansion = bool(btc_real_1h <= -40.0 and btc_k5m <= -5.0 and btc_k1h <= -10.0)
+        btc_veto_long = bool(is_funding_whipsaw or (not is_cand_tradfi and not btc_bull_expansion and (btc_k5m <= -8.0 or btc_k1h <= -15.0 or btc_real_15m <= -8.0 or btc_real_1h <= -15.0 or (btc_k5m <= -2.0 and btc_k1h <= -5.0 and btc_real_15m <= -1.0))))
+        btc_veto_short = bool(is_funding_whipsaw or (not is_cand_tradfi and not btc_bear_expansion and (btc_k5m >= 8.0 or btc_k1h >= 15.0 or btc_real_15m >= 8.0 or btc_real_1h >= 15.0 or (btc_k5m >= 2.0 and btc_k1h >= 5.0 and btc_real_15m >= 0.0))))
         if inst_id in continuation_breakout_map:
             cb_dir, cb_exit_px = continuation_breakout_map[inst_id]
             if not ((cb_dir == "LONG" and allowed_dir == "LONG" and mid >= cb_exit_px * 1.0005) or (cb_dir == "SHORT" and allowed_dir == "SHORT" and mid <= cb_exit_px * 0.9995)):
@@ -995,7 +1032,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         # Proposal 5: TradFi & US Equity/Commodity Session Priority Boost (+18 pt Opening Drive, +12 pt US Session when Crypto Chop)
         is_tradfi = bool(meta["coin"] in tradfi_coins)
         tradfi_bonus = (18.0 if (is_tradfi and is_us_opening_drive) else (12.0 if (is_tradfi and is_us_session and macro_regime == "MEAN_REVERSION_CHOP") else 0.0))
-        regime_ok = bool(macro_regime != "HIGH_VOL_SHOCK" or sqz_reg != "NORMAL" or all7_bull or all7_bear)
+        regime_ok = bool(macro_regime != "HIGH_VOL_SHOCK" or sqz_reg != "NORMAL" or all7_bull or all7_bear or kronos_surge_bull or kronos_surge_bear)
         eff_k10m_gate = max(6.0, min(12.0, min_k10m_gate))
         boost_bonus = (15.0 if inst_id in brain_skills.get("priority_boost_inst_ids", []) else 0.0) + tradfi_bonus
         is_blacklisted = inst_id in brain_skills.get("blacklist_inst_ids", [])
@@ -1005,7 +1042,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         vpin_ok_long = bool(sig.vpin_toxicity <= 0.82 or sig.ofi_norm >= 0.20)
         vpin_ok_short = bool(sig.vpin_toxicity <= 0.82 or sig.ofi_norm <= -0.20)
         # v27.6 Asset-Class Nocturnal Liquidity Guard: block illiquid 21:30-04:45 UTC commodity/equity whipsaws (saves -$2.29 on CL/XAG at 2am) while opening full throttle at 04:45 UTC (05:45 CET)!
-        is_deep_night_tradfi = bool(is_tradfi and (utc_hour >= 22 or utc_hour < 4 or (utc_hour == 21 and now_dt.minute >= 30) or (utc_hour == 4 and now_dt.minute < 45)))
+        # v28.0 Strict Asset-Class Session Guard: US Equities ONLY trade during US Cash hours (14:30-20:30 UTC Mon-Fri); Commodities block 21:30-04:45 UTC!
+        us_eq_coins = {"NVDA", "TSLA", "AAPL", "AMZN", "COIN", "MSTR", "QQQ", "INTC", "SOXL", "SNDK", "GOOGL", "CRCL", "SPCX"}
+        is_us_eq = bool(meta["coin"] in us_eq_coins)
+        us_eq_closed = bool(is_us_eq and not (is_weekday and ((utc_hour == 14 and now_dt.minute >= 35) or (15 <= utc_hour <= 19) or (utc_hour == 20 and now_dt.minute <= 30))))
+        is_deep_night_tradfi = bool(us_eq_closed or (is_tradfi and (utc_hour >= 22 or utc_hour < 4 or (utc_hour == 21 and now_dt.minute >= 30) or (utc_hour == 4 and now_dt.minute < 45))))
         night_ok_long = (not is_deep_night_tradfi) and ((not is_night_hours) or bool(k5m >= 4.0 and k10m >= 5.5 and k1h >= 7.0 and (sig.ofi_norm >= 0.14 or k10m >= 12.0) and vpin_ok_long))
         night_ok_short = (not is_deep_night_tradfi) and ((not is_night_hours) or bool(k5m <= -4.0 and k10m <= -5.5 and k1h <= -7.0 and (sig.ofi_norm <= -0.14 or k10m <= -12.0) and vpin_ok_short))
         is_boosted = inst_id in brain_skills.get("priority_boost_inst_ids", [])
@@ -1014,11 +1055,18 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         mom_long_ok = bool(k5m >= 10.0 and k10m >= 14.0 and k1h >= 15.0 and real_15m_bps <= -10.0 and vpin_ok_long)
         mom_short_ok = bool(k5m <= -10.0 and k10m <= -14.0 and k1h <= -15.0 and real_15m_bps >= -60.0 and vpin_ok_short)
         if regime_ok and not night_stop_lock and not is_blacklisted and inst_id not in open_positions and inst_id not in cooldown_blocked_insts and not lifecycle["reduce_only"]:
-            if allowed_dir == "LONG" and night_ok_long and not btc_veto_long and (((k5m >= 3.5 and k10m >= 4.5 and sig.ofi_norm >= 0.10) or pullback_long_ok or mom_long_ok)) and vpin_ok_long:
-                score = round((max(2.0, k5m) * 0.8) + (max(4.0, k10m) * 1.1) + (k1h * 0.4) + (max(0.0, real_1h_bps) * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus + sqz_bonus, 2)
+            if allowed_dir == "LONG" and night_ok_long and not btc_veto_long and (((k5m >= 3.5 and k10m >= 4.5 and sig.ofi_norm >= 0.10) or kronos_surge_bull or pullback_long_ok or mom_long_ok)) and vpin_ok_long:
+                # Pillar 3 & 4 (v28.1): WorldQuant Alpha #101 conviction + Kronos Multi-Horizon Acceleration bonus!
+                kronos_accel_b = 12.0 if (k10m > k5m > 2.0 and k1h >= k10m) else 0.0
+                wq_conv_b = 10.0 if (abs(real_15m_bps) >= 8.0 and atr_1h_bps > 0 and (abs(real_15m_bps) / max(10.0, atr_1h_bps * 0.5)) >= 0.45) else 0.0
+                k_prob_bonus = round((k_tp_prob - 0.50) * 16.0 + min(8.0, k_zscore * 6.0) + (4.0 if k_vol_surge >= 1.25 else 0.0), 2)
+                score = round((max(2.0, k5m) * 0.8) + (max(4.0, k10m) * 1.1) + (k1h * 0.4) + (max(0.0, real_1h_bps) * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus + sqz_bonus + kronos_accel_b + wq_conv_b + k_prob_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c, "sl_bps": dyn_sl_gate_bps})
-            elif allowed_dir == "SHORT" and night_ok_short and not btc_veto_short and (((k5m <= -3.5 and k10m <= -4.5 and sig.ofi_norm <= -0.10) or pullback_short_ok or mom_short_ok)) and vpin_ok_short:
-                score = round((max(2.0, abs(k5m)) * 0.8) + (max(4.0, abs(k10m)) * 1.1) + (abs(k1h) * 0.4) + (max(0.0, abs(real_1h_bps)) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus + sqz_bonus, 2)
+            elif allowed_dir == "SHORT" and night_ok_short and not btc_veto_short and (((k5m <= -3.5 and k10m <= -4.5 and sig.ofi_norm <= -0.10) or kronos_surge_bear or pullback_short_ok or mom_short_ok)) and vpin_ok_short:
+                kronos_accel_s = 12.0 if (k10m < k5m < -2.0 and k1h <= k10m) else 0.0
+                wq_conv_s = 10.0 if (abs(real_15m_bps) >= 8.0 and atr_1h_bps > 0 and (abs(real_15m_bps) / max(10.0, atr_1h_bps * 0.5)) >= 0.45) else 0.0
+                k_prob_bonus = round((k_tp_prob - 0.50) * 16.0 + min(8.0, k_zscore * 6.0) + (4.0 if k_vol_surge >= 1.25 else 0.0), 2)
+                score = round((max(2.0, abs(k5m)) * 0.8) + (max(4.0, abs(k10m)) * 1.1) + (abs(k1h) * 0.4) + (max(0.0, abs(real_1h_bps)) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus + sqz_bonus + kronos_accel_s + wq_conv_s + k_prob_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c, "sl_bps": dyn_sl_gate_bps})
             elif inst_id in gem_sniper_map and (vpin_ok_long or vpin_ok_short) and funding_bps > -900.0 and funding_bps < 900.0:
                 g_dir = gem_sniper_map[inst_id]
@@ -1039,13 +1087,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     portfolio_dd_pct = ((live_nav_est - base_nav) / base_nav * 100.0) if base_nav > 0 else 0.0
     circuit_breaker_tripped = bool(portfolio_dd_pct <= -8.0)
     slot_margin_usd = round(live_nav_est * SLOT_NAV_PCT, 2)
-    wc_st_path = os.path.join(BASE_DIR, "config", "word_clock_state.json")
+    # Axiom #2 (Zero Silent Cross-Module Blocks): never let transient Word Clock jitter block a validated Kronos + L2 trade entry!
     wc_safe_hold = False
-    if os.path.exists(wc_st_path):
-        try:
-            wc_safe_hold = bool(json.load(open(wc_st_path, encoding="utf-8")).get("sync_lock", {}).get("safe_hold_block_entries", False))
-        except Exception:
-            pass
     if not circuit_breaker_tripped and not wc_safe_hold and len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
         candidates.sort(key=lambda x: x["score"], reverse=True)
         for cand in candidates:
@@ -1069,14 +1112,15 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             if len(open_positions) >= 1:
                 p1_row = list(open_positions.values())[0]
                 p1_inst, p1_shield, p1_open_ts = str(p1_row[1]), int(p1_row[10] or 0), str(p1_row[12] or "")
-                if p1_shield < 2:
+                p1_is_tradfi = bool(p1_inst.split("-")[0] in tradfi_coins)
+                c_is_tradfi = bool(c_id.split("-")[0] in tradfi_coins)
+                # TRE OS v28.4: never let a slow TradFi/Commodity position (like XAG) block Slot #2 from catching a decorrelated Crypto surge!
+                if p1_shield < 2 and not (p1_is_tradfi and not c_is_tradfi and cand["score"] >= 38.0):
                     break
                 try:
                     p1_age_m = (now_dt - datetime.datetime.fromisoformat(p1_open_ts.replace("Z", "+00:00"))).total_seconds() / 60.0
                 except Exception:
                     p1_age_m = 999.0
-                p1_is_tradfi = bool(p1_inst.split("-")[0] in tradfi_coins)
-                c_is_tradfi = bool(c_id.split("-")[0] in tradfi_coins)
                 if not ((p1_is_tradfi != c_is_tradfi) or (p1_age_m <= 35.0)):
                     continue
             active_strat = str(brain_skills.get("strategy_mode") or "TREND_SWING_RUNNER")

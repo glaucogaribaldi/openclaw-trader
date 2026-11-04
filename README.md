@@ -52,3 +52,26 @@ bash install.sh
 For complete transparency, the exact parameters and 72-hour validation milestones of our live production deployment are documented in:
 - [`docs/CURRENT_PRODUCTION_RUN.md`](./docs/CURRENT_PRODUCTION_RUN.md)
 - [`docs/AUDIT_72H_LIVE_XPERP_MILESTONES.md`](./docs/AUDIT_72H_LIVE_XPERP_MILESTONES.md)
+
+## 🧪 Co-Testing & Verification Workflow (`TRE OS v29.0`)
+
+Whether you are running **Paper/Demo Co-Testing** or **Live OKX EEA XPERP Execution**, `openclaw-trader` includes a full verification suite:
+
+1. **Run the 30-Day Historical Backtest & 8-Trap Verification Suite (`< 25s`):**
+   ```bash
+   ./venv/bin/python scripts/simulate_30d_and_traps_v28.py
+   ```
+   *Downloads 30 days of real OKX EEA candles across Crypto, Commodities, and US Equities, compares the `100% Maker + 6-Stage Progressive Shield + Kronos Pre-Mean Z-Score` engine against baseline, and verifies all 8 real-world trap scenarios (`config/trap_simulation_playbook.json`).*
+
+2. **Run in Paper / Demo Co-Testing Mode (Zero Real Orders):**
+   ```bash
+   ./venv/bin/python predator_futures_demo.py --demo --once
+   # Or continuous 15s Master Word Clock loop in Demo mode:
+   FUTURES_LIVE_EXECUTION=false ./venv/bin/python predator_futures_demo.py --demo
+   ```
+
+3. **Generate the Instant 5-Block Executive & Counterfactual Audit Report (`< 1.5s`):**
+   ```bash
+   ./venv/bin/python scripts/executive_report.py
+   ./venv/bin/python scripts/telegram_reporter.py --print-only
+   ```
