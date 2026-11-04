@@ -635,8 +635,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     refresh_dynamic_xperp_universe(protected_inst_ids=prot_set)
     ensure_isolated_leverage(live_mode)
     lifecycle = evaluate_run_lifecycle()
-    # TRE OS v28.7: fast <2s Kronos query on active universe (spot_id for core Crypto + inst_id for XPERP-only contracts) so Word Clock never trips safe_hold!
-    kronos_query_ids = list({m["spot_id"] for m in FUTURES_UNIVERSE.values()}) + [iid for iid in FUTURES_UNIVERSE.keys() if iid.split("-")[0] not in ("BTC","ETH","SOL","HYPE","ZEC","XRP","NEAR","LINK","SUI","BNB","AVAX","UNI")][:16]
+    # TRE OS v29.1 False-Negative Fix #2: pass spot_id for the 14 Spot-USDC cryptos and the exact XPERP inst_id for all other contracts so ZERO coins get 0.0 Kronos!
+    spot_usdc_coins = {"BTC","ETH","SOL","HYPE","ZEC","XRP","NEAR","LINK","SUI","BNB","AVAX","UNI","TAO","WLD"}
+    kronos_query_ids = [(m["spot_id"] if iid.split("-")[0] in spot_usdc_coins else iid) for iid, m in FUTURES_UNIVERSE.items()]
     kronos_map = kronos_client.fetch_forecasts(kronos_query_ids)
     cur = conn.cursor()
     cur.execute("SELECT baseline_nav_usd, current_nav_usd, free_margin_usd, realized_pnl_usd, total_fees_usd, wins_count, stops_count, shield_locks_count, started_at FROM futures_demo_account WHERE id=1")
@@ -710,14 +711,17 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         conn.commit()
     cur.execute("SELECT inst_id, status, (julianday('now') - julianday(closed_at)) * 1440.0, direction, exit_px, realized_pnl_usd FROM futures_demo_positions WHERE status != 'OPEN' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 40")
     cooldown_blocked_insts = set()
+    cooldown_dir_map: Dict[str, Tuple[str, float, str]] = {}  # inst_id -> (last_dir, mins_ago, status)
     continuation_breakout_map: Dict[str, Tuple[str, float]] = {}
     for c_inst, c_st, mins_ago, c_dir_hist, c_exit_px, c_pnl_h in cur.fetchall():
         m_ago = float(mins_ago or 0.0)
+        if str(c_inst) not in cooldown_dir_map:
+            cooldown_dir_map[str(c_inst)] = (str(c_dir_hist), m_ago, str(c_st))
         is_win_h = bool(c_st != "CLOSED_STOPLOSS" and float(c_pnl_h or 0.0) > 0.0)
-        if is_win_h and 25.0 <= m_ago < 90.0 and float(c_exit_px or 0.0) > 0.0 and str(c_inst) not in continuation_breakout_map:
+        if is_win_h and 20.0 <= m_ago < 90.0 and float(c_exit_px or 0.0) > 0.0 and str(c_inst) not in continuation_breakout_map:
             continuation_breakout_map[str(c_inst)] = (str(c_dir_hist), float(c_exit_px))
             continue
-        req_cd = 180.0 if c_st == "CLOSED_STOPLOSS" else 90.0
+        req_cd = 150.0 if c_st == "CLOSED_STOPLOSS" else 60.0
         if m_ago < req_cd:
             cooldown_blocked_insts.add(str(c_inst))
             # v28.0 Anti-Ping-Pong Twin Commodity Guard: a stop on CL blocks BZ (and vice versa) for 240 mins!
@@ -796,12 +800,16 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         # TRE OS v28.9 Anti-Chase & Anti-Falling-Knife Discipline:
         # 1) Never buy after an exhausted >+185 bps 1h spike (prevents AVAX top-buy at +500bps) or while 15m is dumping <-15 bps (prevents INJ falling knife)!
         # 2) Never short against a positive 1h trend (prevents ZEC short at -$0.98)!
-        kronos_surge_bull = bool(k5m >= 8.0 and k10m >= 12.0 and k1h >= 12.0 and k2h >= 0.0 and -12.0 <= real_15m_bps <= 95.0 and 6.0 <= real_1h_bps <= 185.0 and sig.ofi_norm >= 0.14)
-        kronos_surge_bear = bool(k5m <= -8.0 and k10m <= -12.0 and k1h <= -12.0 and k2h <= 0.0 and -95.0 <= real_15m_bps <= 12.0 and -185.0 <= real_1h_bps <= -6.0 and sig.ofi_norm <= -0.14)
-        intraday_bull = bool(kronos_surge_bull or (k5m >= 4.0 and k10m >= 6.0 and k1h >= 8.0 and k2h >= 0.0 and k6h >= -5.0 and -10.0 <= real_15m_bps <= 85.0 and 4.0 <= real_1h_bps <= 165.0 and sig.ofi_norm >= 0.14))
-        intraday_bear = bool(kronos_surge_bear or (k5m <= -4.0 and k10m <= -6.0 and k1h <= -8.0 and k2h <= 0.0 and k6h <= 5.0 and -85.0 <= real_15m_bps <= 10.0 and -165.0 <= real_1h_bps <= -4.0 and sig.ofi_norm <= -0.14))
-        raw_bull_setup = bool(k_snr_ok and (macro_bull or intraday_bull) and -12.0 <= real_15m_bps <= 110.0 and 2.0 <= real_1h_bps <= 210.0)
-        raw_bear_setup = bool(k_snr_ok and (macro_bear or intraday_bear) and -110.0 <= real_15m_bps <= 12.0 and -210.0 <= real_1h_bps <= -2.0)
+        # TRE OS v29.1 False-Negative Fix #1 & #3:
+        # - When k5m, k10m, k1h (5m neural model), real_15m, real_1h, and OFI all agree on an intraday wave (like BTC/ETH short at -15/-16/-25 bps),
+        #   do NOT let lagging 64-hour k2h/k6h block the intraday wave!
+        # - And do NOT overwrite macro_bull / all7_bull pullback allowances (-35 bps) with a rigid -12 bps floor!
+        kronos_surge_bull = bool(k5m >= 6.0 and k10m >= 9.0 and k1h >= 10.0 and -12.0 <= real_15m_bps <= 95.0 and 4.0 <= real_1h_bps <= 185.0 and sig.ofi_norm >= 0.12)
+        kronos_surge_bear = bool(k5m <= -6.0 and k10m <= -9.0 and k1h <= -10.0 and -95.0 <= real_15m_bps <= 12.0 and -185.0 <= real_1h_bps <= -4.0 and sig.ofi_norm <= -0.12)
+        intraday_bull = bool(kronos_surge_bull or (k5m >= 3.5 and k10m >= 5.0 and k1h >= 7.0 and (k2h >= -15.0 or k5m >= 10.0) and -12.0 <= real_15m_bps <= 95.0 and 3.0 <= real_1h_bps <= 175.0 and sig.ofi_norm >= 0.12))
+        intraday_bear = bool(kronos_surge_bear or (k5m <= -3.5 and k10m <= -5.0 and k1h <= -7.0 and (k2h <= 15.0 or k5m <= -10.0) and -95.0 <= real_15m_bps <= 12.0 and -175.0 <= real_1h_bps <= -3.0 and sig.ofi_norm <= -0.12))
+        raw_bull_setup = bool(k_snr_ok and ((macro_bull and -35.0 <= real_15m_bps <= 120.0 and -10.0 <= real_1h_bps <= 210.0) or intraday_bull))
+        raw_bear_setup = bool(k_snr_ok and ((macro_bear and -120.0 <= real_15m_bps <= 35.0 and -210.0 <= real_1h_bps <= 10.0) or intraday_bear))
         fund_ok_bull = bool(-900.0 < funding_bps < 9000.0)
         fund_ok_bear = bool(funding_bps < 900.0)
         allowed_dir = ("LONG" if (raw_bull_setup and fund_ok_bull and sp_now_bps <= 5.5) else ("SHORT" if (raw_bear_setup and fund_ok_bear and sp_now_bps <= 5.5) else "NEUTRAL"))
@@ -1025,6 +1033,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             cb_dir, cb_exit_px = continuation_breakout_map[inst_id]
             if not ((cb_dir == "LONG" and allowed_dir == "LONG" and mid >= cb_exit_px * 1.0005) or (cb_dir == "SHORT" and allowed_dir == "SHORT" and mid <= cb_exit_px * 0.9995)):
                 cooldown_blocked_insts.add(inst_id)
+        # TRE OS v29.1 False-Negative Fix #4: if a Crypto coin reversed direction after >=30m with strong Kronos+15m+1h+OFI alignment, unblock the opposite direction!
+        if inst_id in cooldown_blocked_insts and not is_cand_tradfi and inst_id in cooldown_dir_map:
+            last_d_cd, m_ago_cd, _ = cooldown_dir_map[inst_id]
+            if m_ago_cd >= 30.0 and allowed_dir in ("LONG", "SHORT") and allowed_dir != last_d_cd and (kronos_surge_bull or kronos_surge_bear):
+                cooldown_blocked_insts.discard(inst_id)
         # Impl #3: OI + Funding Squeeze Detector (harmonized: ignore -999/+999 trap codes in funding_bps!)
         real_fund_bps = funding_bps if -800.0 < funding_bps < 800.0 else 0.0
         sqz_reg = "SQUEEZE_LONG" if (real_15m_bps >= 5.0 and oi_delta_bps >= 0.0 and (sig.ofi_norm >= 0.22 or real_fund_bps < 0.0)) else ("SQUEEZE_SHORT" if (real_15m_bps <= -5.0 and oi_delta_bps >= 0.0 and (sig.ofi_norm <= -0.22 or real_fund_bps > 0.0)) else "NORMAL")
