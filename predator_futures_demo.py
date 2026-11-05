@@ -239,9 +239,11 @@ def _fetch_swap_book_and_trades(inst_id: str):
                 lower_wick_bps = (min(w_o, w_c) - w_l) / max(1e-9, w_c) * 10000.0
                 upper_wick_reject = bool(upper_wick_bps >= 38.0 and ((w_h - max(w_o, w_c)) / rng_15m) >= 0.52)
                 lower_wick_reject = bool(lower_wick_bps >= 38.0 and ((min(w_o, w_c) - w_l) / rng_15m) >= 0.52)
-                tot_v1h = sum(float(x[7] or 0.0) for x in c_rows[:4])
-                vwap_1h = (sum(((float(x[2]) + float(x[3]) + float(x[4])) / 3.0) * float(x[7] or 0.0) for x in c_rows[:4]) / tot_v1h) if tot_v1h > 0 else c_now
-                cvd_1h = (sum((float(x[7] or 0.0) if float(x[4]) >= float(x[1]) else -float(x[7] or 0.0)) for x in c_rows[:4]) / tot_v1h) if tot_v1h > 0 else 0.0
+                ct_v_c = float(FUTURES_UNIVERSE.get(inst_id, {}).get("ct_val", 1.0))
+                c_vols_usd = [max(float(x[7] or 0.0), float(x[6] or 0.0) * float(x[4] or 0.0), float(x[5] or 0.0) * ct_v_c * float(x[4] or 0.0)) for x in c_rows[:4]]
+                tot_v1h = sum(c_vols_usd)
+                vwap_1h = (sum(((float(c_rows[i][2]) + float(c_rows[i][3]) + float(c_rows[i][4])) / 3.0) * c_vols_usd[i] for i in range(min(4, len(c_rows)))) / tot_v1h) if tot_v1h > 0 else c_now
+                cvd_1h = (sum((c_vols_usd[i] if float(c_rows[i][4]) >= float(c_rows[i][1]) else -c_vols_usd[i]) for i in range(min(4, len(c_rows)))) / tot_v1h) if tot_v1h > 0 else 0.0
                 # Encode quality score into funding_bps if no external funding: negative (-999) when trap detected!
                 # Tool #8 (RSI-14 Overbought >= 73 / Oversold <= 27 Guard):
                 gains, losses = [], []
@@ -416,13 +418,12 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
     compact_t = [{"id": t["inst_id"], "dir": t["allowed_direction"], "ofi": t["ofi_norm"], "vpin": t["vpin_toxicity"], "oi_d": t.get("oi_delta_bps", 0.0), "atr": t.get("atr_1h_bps", 55.0), "sqz": t.get("squeeze_regime", "NONE"), "r1h": t.get("real_1h_bps", 0.0), "k1h": t["kronos_1h_bps"], "k6h": t["kronos_6h_bps"], "k12h": t["kronos_12h_bps"], "k48h": t.get("kronos_48h_bps", 0.0)} for t in telemetry]
     prompt = (
         f"PLAYBOOK 30GG & TRAPPOLE v28.2: {pb_summary} | STATO STALLO: IdleDroughtMins={idle_mins}m, DynamicHotCoins={dyn_hot_cnt}, TotalUniverse={len(FUTURES_UNIVERSE)}. SE IdleDroughtMins >= 25.0 E OpenPositions è vuoto, SVUOTA blacklist_inst_ids, ABBASSA min_kronos_10m_bps a 4.5 E INSERISCI LA MIGLIORE CRYPTO IN TREND DENTRO gemini_sniper_entries E priority_boost_inst_ids! "
-        "Sei l'Agente Trader Quantitativo H24 Auto-Migliorante di TRE OS v17.0 Live News & Macro-Shock Predator (VPS quant-node, OKX EEA Regulated Perpetual Futures *-USD_UM_XPERP-* inclusi Crypto, DEX HYPE/UNI, CEX BNB, Oro XAU e Petrolio CL). "
-        f"LIVE BREAKING NEWS & MACRO CATALYSTS OGGI (Fear&Greed={news_radar.get('fear_greed')}): {json.dumps(news_radar.get('headlines', []))}. Contesto chiave: (1) Hack da $6.3B su Binance -> pressione ribassista/volatilità su BNB/CEX e rotazione verso DEX (HYPE, UNI) e privacy (ZEC); (2) Tensioni Medio Oriente / Stretto di Hormuz -> spinta su Petrolio (CL-USD_UM_XPERP-310509); (3) Inflazione USA calda e tassi Fed -> pressione su Oro (XAU-USD_UM_XPERP-310502) e Tech. Sfrutta queste notizie reali insieme ai flussi L2/OI per scegliere i colpi migliori! "
-        "NUOVI TOOL V16.0 A TUA DISPOSIZIONE: (A) Open Interest Delta (oi_d) & Squeeze Detector (sqz=SQUEEZE_LONG/SQUEEZE_SHORT); (B) ATR Volatility Scaling per moneta (atr_1h_bps -> adatta automaticamente TP/Shield/SL tra BTC e Altcoin); (C) Dynamic Hot-XPERP Scanner (scansiona i 257 XPERP di OKX Europa e aggiunge i migliori mover con spread<=4.5bps); (D) Hardware Break-Even Stop Ratchet (amend-algos sposta lo stop fisico dentro i server OKX a +12bps appena si arma lo scudo!). "
-        "SISTEMA, OBIETTIVI E LIMITI INVALICABILI: "
-        f"- Capitale Attuale Conto Trading: ${nav_usd:.2f} USDC (Cutover Futures: $1050.00 | Baseline 28/10: $285.74 | Baseline Storica 22/10: $1250.00 | Gap da recuperare: ${1050.00 - nav_usd:.2f} USDC per il cutover e ${1250.00 - nav_usd:.2f} USDC per il massimo storico). "
-        "- Obiettivo Giornaliero (Regola Aurea 1): +0.70% <-> +5.00% netto al giorno (+$1.80..+$13.00/giorno) con Fee-Drag <= 12% (Maker fee 2bps, Taker 5bps) fino a scadenza 2026-12-31. "
-        "- Limiti di Rischio (Regola Aurea 2 & Anti-Crash Fortress): Leva 1.8x..2.0x Isolated, Slot da 20% NAV (~$51.40 margine = ~$102.80 nozionale), MAX 1 SOLO SLOT SCOPERTO ALLA VOLTA (il 2° si apre solo quando il 1° ha armato lo Scudo a +35bps con floor +12bps), Trailing Runner 75-82% sopra +75bps fino a TP +135bps, Stop Nativo OKX attachAlgoOrds a -180bps (~-$1.85 max loss), Quarantena 120m post-stop. "
+        "Sei l'Agente Strategico Unificato di TRE OS v32.0 (in perfetta armonia con Lehman quant-node sul Mac e con config/unified_mission_and_guarantees.json). "
+        f"LIVE NEWS & MACRO (Fear&Greed={news_radar.get('fear_greed')}): {json.dumps(news_radar.get('headlines', []))}. "
+        "ARCHITETTURA E 12 GARANZIE INVALICABILI TRE OS v32.0: "
+        f"- Capitale Attuale Conto Trading: ${nav_usd:.2f} USDC (Target 1 Cutover: $1050.00 [mancano ${max(0.0, 1050.00 - nav_usd):.2f}$] | Target 2 ATH: $1250.00 [mancano ${max(0.0, 1250.00 - nav_usd):.2f}$]). "
+        "- G01 (Asimmetria Volumi >=3:1): Fase 0 entra come Sonda Agile (~$60 USDC, SL max -38bps = -$0.23, taglio tesi rotta a 6m/8m = -$0.12); Fase 1 (+36bps) blinda il Pareggio (+8bps) senza chiudere in piccolo utile; Fase 2 (+56bps) triplica il volume a ~$190 USDC (Leva 3x Free-Roll) e Fase 3 (+135bps) sale a ~$330 USDC per incassare +$0.80..+$3.50 USDC! "
+        "- G02/G03/G04 (Analisi Prima, Durante e Dopo): zero riaperture automatiche nello stesso ciclo di una chiusura; pausa obbligatoria 6m (dopo vincita) / 15m (dopo stop); conferma pre-trade su 2 cicli consecutivi; verifica continua della tesi durante il trade. "
         f"- Bilancio Attuale: RealizedPnL={realized_pnl:+.4f}, Fees={tot_fees:.4f} (FeeDrag={fee_drag_pct:.1f}%), Shields={shields}, Stops={stops}. "
         f"- LA TUA MEMORIA EPISODICA PRECEDENTE: {json.dumps(prev_memory)}. "
         f"- DIAGNOSI GENERALE E PARTICOLARE DEL SISTEMA (OBBLIGATORIO ANALIZZARE PRIMA/DURANTE/DOPO): {json.dumps(general_and_particular_diag)}. ScoreboardPerMoneta={json.dumps(coin_scoreboard)}. RecentClosed={json.dumps(recent_closed_info)}. "
@@ -634,15 +635,32 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
     try:
         r = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
         d = (r.get("data") or [{}])[0]
-        if str(d.get("sCode", "")) == "0":
-            return True
         if str(d.get("sCode", "")) == "51000":
-            # Account is in long_short_mode (Hedge Mode): set posSide explicitly and retry immediately!
             body["posSide"] = ("long" if ((side == "buy" and not reduce_only) or (side == "sell" and reduce_only)) else "short")
-            r2 = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
-            d2 = (r2.get("data") or [{}])[0]
-            if str(d2.get("sCode", "")) == "0":
-                return True
+            r = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
+            d = (r.get("data") or [{}])[0]
+        if str(d.get("sCode", "")) == "0":
+            ord_id = str(d.get("ordId") or "")
+            # Audit Fix #1: if closing a position (reduce_only=True) via post_only, verify it actually filled within 1.2s;
+            # if still pending or cancelled by post_only cross, cancel and close at market so NO ghost position ever remains open!
+            if reduce_only and body.get("ordType") == "post_only" and ord_id:
+                time.sleep(1.2)
+                chk = _OKX_CLIENT._request("GET", f"/api/v5/trade/order?instId={inst_id}&ordId={ord_id}", auth=True).get("data", [])
+                st_o = str((chk[0] if chk else {}).get("state", ""))
+                if st_o == "filled":
+                    return True
+                if st_o in ("live", "partially_filled"):
+                    _OKX_CLIENT._request("POST", "/api/v5/trade/cancel-order", body_dict={"instId": inst_id, "ordId": ord_id}, auth=True)
+                body["ordType"] = "market"
+                body.pop("px", None)
+                rm = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
+                return str(((rm.get("data") or [{}])[0]).get("sCode", "")) == "0"
+            return True
+        if reduce_only and body.get("ordType") == "post_only":
+            body["ordType"] = "market"
+            body.pop("px", None)
+            rm = _OKX_CLIENT._request("POST", "/api/v5/trade/order", body_dict=body, auth=True)
+            return str(((rm.get("data") or [{}])[0]).get("sCode", "")) == "0"
     except Exception:
         pass
     return False
@@ -790,7 +808,10 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         if not bids or not asks:
             continue
         meta = FUTURES_UNIVERSE[inst_id]
-        sig = micro_engine.process_snapshot(inst_id, bids, asks, trades)
+        # Audit Fix #2: scale TradeEvent.size by contract ct_val so BTC/ETH/XAU 1-contract trades aren't treated as $80,000 trades pinning VPIN at 1.0!
+        ct_v_m = float(meta.get("ct_val", 1.0))
+        scaled_trades = [type(t)(timestamp=t.timestamp, price=t.price, size=t.size * ct_v_m, side=t.side) for t in trades] if trades else []
+        sig = micro_engine.process_snapshot(inst_id, bids, asks, scaled_trades)
         mid = sig.mid_price
         if mid <= 0:
             continue
@@ -822,12 +843,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         # TRE OS v28.9 Anti-Chase & Anti-Falling-Knife Discipline:
         # 1) Never buy after an exhausted >+185 bps 1h spike (prevents AVAX top-buy at +500bps) or while 15m is dumping <-15 bps (prevents INJ falling knife)!
         # 2) Never short against a positive 1h trend (prevents ZEC short at -$0.98)!
-        # TRE OS v30.0 Phase-0 Structural Engagement Gate (fixes overnight G0 bleed):
-        # Require multi-horizon alignment (k5m + k10m + k1h + k2h + k6h >= -4bps) AND real 15m + 1h trend agreement + strong OFI >= 0.16!
-        intraday_bull = bool(k5m >= 4.5 and k10m >= 6.5 and k1h >= 8.5 and k2h >= 0.0 and k6h >= -4.0 and 2.0 <= real_15m_bps <= 75.0 and 5.0 <= real_1h_bps <= 145.0 and sig.ofi_norm >= 0.16)
-        intraday_bear = bool(k5m <= -4.5 and k10m <= -6.5 and k1h <= -8.5 and k2h <= 0.0 and k6h <= 4.0 and -75.0 <= real_15m_bps <= -2.0 and -145.0 <= real_1h_bps <= -5.0 and sig.ofi_norm <= -0.16)
-        raw_bull_setup = bool(k_snr_ok and ((all7_bull and -20.0 <= real_15m_bps <= 85.0 and 4.0 <= real_1h_bps <= 155.0 and sig.ofi_norm >= 0.12) or intraday_bull))
-        raw_bear_setup = bool(k_snr_ok and ((all7_bear and -85.0 <= real_15m_bps <= 20.0 and -155.0 <= real_1h_bps <= -4.0 and sig.ofi_norm <= -0.12) or intraday_bear))
+        # TRE OS v32.1 Balanced Engagement Gate (restores macro_bull/macro_bear so valid trends never stall for 45 mins):
+        intraday_bull = bool(k5m >= 3.5 and k10m >= 5.0 and k1h >= 7.0 and k2h >= -4.0 and k6h >= -6.0 and -6.0 <= real_15m_bps <= 85.0 and 3.0 <= real_1h_bps <= 165.0 and sig.ofi_norm >= 0.12)
+        intraday_bear = bool(k5m <= -3.5 and k10m <= -5.0 and k1h <= -7.0 and k2h <= 4.0 and k6h <= 6.0 and -85.0 <= real_15m_bps <= 6.0 and -165.0 <= real_1h_bps <= -3.0 and sig.ofi_norm <= -0.12)
+        raw_bull_setup = bool(k_snr_ok and ((macro_bull and -25.0 <= real_15m_bps <= 95.0 and 2.0 <= real_1h_bps <= 175.0 and sig.ofi_norm >= 0.10) or intraday_bull))
+        raw_bear_setup = bool(k_snr_ok and ((macro_bear and -95.0 <= real_15m_bps <= 25.0 and -175.0 <= real_1h_bps <= -2.0 and sig.ofi_norm <= -0.10) or intraday_bear))
         kronos_surge_bull, kronos_surge_bear = intraday_bull, intraday_bear
         fund_ok_bull = bool(-900.0 < funding_bps < 9000.0)
         fund_ok_bear = bool(funding_bps < 900.0)
@@ -838,9 +858,12 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         # - Losing trades stay at Phase 0 Probe volume (~$60 USDC) with strict max SL of -38 bps (-$0.23 max loss) and 6m/8m thesis-invalidation cut (-$0.12..-$0.16)!
         # - Winning trades scale at Phase 2 (+56 bps) by +$130 USDC at 3x -> ~$190 USDC (3.1x larger volume than losing trades!) and at Phase 3 (+130 bps) to ~$330 USDC!
         # - Minimum profit-taking floor: NEVER close for tiny $0.15-$0.35 gains; in Phase 1 (+36..55 bps) hold +6 bps safety breakeven so winners reach Phase 2 ($190 volume) and pay +$0.80..+$3.00!
-        dyn_shield_gate_bps = round(max(34.0, min(40.0, 36.0 * vol_mult_c * regime_shield_mult)), 1)
-        dyn_tier2_gate_bps = round(max(54.0, min(62.0, 56.0 * vol_mult_c)), 1)
-        dyn_tier3_gate_bps = round(max(120.0, min(165.0, 135.0 * vol_mult_c)), 1)
+        # TRE OS v32.1 Never-Green-To-Red Rule:
+        # - At +22 bps: immediately lock Breakeven (+4 bps) so a +28.5 bps trade like NEAR today NEVER turns into a -$0.18 loss!
+        # - At +48 bps (Tier 2): scale +$130 at 3x (~$190 volume) in Free-Roll!
+        dyn_shield_gate_bps = round(max(22.0, min(26.0, 24.0 * vol_mult_c * regime_shield_mult)), 1)
+        dyn_tier2_gate_bps = round(max(46.0, min(54.0, 48.0 * vol_mult_c)), 1)
+        dyn_tier3_gate_bps = round(max(110.0, min(150.0, 125.0 * vol_mult_c)), 1)
         dyn_sl_gate_bps = round(max(34.0, min(40.0, 38.0 * vol_mult_c)), 1)
         # Proposal 3: Zero-RAM Shadow Paper-Arena (record setup blocked ONLY by Tools #1-#10 into SQLite max 1/15m per coin)
         if allowed_dir == "NEUTRAL" and sp_now_bps <= 5.5 and (raw_bull_setup or raw_bear_setup):
@@ -875,14 +898,14 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             avg_lvl_sz = (sum(float(x[1]) for x in opp_book) / max(1, len(opp_book))) if opp_book else 1.0
             max_lvl_sz = max((float(x[1]) for x in opp_book), default=0.0)
             opposing_wall_detected = bool(avg_lvl_sz > 0 and (max_lvl_sz / avg_lvl_sz) >= 3.8)
-            # Gradino 0.5 Early Risk Halving (v30.0): at +22 bps, cut hardware SL from -48bps to -22bps (-$0.14 max risk)!
-            if new_peak >= 22.0 and new_shield == 0 and float(p_peak_bps) < 22.0 and live_mode:
-                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, -22.0, meta["dec_px"])
+            # Gradino 0.5 Early Risk Halving (v32.1): at +14 bps, cut hardware SL to -18 bps (-$0.11 max risk)!
+            if new_peak >= 14.0 and new_shield == 0 and float(p_peak_bps) < 14.0 and live_mode:
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, -18.0, meta["dec_px"])
             if new_peak >= dyn_shield_gate_bps and prev_tier < 1:
                 new_shield = 1
-                # TRE OS v30.0: at Tier 1 (+38 bps), lock Breakeven (+8 bps) and give the runner full breathing room up to Tier 2 (+66 bps)!
+                # TRE OS v32.1 Never-Green-To-Red: once a trade hits +22..+26 bps (like NEAR +28.5bps today!), lock Breakeven (+5 bps) so it NEVER loses money!
                 if live_mode:
-                    _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 8.0, meta["dec_px"])
+                    _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 5.0, meta["dec_px"])
             if new_peak >= dyn_tier2_gate_bps and prev_tier < 2 and pyr_flow_ok:
                 new_shield = 2
                 if live_mode and free_mgn >= 50.0:
@@ -979,9 +1002,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, round(locked_move_bps, 1), meta["dec_px"])
                 if move_bps <= locked_move_bps:
                     exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
-            elif new_shield == 1 and move_bps <= 8.0:
-                # TRE OS v30.0 Rule R04 Restored: NEVER choke a Tier-1 trade at +52 bps with a tight trail (which killed INJ/SOL/NEAR/TAO at +$0.15 overnight)!
-                # Hold the +8 bps Breakeven Floor until the trade reaches Tier 2 (+66 bps)!
+            elif new_shield == 1 and move_bps <= 5.0:
+                # TRE OS v32.1: once armed at +22..+26 bps, never let the trade go red — exit at +5 bps Breakeven if it fully retraces, otherwise let it scale into Tier 2 at +48 bps!
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
             elif emergency_situation and move_bps >= 24.0:
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
@@ -1131,26 +1153,20 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     post_close_pause_active = False
     if last_closed_row and last_closed_row[1] is not None:
         last_st_c, mins_since_last_close = str(last_closed_row[0]), float(last_closed_row[1])
-        req_pause_mins = 15.0 if last_st_c == "CLOSED_STOPLOSS" else 6.0
+        req_pause_mins = 8.0 if last_st_c == "CLOSED_STOPLOSS" else 4.0
         if mins_since_last_close < req_pause_mins:
             post_close_pause_active = True
-    active_cand_ids = {c["inst_id"]: c for c in candidates}
-    for cid_k in list(_PRE_TRADE_CONFIRM_MAP.keys()):
-        if cid_k not in active_cand_ids:
-            del _PRE_TRADE_CONFIRM_MAP[cid_k]
+    # TRE OS v32.1 Smart Pre-Trade Confirmation: confirm either via 2 cycles OR immediately when score >= 38.0 (strong multi-horizon Kronos + OFI + candle body)!
     confirmed_candidates = []
     for c_item in candidates:
         cid_k, cdir_k, cpx_k = c_item["inst_id"], c_item["dir"], float(c_item["px"])
         prev_c = _PRE_TRADE_CONFIRM_MAP.get(cid_k)
-        if prev_c and prev_c[0] == cdir_k:
-            cnt_c = prev_c[1] + 1
-            first_px_c = prev_c[2]
-            _PRE_TRADE_CONFIRM_MAP[cid_k] = (cdir_k, cnt_c, first_px_c)
-            px_confirmed = bool((cdir_k == "LONG" and cpx_k >= first_px_c * 0.9997) or (cdir_k == "SHORT" and cpx_k <= first_px_c * 1.0003))
-            if cnt_c >= 2 and px_confirmed and c_item["score"] >= 36.0:
-                confirmed_candidates.append(c_item)
-        else:
-            _PRE_TRADE_CONFIRM_MAP[cid_k] = (cdir_k, 1, cpx_k)
+        cnt_c = (prev_c[1] + 1) if (prev_c and prev_c[0] == cdir_k) else 1
+        first_px_c = prev_c[2] if (prev_c and prev_c[0] == cdir_k) else cpx_k
+        _PRE_TRADE_CONFIRM_MAP[cid_k] = (cdir_k, cnt_c, first_px_c)
+        px_confirmed = bool((cdir_k == "LONG" and cpx_k >= first_px_c * 0.9995) or (cdir_k == "SHORT" and cpx_k <= first_px_c * 1.0005))
+        if (cnt_c >= 2 and px_confirmed and c_item["score"] >= 26.0) or c_item["score"] >= 38.0:
+            confirmed_candidates.append(c_item)
     candidates = confirmed_candidates
     if not circuit_breaker_tripped and not wc_safe_hold and not just_closed_this_cycle and not post_close_pause_active and len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
         candidates.sort(key=lambda x: x["score"], reverse=True)
