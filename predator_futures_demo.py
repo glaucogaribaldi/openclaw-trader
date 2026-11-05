@@ -308,6 +308,7 @@ def _fetch_swap_book_and_trades(inst_id: str):
     return inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps, atr_1h_bps, oi_delta_bps, funding_bps
 _LAST_GEMINI_AUDIT_TS = 0.0
 _GEMINI_LITE_429_UNTIL = 0.0
+_PRE_TRADE_CONFIRM_MAP: Dict[str, Tuple[str, int, float]] = {}  # inst_id -> (dir, consecutive_cycles, first_px)
 
 def load_gemini_brain_skills() -> Dict[str, Any]:
     p = os.path.join(BASE_DIR, "config", "gemini_brain_skills.json")
@@ -362,8 +363,28 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         return default_audit
     cur.execute("SELECT inst_id, direction, margin_usd, entry_px, current_px, peak_move_bps, shield_armed, opened_at FROM futures_demo_positions WHERE status='OPEN'")
     open_pos_info = [{"inst_id": r[0], "dir": r[1], "mgn": r[2], "entry": r[3], "now": r[4], "peak_bps": round(float(r[5]), 1), "shield": bool(r[6]), "opened": r[7]} for r in cur.fetchall()]
-    cur.execute("SELECT inst_id, direction, realized_pnl_usd, status, closed_at FROM futures_demo_positions WHERE status != 'OPEN' ORDER BY closed_at DESC LIMIT 8")
-    recent_closed_info = [{"inst_id": r[0], "dir": r[1], "pnl_usd": r[2], "status": r[3], "closed": r[4]} for r in cur.fetchall()]
+    cur.execute("SELECT inst_id, direction, realized_pnl_usd, status, closed_at, peak_move_bps, shield_armed, notional_usd, opened_at FROM futures_demo_positions WHERE status != 'OPEN' ORDER BY closed_at DESC LIMIT 15")
+    raw_closed_15 = cur.fetchall()
+    recent_closed_info = [{"inst_id": r[0], "dir": r[1], "pnl_usd": round(float(r[2] or 0), 2), "status": r[3], "closed": r[4], "peak_bps": round(float(r[5] or 0), 1), "tier": f"G{r[6]}", "notional_usd": r[7]} for r in raw_closed_15[:10]]
+    win_pnls = [float(r[2]) for r in raw_closed_15 if float(r[2] or 0) > 0]
+    loss_pnls = [abs(float(r[2])) for r in raw_closed_15 if float(r[2] or 0) < 0]
+    avg_win_15 = round(sum(win_pnls) / len(win_pnls), 2) if win_pnls else 0.0
+    avg_loss_15 = round(sum(loss_pnls) / len(loss_pnls), 2) if loss_pnls else 0.01
+    payoff_ratio_15 = round(avg_win_15 / max(0.01, avg_loss_15), 2)
+    doa_cnt_15 = sum(1 for r in raw_closed_15 if float(r[5] or 0) < 15.0 and float(r[2] or 0) < 0)
+    choked_cnt_15 = sum(1 for r in raw_closed_15 if float(r[5] or 0) >= 50.0 and 0.0 <= float(r[2] or 0) < 0.45)
+    general_and_particular_diag = {
+        "GENERAL_SYSTEM_HEALTH": {
+            "last15_avg_win_usd": avg_win_15,
+            "last15_avg_loss_usd": avg_loss_15,
+            "payoff_ratio_win_over_loss": payoff_ratio_15,
+            "payoff_alert": ("CRITICAL_INVERTED_PAYOFF: wins smaller than losses!" if payoff_ratio_15 < 1.2 else "HEALTHY_ASYMMETRY"),
+            "phase0_dead_on_arrival_count_last15": doa_cnt_15,
+            "choked_small_wins_count_last15": choked_cnt_15,
+        },
+        "PARTICULAR_LAST_TRADE_AUTOPSY": (recent_closed_info[0] if recent_closed_info else {}),
+        "PARTICULAR_OPEN_POSITIONS_LIVE": open_pos_info,
+    }
     cur.execute("SELECT inst_id, COUNT(*), SUM(CASE WHEN realized_pnl_usd > 0 THEN 1 ELSE 0 END), ROUND(SUM(realized_pnl_usd), 3) FROM futures_demo_positions WHERE status != 'OPEN' GROUP BY inst_id")
     coin_scoreboard = [{"inst_id": r[0], "trades": r[1], "wins": r[2], "net_pnl": r[3]} for r in cur.fetchall()]
     prev_memory = {
@@ -404,7 +425,7 @@ def run_gemini_ordinary_futures_audit(conn: sqlite3.Connection, nav_usd: float, 
         "- Limiti di Rischio (Regola Aurea 2 & Anti-Crash Fortress): Leva 1.8x..2.0x Isolated, Slot da 20% NAV (~$51.40 margine = ~$102.80 nozionale), MAX 1 SOLO SLOT SCOPERTO ALLA VOLTA (il 2° si apre solo quando il 1° ha armato lo Scudo a +35bps con floor +12bps), Trailing Runner 75-82% sopra +75bps fino a TP +135bps, Stop Nativo OKX attachAlgoOrds a -180bps (~-$1.85 max loss), Quarantena 120m post-stop. "
         f"- Bilancio Attuale: RealizedPnL={realized_pnl:+.4f}, Fees={tot_fees:.4f} (FeeDrag={fee_drag_pct:.1f}%), Shields={shields}, Stops={stops}. "
         f"- LA TUA MEMORIA EPISODICA PRECEDENTE: {json.dumps(prev_memory)}. "
-        f"- ScoreboardPerMoneta={json.dumps(coin_scoreboard)}. OpenPositions={json.dumps(open_pos_info)}. RecentClosed={json.dumps(recent_closed_info)}. "
+        f"- DIAGNOSI GENERALE E PARTICOLARE DEL SISTEMA (OBBLIGATORIO ANALIZZARE PRIMA/DURANTE/DOPO): {json.dumps(general_and_particular_diag)}. ScoreboardPerMoneta={json.dumps(coin_scoreboard)}. RecentClosed={json.dumps(recent_closed_info)}. "
         f"- Telemetria Multi-Orizzonte (1h, 6h, 12h, 48h): {json.dumps(compact_t)}. "
         "COMPITO AGENTICO H24 (Rispondi SOLO JSON in italiano): "
         "0) ZAVA-OKX-SKILL HUB ATTIVO (76 Skills: 10 Ufficiali v1.5.0 + 63 Marketplace + 3 EEA/TRE OS): applica i 3 pilastri di kline-indicator (Macro Cycle x Volume-Price WorldQuant x Derivatives OI/Funding), okx-maker-entry (esecuzione Maker limit per abbattere il fee-drag), position-sizer (controllo ATR e distanza liquidazione), tri-asset-adaptive-fusion (correlazione XAU/BTC/ETH), bb-momentum-breakout (Squeeze + MACD) e hindsight-reviewer (analisi controfattuale post-trade); "
@@ -813,14 +834,14 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         allowed_dir = ("LONG" if (raw_bull_setup and fund_ok_bull and sp_now_bps <= 5.5) else ("SHORT" if (raw_bear_setup and fund_ok_bear and sp_now_bps <= 5.5) else "NEUTRAL"))
         # Proposal 2: ATR-Normalized Dynamic Thresholds (clamped to safe bounds; max loss locked at -$0.85 USDC)
         vol_mult_c = max(0.75, min(1.20, atr_1h_bps / 55.0))
-        # TRE OS v30.0 Two-Stage Engagement & Unchoked Runner Pyramid:
-        # - Phase 0 (Probe ~$62 USDC): tight initial SL (-48 bps = -$0.30 max loss instead of -$0.92!) + 8-min DOA cut at -26 bps if Peak < +10 bps!
-        # - Phase 1 (+38 bps): lock Breakeven (+8 bps) and DO NOT choke the trade at +52 bps with a tight 24bps trail — let it breathe all the way to G2 (+66 bps)!
-        # - Phase 2 (+66 bps): scale +$125 USDC at 3x (Total ~$185 USDC) with guaranteed execution and +28 bps lock above new avgPx!
-        dyn_shield_gate_bps = round(max(36.0, min(42.0, 38.0 * vol_mult_c * regime_shield_mult)), 1)
-        dyn_tier2_gate_bps = round(max(62.0, min(72.0, 66.0 * vol_mult_c)), 1)
-        dyn_tier3_gate_bps = round(max(135.0, min(185.0, 155.0 * vol_mult_c)), 1)
-        dyn_sl_gate_bps = round(max(44.0, min(54.0, 48.0 * vol_mult_c)), 1)
+        # TRE OS v31.0 Mandatory Asymmetric Volume & Payoff Architecture (Giacomo Rule #2):
+        # - Losing trades stay at Phase 0 Probe volume (~$60 USDC) with strict max SL of -38 bps (-$0.23 max loss) and 6m/8m thesis-invalidation cut (-$0.12..-$0.16)!
+        # - Winning trades scale at Phase 2 (+56 bps) by +$130 USDC at 3x -> ~$190 USDC (3.1x larger volume than losing trades!) and at Phase 3 (+130 bps) to ~$330 USDC!
+        # - Minimum profit-taking floor: NEVER close for tiny $0.15-$0.35 gains; in Phase 1 (+36..55 bps) hold +6 bps safety breakeven so winners reach Phase 2 ($190 volume) and pay +$0.80..+$3.00!
+        dyn_shield_gate_bps = round(max(34.0, min(40.0, 36.0 * vol_mult_c * regime_shield_mult)), 1)
+        dyn_tier2_gate_bps = round(max(54.0, min(62.0, 56.0 * vol_mult_c)), 1)
+        dyn_tier3_gate_bps = round(max(120.0, min(165.0, 135.0 * vol_mult_c)), 1)
+        dyn_sl_gate_bps = round(max(34.0, min(40.0, 38.0 * vol_mult_c)), 1)
         # Proposal 3: Zero-RAM Shadow Paper-Arena (record setup blocked ONLY by Tools #1-#10 into SQLite max 1/15m per coin)
         if allowed_dir == "NEUTRAL" and sp_now_bps <= 5.5 and (raw_bull_setup or raw_bear_setup):
             trap_map = {
@@ -949,11 +970,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 if move_bps <= locked_move_bps and (new_peak >= 85.0 or move_bps <= 42.0):
                     exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
             elif new_shield == 2:
-                # Bounce-Aware & Anti-Spoof Chandelier (Tier 2, v27.6: never tighten below 38bps on spoof walls when k1h is strong!)
+                # TRE OS v31.0 Asymmetric Winner Rule: in Tier 2 (~$190 volume), let the trade run to at least +65 bps above new avgPx (~+$1.15 profit)
+                # before Chandelier can take profit; below +65 bps only exit if price drops back to the +22 bps Free-Roll floor!
                 bounce_t2 = bool(not opposing_wall_detected and ((p_dir == "LONG" and sig.ofi_norm >= 0.22 and k5m > 0.0 and k1h >= 10.0) or (p_dir == "SHORT" and sig.ofi_norm <= -0.22 and k5m < 0.0 and k1h <= -10.0)))
-                wall_weak_t2 = bool(opposing_wall_detected and ((p_dir == "LONG" and k1h < 12.0) or (p_dir == "SHORT" and k1h > -12.0)))
-                buf2 = 38.0 if (wall_weak_t2 and move_bps >= 75.0) else ((60.0 if bounce_t2 else 48.0) + (regime_chand_bonus * 0.5))
-                locked_move_bps = max(18.0, new_peak - buf2)
+                buf2 = (62.0 if bounce_t2 else 48.0) + (regime_chand_bonus * 0.5)
+                locked_move_bps = max(25.0, new_peak - buf2) if new_peak >= 68.0 else 22.0
                 if live_mode and (new_peak - float(p_peak_bps)) >= 18.0:
                     _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, round(locked_move_bps, 1), meta["dec_px"])
                 if move_bps <= locked_move_bps:
@@ -967,9 +988,13 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             elif new_shield == 0 and pos_age_mins >= 75.0 and -48.0 <= move_bps <= 8.0 and ((p_dir == "LONG" and (k1h < 12.0 or k6h < 0.0)) or (p_dir == "SHORT" and (k1h > -12.0 or k6h > 0.0))):
                 # Tool #6 Harmonized (v27.5): after 75m, if still at Tier 0 and between -48 and +8 bps (like ONDO at 106m or TAO at 105m with negative k6h), exit in Maker!
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
-            # TRE OS v30.0 8-Minute Dead-on-Arrival Probe Cut: if after 8 mins in Phase 0 peak never reached +10 bps and flow/Kronos flipped against us, cut at -24 bps (-$0.15)!
+            # TRE OS v31.0 Continuous 'DURING-TRADE' Thesis Audit:
+            # If in Phase 0 after >=6 mins the market thesis flips (both Kronos 5m/10m AND OFI oppose our direction) and Peak < +12 bps, exit immediately in Maker at <= -18 bps (-$0.11)!
+            thesis_broken_in_trade = bool(new_shield == 0 and pos_age_mins >= 6.0 and new_peak < 12.0 and ((p_dir == "LONG" and k5m <= -2.0 and k10m <= -2.0 and sig.ofi_norm <= -0.10) or (p_dir == "SHORT" and k5m >= 2.0 and k10m >= 2.0 and sig.ofi_norm >= 0.10)))
+            if not exit_reason and thesis_broken_in_trade and move_bps <= -14.0:
+                exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
             doa_flow_against = bool(new_shield == 0 and pos_age_mins >= 8.0 and new_peak < 10.0 and ((p_dir == "LONG" and (k5m <= 0.0 or sig.ofi_norm <= -0.08)) or (p_dir == "SHORT" and (k5m >= 0.0 or sig.ofi_norm >= 0.08))))
-            eff_sl_gate_bps = min(dyn_sl_gate_bps, 22.0) if (new_shield == 0 and new_peak >= 22.0) else (min(dyn_sl_gate_bps, 24.0) if doa_flow_against else dyn_sl_gate_bps)
+            eff_sl_gate_bps = min(dyn_sl_gate_bps, 20.0) if (new_shield == 0 and new_peak >= 22.0) else (min(dyn_sl_gate_bps, 22.0) if doa_flow_against else dyn_sl_gate_bps)
             if not exit_reason and move_bps <= -eff_sl_gate_bps:
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_STOPLOSS", (bids[0][0] if p_dir == "LONG" else asks[0][0]), True
             if exit_reason:
@@ -1095,9 +1120,39 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     portfolio_dd_pct = ((live_nav_est - base_nav) / base_nav * 100.0) if base_nav > 0 else 0.0
     circuit_breaker_tripped = bool(portfolio_dd_pct <= -8.0)
     slot_margin_usd = round(live_nav_est * SLOT_NAV_PCT, 2)
-    # Axiom #2 (Zero Silent Cross-Module Blocks): never let transient Word Clock jitter block a validated Kronos + L2 trade entry!
     wc_safe_hold = False
-    if not circuit_breaker_tripped and not wc_safe_hold and len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
+    # TRE OS v31.0 Condition #3 (NO AUTOMATIC SLOT-MACHINE RE-ENTRY — MANDATORY PRE/DURING/POST ANALYSIS):
+    # 1) Never open a new position in the same cycle a position just closed (len(actions_taken) > 0) -> force Post-Trade Gemini Audit first!
+    # 2) Enforce a mandatory Post-Close Market Observation & Decompression Window (6 mins after a win/shield, 15 mins after a stop-loss) so the engine NEVER fires blindly right after closing!
+    # 3) Require Pre-Trade 2-Cycle Structural Confirmation (_PRE_TRADE_CONFIRM_MAP): a candidate must prove sustained flow across 2 consecutive cycles with improving/holding price before engaging!
+    just_closed_this_cycle = any(a.get("action", "").startswith("CLOSED_") for a in actions_taken)
+    cur.execute("SELECT status, (julianday('now') - julianday(closed_at)) * 1440.0 FROM futures_demo_positions WHERE status != 'OPEN' AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 1")
+    last_closed_row = cur.fetchone()
+    post_close_pause_active = False
+    if last_closed_row and last_closed_row[1] is not None:
+        last_st_c, mins_since_last_close = str(last_closed_row[0]), float(last_closed_row[1])
+        req_pause_mins = 15.0 if last_st_c == "CLOSED_STOPLOSS" else 6.0
+        if mins_since_last_close < req_pause_mins:
+            post_close_pause_active = True
+    active_cand_ids = {c["inst_id"]: c for c in candidates}
+    for cid_k in list(_PRE_TRADE_CONFIRM_MAP.keys()):
+        if cid_k not in active_cand_ids:
+            del _PRE_TRADE_CONFIRM_MAP[cid_k]
+    confirmed_candidates = []
+    for c_item in candidates:
+        cid_k, cdir_k, cpx_k = c_item["inst_id"], c_item["dir"], float(c_item["px"])
+        prev_c = _PRE_TRADE_CONFIRM_MAP.get(cid_k)
+        if prev_c and prev_c[0] == cdir_k:
+            cnt_c = prev_c[1] + 1
+            first_px_c = prev_c[2]
+            _PRE_TRADE_CONFIRM_MAP[cid_k] = (cdir_k, cnt_c, first_px_c)
+            px_confirmed = bool((cdir_k == "LONG" and cpx_k >= first_px_c * 0.9997) or (cdir_k == "SHORT" and cpx_k <= first_px_c * 1.0003))
+            if cnt_c >= 2 and px_confirmed and c_item["score"] >= 36.0:
+                confirmed_candidates.append(c_item)
+        else:
+            _PRE_TRADE_CONFIRM_MAP[cid_k] = (cdir_k, 1, cpx_k)
+    candidates = confirmed_candidates
+    if not circuit_breaker_tripped and not wc_safe_hold and not just_closed_this_cycle and not post_close_pause_active and len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
         candidates.sort(key=lambda x: x["score"], reverse=True)
         for cand in candidates:
             if len(open_positions) >= MAX_SLOTS or free_mgn < slot_margin_usd: break
