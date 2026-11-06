@@ -1,0 +1,33 @@
+{
+  "version": "TRE OS v32.0 (Unified Mac-VPS Harmony & Full 76-Skill Activation)",
+  "updated_at": "2026-11-05T08:25:00Z",
+  "mission": "Crescita costante, asimmetrica e protetta del capitale di the Quant Operator su OKX Europa Perpetual Futures (*-USD_UM_XPERP-*), eliminando ogni entrata casuale/automatica ('slot-machine'), garantendo che il volume e il profitto delle vincite ($190-$330 nozionale, +$0.80..+$3.50) siano sempre multipli (>=3x) del volume e del rischio delle perdite ($60 Sonda Fase 0, max -$0.12..-$0.23), con analisi obbligatoria PRIMA, DURANTE e DOPO ogni operazione e sintonia totale tra Lehman quant-node (Mac) e gli Agenti sulla VPS quant-node.",
+  "active_skills_matrix": {
+    "kline-indicator": "3-Pillar K-line Engine: WorldQuant Alpha #101 (|Close-Open|/(High-Low) >= 0.45) + 15m/1h/48h MTF Alignment + CVD/VWAP",
+    "qtx-alpha": "Multi-Factor Perpetual Futures Alpha: Kronos 7-Horizon Neural + Pre-Mean Z-Score (>=0.20) + TP Touch Prob + Volume Surge",
+    "whale-tracker": "Institutional Order Flow: Top-5 L2 Orderbook Imbalance (OFI >= 0.16), Wall Detector (>=3.8x) & 3-Candle Fair Value Gap (FVG)",
+    "bb-momentum-breakout": "Bollinger Band Squeeze & Breakout Confirmation on 15m candles (avoids dead chop, rides volatility expansion)",
+    "stochrsi-mdi-trend-v1": "15m RSI-14 Guard (blocks LONG >=73, blocks SHORT <=27) + Momentum Directional Divergence",
+    "tri-asset-adaptive-fusion": "Cross-Asset Macro Regime across BTC, ETH, and XAU (Gold) to detect Risk-On vs Risk-Off vs Chop",
+    "resilience-trader": "Capital Preservation First: Phase 0 Probe ($60) with -38bps max SL (-$0.23) & 6m/8m thesis-invalidation cut (-$0.11..-$0.15)",
+    "rolling-position": "BitKing Trend Rolling in Free-Roll: Phase 2 (+56bps) scales +$130 at 3x (~$190 volume) & Phase 3 (+135bps) scales to ~$330 volume",
+    "position-sizer": "ATR-Normalized Risk-Locked Sizing & Isolated Leverage Guard (2x Probe -> 3x Free-Roll Runner)",
+    "okx-execution-vortex": "Maker-First post_only (2bps) execution + Guaranteed G2/G3 Runner Fill + Hardware OCO Ratchet (amend-algos)",
+    "hindsight-reviewer": "Counterfactual Post-Mortem Judge (60m post-exit replay + Shadow Paper-Arena on blocked signals)",
+    "pnl-loss-reviewer & okx-trade-review-suite": "General & Particular System Diagnostics (Payoff Ratio Win/Loss, Phase-0 DOA rate, Choked Win rate)"
+  },
+  "system_guarantees_G01_G12": [
+    "G01 (Asimmetria Volumi e Payoff >= 3:1): Perdite confinate alla Sonda Fase 0 (~$60 USDC, max loss -$0.12..-$0.23 USDC); Vincite espanse in Fase 2/3 a ~$190-$330 USDC (3x-5x il volume delle perdite) con profitto netto +$0.80..+$3.50 USDC.",
+    "G02 (Zero Slot-Machine Automatica): Divieto assoluto di aprire una nuova posizione nello stesso ciclo di una chiusura; pausa obbligatoria di analisi post-trade (6m dopo vincita, 15m dopo stop).",
+    "G03 (Analisi Obbligatoria PRIMA dell'Ingaggio): Ogni candidato deve confermare direzione, flusso OFI e tenuta del prezzo per almeno 2 cicli consecutivi (_PRE_TRADE_CONFIRM_MAP >= 2) prima di poter essere aperto.",
+    "G04 (Analisi Continua DURANTE la Posizione): Se nei primi 6-8 minuti in Fase 0 la tesi di mercato svanisce (Kronos 5m/10m e OFI invertono contro di noi con Peak < +12bps), uscita immediata in Maker (-$0.11..-$0.15).",
+    "G05 (100% Neural Kronos-Only + Pre-Mean Z-Score): Nessun contratto può essere tradato senza previsione neurale attiva a 7 orizzonti di Kronos-mini (4.1M) e rapporto Segnale/Rumore kronos_zscore_1h >= 0.20.",
+    "G06 (Corridoio Libero Fase 1 -> Fase 2): A +36 bps lo Stop va in Pareggio (+8 bps), ma è vietato strangolare il trade a +52 bps con micro-utili da +$0.15; il trade ha campo libero fino al raddoppio di Fase 2 (+56 bps).",
+    "G07 (Max 1 Posizione a Rischio Scoperto): Il 2° Slot si apre SOLO quando il 1° Slot è già blindato in utile al Gradino 2/3 (Free-Roll).",
+    "G08 (Nocturnal Stop Breaker 120m): Tra le 23:00 e le 06:00 CET, un singolo stop (<=-$0.22) congela i nuovi ingressi notturni per 120 minuti (impossibili catene di stop notturni).",
+    "G09 (Guardie di Sessione Asset Class): US_EQUITY opera solo a Wall Street aperta (15:35-21:30 CET Lun-Ven); COMMODITY bloccate nella notte illiquida (22:30-05:45 CET) e con Twin-Cooldown 4h tra CL e BZ.",
+    "G10 (Hardware OCO Ratchet su OKX): Ogni avanzamento di Gradino (G0.5 -> G1 -> G2 -> G3) aggiorna fisicamente il trigger SL sui server di OKX tramite /api/v5/trade/amend-algos.",
+    "G11 (Coscienza Generale e Particolare Gemini Free): Ad ogni audit (e subito dopo ogni chiusura), Gemini Free riceve Payoff Ratio, DOA count, autopsia dell'ultimo trade e stato live con fallback automatico gemini-3.5-flash-lite -> gemma-4-26b-a4b-it.",
+    "G12 (Armonia Totale Mac <-> VPS): Lehman quant-node (Mac) e i 3 servizi/agenti su quant-node leggono tutti questo stesso file config/unified_mission_and_guarantees.json."
+  ]
+}

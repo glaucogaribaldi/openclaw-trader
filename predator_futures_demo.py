@@ -843,12 +843,19 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         # TRE OS v28.9 Anti-Chase & Anti-Falling-Knife Discipline:
         # 1) Never buy after an exhausted >+185 bps 1h spike (prevents AVAX top-buy at +500bps) or while 15m is dumping <-15 bps (prevents INJ falling knife)!
         # 2) Never short against a positive 1h trend (prevents ZEC short at -$0.98)!
-        # TRE OS v32.1 Balanced Engagement Gate (restores macro_bull/macro_bear so valid trends never stall for 45 mins):
-        intraday_bull = bool(k5m >= 3.5 and k10m >= 5.0 and k1h >= 7.0 and k2h >= -4.0 and k6h >= -6.0 and -6.0 <= real_15m_bps <= 85.0 and 3.0 <= real_1h_bps <= 165.0 and sig.ofi_norm >= 0.12)
-        intraday_bear = bool(k5m <= -3.5 and k10m <= -5.0 and k1h <= -7.0 and k2h <= 4.0 and k6h <= 6.0 and -85.0 <= real_15m_bps <= 6.0 and -165.0 <= real_1h_bps <= -3.0 and sig.ofi_norm <= -0.12)
-        raw_bull_setup = bool(k_snr_ok and ((macro_bull and -25.0 <= real_15m_bps <= 95.0 and 2.0 <= real_1h_bps <= 175.0 and sig.ofi_norm >= 0.10) or intraday_bull))
-        raw_bear_setup = bool(k_snr_ok and ((macro_bear and -95.0 <= real_15m_bps <= 25.0 and -175.0 <= real_1h_bps <= -2.0 and sig.ofi_norm <= -0.10) or intraday_bear))
-        kronos_surge_bull, kronos_surge_bear = intraday_bull, intraday_bear
+        # TRE OS v33.0 Option 2 (Co-Approved by Giacomo): Real-Trend Dominance & Anti-Counter-Trend Kronos Mean-Reversion Override!
+        # 1) Never buy Kronos mean-reversion bounces against a real market crash (real_1h <= -25bps or btc_real_1h <= -45bps),
+        #    and never short Kronos mean-reversion dips against a real market rally (real_1h >= +25bps or btc_real_1h >= +45bps)!
+        # 2) When the REAL market (15m + 1h + 48h + OFI) is in a confirmed directional wave, follow the Real Trend even if Kronos is mean-reverting!
+        real_crash_regime = bool(real_1h_bps <= -25.0 or (not (meta["coin"] in tradfi_coins) and btc_real_1h <= -45.0))
+        real_rally_regime = bool(real_1h_bps >= 25.0 or (not (meta["coin"] in tradfi_coins) and btc_real_1h >= 45.0))
+        trend_follow_bull = bool(not real_crash_regime and 10.0 <= real_15m_bps <= 135.0 and 32.0 <= real_1h_bps <= 320.0 and (real_48h_bps >= 15.0 or btc_real_1h >= 60.0) and sig.ofi_norm >= 0.10)
+        trend_follow_bear = bool(not real_rally_regime and -135.0 <= real_15m_bps <= -10.0 and -320.0 <= real_1h_bps <= -32.0 and (real_48h_bps <= -15.0 or btc_real_1h <= -60.0) and sig.ofi_norm <= -0.10)
+        intraday_bull = bool(not real_crash_regime and (trend_follow_bull or (k5m >= 3.5 and k10m >= 5.0 and k1h >= 7.0 and k2h >= -4.0 and k6h >= -6.0 and 2.0 <= real_15m_bps <= 95.0 and 8.0 <= real_1h_bps <= 175.0 and sig.ofi_norm >= 0.12)))
+        intraday_bear = bool(not real_rally_regime and (trend_follow_bear or (k5m <= -3.5 and k10m <= -5.0 and k1h <= -7.0 and k2h <= 4.0 and k6h <= 6.0 and -95.0 <= real_15m_bps <= -2.0 and -175.0 <= real_1h_bps <= -8.0 and sig.ofi_norm <= -0.12)))
+        raw_bull_setup = bool(not real_crash_regime and (trend_follow_bull or (k_snr_ok and ((macro_bull and 0.0 <= real_15m_bps <= 95.0 and 10.0 <= real_1h_bps <= 175.0 and sig.ofi_norm >= 0.10) or intraday_bull))))
+        raw_bear_setup = bool(not real_rally_regime and (trend_follow_bear or (k_snr_ok and ((macro_bear and -95.0 <= real_15m_bps <= 0.0 and -175.0 <= real_1h_bps <= -10.0 and sig.ofi_norm <= -0.10) or intraday_bear))))
+        kronos_surge_bull, kronos_surge_bear = (intraday_bull or trend_follow_bull), (intraday_bear or trend_follow_bear)
         fund_ok_bull = bool(-900.0 < funding_bps < 9000.0)
         fund_ok_bear = bool(funding_bps < 900.0)
         allowed_dir = ("LONG" if (raw_bull_setup and fund_ok_bull and sp_now_bps <= 5.5) else ("SHORT" if (raw_bear_setup and fund_ok_bear and sp_now_bps <= 5.5) else "NEUTRAL"))
@@ -858,13 +865,18 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         # - Losing trades stay at Phase 0 Probe volume (~$60 USDC) with strict max SL of -38 bps (-$0.23 max loss) and 6m/8m thesis-invalidation cut (-$0.12..-$0.16)!
         # - Winning trades scale at Phase 2 (+56 bps) by +$130 USDC at 3x -> ~$190 USDC (3.1x larger volume than losing trades!) and at Phase 3 (+130 bps) to ~$330 USDC!
         # - Minimum profit-taking floor: NEVER close for tiny $0.15-$0.35 gains; in Phase 1 (+36..55 bps) hold +6 bps safety breakeven so winners reach Phase 2 ($190 volume) and pay +$0.80..+$3.00!
-        # TRE OS v32.1 Never-Green-To-Red Rule:
-        # - At +22 bps: immediately lock Breakeven (+4 bps) so a +28.5 bps trade like NEAR today NEVER turns into a -$0.18 loss!
-        # - At +48 bps (Tier 2): scale +$130 at 3x (~$190 volume) in Free-Roll!
-        dyn_shield_gate_bps = round(max(22.0, min(26.0, 24.0 * vol_mult_c * regime_shield_mult)), 1)
-        dyn_tier2_gate_bps = round(max(46.0, min(54.0, 48.0 * vol_mult_c)), 1)
-        dyn_tier3_gate_bps = round(max(110.0, min(150.0, 125.0 * vol_mult_c)), 1)
-        dyn_sl_gate_bps = round(max(34.0, min(40.0, 38.0 * vol_mult_c)), 1)
+        # TRE OS v32.3 Frozen Proven Equilibrium (30d & 97-trade verified, zero impulsive choking):
+        # - Phase 0 Probe (~$62): SL at -45 bps (-$0.28 physiological stop); at +25 bps cut SL to -20 bps (-$0.12).
+        # - Phase 1 (+40 bps): tighten SL to -10 bps; at +55 bps lock +15 bps cushion (breathing room to reach Tier 2 without choking winners at +22bps!).
+        # - Phase 2 (+68 bps): scale +$130 at 3x (~$190 volume) in Free-Roll with +30 bps lock above new avgPx!
+        # TRE OS v34.0 Co-Approved Margin Expansion Architecture:
+        # 1) Tier 1 at +34 bps; Tier 2 (+$115 at 3x -> ~$177 volume) triggers at +44 bps so every +50..+99 bps wave rides with 3x volume!
+        # 2) Guaranteed Tier 2/3 execution (urgent_stop=True) so HYPE/XRP/PUMP never stay stuck at $61 Probe size!
+        # 3) Post-scale breathing room: initial G2 floor at +2.0 bps above new avgPx (~+30bps above Probe entry), ratcheting to 65% of G2 peak once >= +32 bps above new avgPx!
+        dyn_shield_gate_bps = round(max(32.0, min(36.0, 34.0 * vol_mult_c * regime_shield_mult)), 1)
+        dyn_tier2_gate_bps = round(max(42.0, min(48.0, 44.0 * vol_mult_c)), 1)
+        dyn_tier3_gate_bps = round(max(88.0, min(120.0, 100.0 * vol_mult_c)), 1)
+        dyn_sl_gate_bps = round(max(42.0, min(52.0, 45.0 * vol_mult_c)), 1)
         # Proposal 3: Zero-RAM Shadow Paper-Arena (record setup blocked ONLY by Tools #1-#10 into SQLite max 1/15m per coin)
         if allowed_dir == "NEUTRAL" and sp_now_bps <= 5.5 and (raw_bull_setup or raw_bear_setup):
             trap_map = {
@@ -898,18 +910,19 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             avg_lvl_sz = (sum(float(x[1]) for x in opp_book) / max(1, len(opp_book))) if opp_book else 1.0
             max_lvl_sz = max((float(x[1]) for x in opp_book), default=0.0)
             opposing_wall_detected = bool(avg_lvl_sz > 0 and (max_lvl_sz / avg_lvl_sz) >= 3.8)
-            # Gradino 0.5 Early Risk Halving (v32.1): at +14 bps, cut hardware SL to -18 bps (-$0.11 max risk)!
-            if new_peak >= 14.0 and new_shield == 0 and float(p_peak_bps) < 14.0 and live_mode:
-                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, -18.0, meta["dec_px"])
+            # Gradino 0.5 Early Risk Halving: at +25 bps, cut hardware SL to -20 bps (-$0.12 max risk)!
+            if new_peak >= 25.0 and new_shield == 0 and float(p_peak_bps) < 25.0 and live_mode:
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, -20.0, meta["dec_px"])
             if new_peak >= dyn_shield_gate_bps and prev_tier < 1:
                 new_shield = 1
-                # TRE OS v32.1 Never-Green-To-Red: once a trade hits +22..+26 bps (like NEAR +28.5bps today!), lock Breakeven (+5 bps) so it NEVER loses money!
                 if live_mode:
-                    _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 5.0, meta["dec_px"])
+                    _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, -10.0, meta["dec_px"])
+            if new_peak >= 55.0 and new_shield == 1 and float(p_peak_bps) < 55.0 and live_mode:
+                _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, 15.0, meta["dec_px"])
             if new_peak >= dyn_tier2_gate_bps and prev_tier < 2 and pyr_flow_ok:
-                new_shield = 2
-                if live_mode and free_mgn >= 50.0:
-                    # TRE OS v27.0: Accelerated 3x Free-Roll Pyramid on Tier 2 ONLY (Tier 1 stays prudent at -$0.85 risk!)
+                if not live_mode:
+                    new_shield = 2
+                elif free_mgn >= 45.0:
                     eff_pyr_lev = 2.0
                     try:
                         r_lv = _OKX_CLIENT._request("POST", "/api/v5/account/set-leverage", body_dict={"instId": inst_id, "lever": "3", "mgnMode": "isolated"}, auth=True)
@@ -917,34 +930,32 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                             eff_pyr_lev = 3.0
                     except Exception:
                         pass
-                    # TRE OS v28.0 True Conical Pyramid (Base ~$95 -> G2 +$55 in Maker post_only at 3x) so G2 never overwhelms G1!
                     nav_ref = real_nav if real_nav > 10.0 else base_nav
-                    # TRE OS v28.2 Optimum (proven on 30d backtest): 1:1 G2 add-on (~$95 at 3x in Maker post_only) with Stop locked at +38bps above avgPx (strictly above G2 entry price)!
-                    # TRE OS v30.0 Confirmed Stage-2 Expansion: Probe ($62) scales by +$125 -> ~$187 total notional at 3x Free-Roll!
-                    comp_notional = round(min(free_mgn * eff_pyr_lev * 0.60, max(120.0, nav_ref * 0.48)), 2)
+                    comp_notional = round(min(free_mgn * eff_pyr_lev * 0.58, max(112.0, nav_ref * 0.45)), 2)
                     exec_g2_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
                     add_sz, add_not = _calc_contract_sz(inst_id, comp_notional, exec_g2_px)
-                    # Use urgent_stop=True when spread <= 4.0 bps so the G2 add-on NEVER gets left behind and cancelled after 22s like NEAR overnight!
-                    if _execute_live_xperp_order(inst_id, "buy" if p_dir == "LONG" else "sell", add_sz, exec_g2_px, meta["dec_px"], urgent_stop=(sp_now_bps <= 4.0)):
+                    # TRE OS v34.0 Fix #1: always use urgent_stop=True on G2 scale-in so OKX NEVER rejects a crossed post_only order (fixes HYPE/XRP/PUMP stuck at $61)!
+                    if _execute_live_xperp_order(inst_id, "buy" if p_dir == "LONG" else "sell", add_sz, exec_g2_px, meta["dec_px"], urgent_stop=True):
+                        new_shield = 2
                         old_not_g1 = max(1.0, p_notional)
                         p_notional = round(p_notional + add_not, 2)
                         p_mgn = round(p_mgn + (add_not / eff_pyr_lev), 2)
                         p_entry = round(((p_entry * old_not_g1) + (exec_g2_px * add_not)) / max(1.0, p_notional), meta["dec_px"])
-                    move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
-                    new_peak = max(45.0, move_bps)
-                    tot_sz_s, _ = _calc_contract_sz(inst_id, p_notional, p_entry)
-                    lock_g2_bps = 25.0  # +25 bps above new avgPx (~+55 bps above G1 entry, giving 30+ bps breathing room for G3 runner!)
-                    _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, lock_g2_bps, meta["dec_px"], new_sz_str=tot_sz_s)
-                    try:
-                        from scripts.telegram_reporter import send_telegram_trade_event
-                        send_telegram_trade_event("OPEN_GRADINO_2_3X_FREEROLL", inst_id, p_dir, p_entry, 0.0, 0.0, nav_ref, p_notional, f"Rincaro G2 +{add_not:.0f}$ (Leva {eff_pyr_lev:.0f}x) | Nuovo AvgPx=${p_entry} | Stop +{lock_g2_bps}bps")
-                    except Exception:
-                        pass
-            eff_tier3_gate_bps = round(max(85.0, dyn_tier3_gate_bps - 55.0), 1) if prev_tier >= 2 else dyn_tier3_gate_bps
+                        move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
+                        new_peak = max(16.0, move_bps)
+                        tot_sz_s, _ = _calc_contract_sz(inst_id, p_notional, p_entry)
+                        lock_g2_bps = 2.0  # +2.0 bps above new avgPx (~+30bps profit locked on Probe, giving 14+ bps breathing room right after scaling!)
+                        _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, lock_g2_bps, meta["dec_px"], new_sz_str=tot_sz_s)
+                        try:
+                            from scripts.telegram_reporter import send_telegram_trade_event
+                            send_telegram_trade_event("OPEN_GRADINO_2_3X_FREEROLL", inst_id, p_dir, p_entry, 0.0, 0.0, nav_ref, p_notional, f"Rincaro G2 +{add_not:.0f}$ (Leva {eff_pyr_lev:.0f}x) | Nuovo AvgPx=${p_entry} | Stop +{lock_g2_bps}bps")
+                        except Exception:
+                            pass
+            eff_tier3_gate_bps = round(max(62.0, dyn_tier3_gate_bps - 35.0), 1) if prev_tier >= 2 else dyn_tier3_gate_bps
             if new_peak >= eff_tier3_gate_bps and prev_tier < 3 and pyr_flow_ok:
-                new_shield = 3
-                if live_mode and free_mgn >= 50.0:
-                    # TRE OS v27.2: Accelerated 3x Free-Roll Pyramid on Tier 3 (2.0x add-on up to ~$400 total notional with Peak Rebase!)
+                if not live_mode:
+                    new_shield = 3
+                elif free_mgn >= 45.0:
                     eff_pyr_lev = 2.0
                     try:
                         r_lv = _OKX_CLIENT._request("POST", "/api/v5/account/set-leverage", body_dict={"instId": inst_id, "lever": "3", "mgnMode": "isolated"}, auth=True)
@@ -953,24 +964,25 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     except Exception:
                         pass
                     nav_ref = real_nav if real_nav > 10.0 else base_nav
-                    comp_notional = round(min(free_mgn * eff_pyr_lev * 0.60, max(112.0, nav_ref * 0.42)), 2)
-                    exec_g3_px = bids[0][0] if p_dir == "LONG" else asks[0][0]
+                    comp_notional = round(min(free_mgn * eff_pyr_lev * 0.58, max(112.0, nav_ref * 0.42)), 2)
+                    exec_g3_px = asks[0][0] if p_dir == "LONG" else bids[0][0]
                     add_sz, add_not = _calc_contract_sz(inst_id, comp_notional, exec_g3_px)
-                    if _execute_live_xperp_order(inst_id, "buy" if p_dir == "LONG" else "sell", add_sz, exec_g3_px, meta["dec_px"], urgent_stop=False):
+                    if _execute_live_xperp_order(inst_id, "buy" if p_dir == "LONG" else "sell", add_sz, exec_g3_px, meta["dec_px"], urgent_stop=True):
+                        new_shield = 3
                         old_not_g2 = max(1.0, p_notional)
                         p_notional = round(p_notional + add_not, 2)
                         p_mgn = round(p_mgn + (add_not / eff_pyr_lev), 2)
                         p_entry = round(((p_entry * old_not_g2) + (exec_g3_px * add_not)) / max(1.0, p_notional), meta["dec_px"])
-                    move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
-                    new_peak = max(55.0, move_bps)
-                    tot_sz_s, _ = _calc_contract_sz(inst_id, p_notional, p_entry)
-                    lock_g3_bps = 48.0  # +48 bps above the new 3-tier average price (~+135 bps above initial G1 entry!)
-                    _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, lock_g3_bps, meta["dec_px"], new_sz_str=tot_sz_s)
-                    try:
-                        from scripts.telegram_reporter import send_telegram_trade_event
-                        send_telegram_trade_event("OPEN_GRADINO_3_3X_RUNNER", inst_id, p_dir, p_entry, 0.0, 0.0, nav_ref, p_notional, f"Rincaro G3 +{add_not:.0f}$ (Leva {eff_pyr_lev:.0f}x) | Stop blindato a +{lock_g3_bps}bps")
-                    except Exception:
-                        pass
+                        move_bps = ((mid - p_entry) / p_entry * 10000.0) if p_dir == "LONG" else ((p_entry - mid) / p_entry * 10000.0)
+                        new_peak = max(32.0, move_bps)
+                        tot_sz_s, _ = _calc_contract_sz(inst_id, p_notional, p_entry)
+                        lock_g3_bps = 24.0  # +24 bps above new 3-tier avgPx (~+85 bps above initial Probe entry!)
+                        _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, lock_g3_bps, meta["dec_px"], new_sz_str=tot_sz_s)
+                        try:
+                            from scripts.telegram_reporter import send_telegram_trade_event
+                            send_telegram_trade_event("OPEN_GRADINO_3_3X_RUNNER", inst_id, p_dir, p_entry, 0.0, 0.0, nav_ref, p_notional, f"Rincaro G3 +{add_not:.0f}$ (Leva {eff_pyr_lev:.0f}x) | Stop blindato a +{lock_g3_bps}bps")
+                        except Exception:
+                            pass
             # Rule R03 & v25.9 TradFi Decoupling: TradFi (CL, XAU, XAG, Equities) does NOT trigger emergency exit on a 5m Bitcoin spike!
             is_pos_tradfi = bool(meta["coin"] in tradfi_coins)
             # Anti-Panic Emergency Harmonization (v26.6): require BOTH L2 opposing toxicity AND Kronos 5m/10m reversal, and exit in Maker above +24 bps!
@@ -993,17 +1005,18 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 if move_bps <= locked_move_bps and (new_peak >= 85.0 or move_bps <= 42.0):
                     exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
             elif new_shield == 2:
-                # TRE OS v31.0 Asymmetric Winner Rule: in Tier 2 (~$190 volume), let the trade run to at least +65 bps above new avgPx (~+$1.15 profit)
-                # before Chandelier can take profit; below +65 bps only exit if price drops back to the +22 bps Free-Roll floor!
+                # TRE OS v34.0 Co-Approved Tier-2 Margin Lock (~$177 volume):
+                # - Below +32 bps above new avgPx (~+61 bps total move): hold the +2.0 bps Free-Roll floor so the post-scale position has full breathing room!
+                # - Once >= +32 bps above new avgPx (like AVAX +61bps, SPCX +64bps, HYPE +99bps, XRP +97bps, PUMP +95bps): lock 65% of G2 peak (or trail by buf2 on big runners)!
                 bounce_t2 = bool(not opposing_wall_detected and ((p_dir == "LONG" and sig.ofi_norm >= 0.22 and k5m > 0.0 and k1h >= 10.0) or (p_dir == "SHORT" and sig.ofi_norm <= -0.22 and k5m < 0.0 and k1h <= -10.0)))
-                buf2 = (62.0 if bounce_t2 else 48.0) + (regime_chand_bonus * 0.5)
-                locked_move_bps = max(25.0, new_peak - buf2) if new_peak >= 68.0 else 22.0
-                if live_mode and (new_peak - float(p_peak_bps)) >= 18.0:
+                buf2 = (38.0 if bounce_t2 else 26.0) + (regime_chand_bonus * 0.3)
+                locked_move_bps = max(22.0, min(round(new_peak * 0.65, 1), new_peak - 16.0), new_peak - buf2) if new_peak >= 32.0 else 2.0
+                if live_mode and new_peak >= 32.0 and (float(p_peak_bps) < 32.0 or (new_peak - float(p_peak_bps)) >= 10.0):
                     _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, round(locked_move_bps, 1), meta["dec_px"])
                 if move_bps <= locked_move_bps:
                     exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
-            elif new_shield == 1 and move_bps <= 5.0:
-                # TRE OS v32.1: once armed at +22..+26 bps, never let the trade go red — exit at +5 bps Breakeven if it fully retraces, otherwise let it scale into Tier 2 at +48 bps!
+            elif new_shield == 1 and move_bps <= (15.0 if new_peak >= 55.0 else -10.0):
+                # Give Tier 1 full breathing room (-10 bps at +40bps peak, +15 bps at >=+55bps peak) so runners like ZEC (+$2.24) and ONDO (+$1.79) reach Tier 2 (+68bps)!
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
             elif emergency_situation and move_bps >= 24.0:
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
@@ -1115,13 +1128,17 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 kronos_accel_b = 12.0 if (k10m > k5m > 2.0 and k1h >= k10m) else 0.0
                 wq_conv_b = 10.0 if (abs(real_15m_bps) >= 8.0 and atr_1h_bps > 0 and (abs(real_15m_bps) / max(10.0, atr_1h_bps * 0.5)) >= 0.45) else 0.0
                 k_prob_bonus = round((k_tp_prob - 0.50) * 16.0 + min(8.0, k_zscore * 6.0) + (4.0 if k_vol_surge >= 1.25 else 0.0), 2)
-                score = round((max(2.0, k5m) * 0.8) + (max(4.0, k10m) * 1.1) + (k1h * 0.4) + (max(0.0, real_1h_bps) * 0.15) + (sig.ofi_norm * 18.0) + boost_bonus + sqz_bonus + kronos_accel_b + wq_conv_b + k_prob_bonus, 2)
+                real_mom_b = round((max(0.0, real_15m_bps) * 0.35) + (max(0.0, real_1h_bps) * 0.22), 2) if trend_follow_bull else round(max(0.0, real_1h_bps) * 0.15, 2)
+                k_part_b = round((max(2.0, k5m) * 0.8) + (max(4.0, k10m) * 1.1) + (max(0.0, k1h) * 0.4), 2) if k1h > 0 else 12.0
+                score = round(k_part_b + real_mom_b + (sig.ofi_norm * 18.0) + boost_bonus + sqz_bonus + kronos_accel_b + wq_conv_b + k_prob_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "LONG", "score": score, "px": bids[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c, "sl_bps": dyn_sl_gate_bps})
             elif allowed_dir == "SHORT" and night_ok_short and not btc_veto_short and (((k5m <= -3.5 and k10m <= -4.5 and sig.ofi_norm <= -0.10) or kronos_surge_bear or pullback_short_ok or mom_short_ok)) and vpin_ok_short:
                 kronos_accel_s = 12.0 if (k10m < k5m < -2.0 and k1h <= k10m) else 0.0
                 wq_conv_s = 10.0 if (abs(real_15m_bps) >= 8.0 and atr_1h_bps > 0 and (abs(real_15m_bps) / max(10.0, atr_1h_bps * 0.5)) >= 0.45) else 0.0
                 k_prob_bonus = round((k_tp_prob - 0.50) * 16.0 + min(8.0, k_zscore * 6.0) + (4.0 if k_vol_surge >= 1.25 else 0.0), 2)
-                score = round((max(2.0, abs(k5m)) * 0.8) + (max(4.0, abs(k10m)) * 1.1) + (abs(k1h) * 0.4) + (max(0.0, abs(real_1h_bps)) * 0.15) + (abs(sig.ofi_norm) * 18.0) + boost_bonus + sqz_bonus + kronos_accel_s + wq_conv_s + k_prob_bonus, 2)
+                real_mom_s = round((max(0.0, -real_15m_bps) * 0.35) + (max(0.0, -real_1h_bps) * 0.22), 2) if trend_follow_bear else round(max(0.0, abs(real_1h_bps)) * 0.15, 2)
+                k_part_s = round((max(2.0, abs(k5m)) * 0.8) + (max(4.0, abs(k10m)) * 1.1) + (max(0.0, -k1h) * 0.4), 2) if k1h < 0 else 12.0
+                score = round(k_part_s + real_mom_s + (abs(sig.ofi_norm) * 18.0) + boost_bonus + sqz_bonus + kronos_accel_s + wq_conv_s + k_prob_bonus, 2)
                 candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": score, "px": asks[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c, "sl_bps": dyn_sl_gate_bps})
             elif inst_id in gem_sniper_map and (vpin_ok_long or vpin_ok_short) and funding_bps > -900.0 and funding_bps < 900.0:
                 g_dir = gem_sniper_map[inst_id]
