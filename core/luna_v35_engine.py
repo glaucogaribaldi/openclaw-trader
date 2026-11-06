@@ -97,29 +97,52 @@ class KronosAntiStaleValidator:
                 entry_valid=False, management_valid=False, reject_reasons=reasons,
             )
 
-        gen_ts = float(getattr(raw_fc, "generated_at_ts", 0.0) or now)
-        clock_skew = gen_ts - now
-        if clock_skew > 5.0:
-            reasons.append(f"CLOCK_SKEW>{clock_skew:.1f}s")
-        age_s = max(0.0, now - gen_ts)
+        gen_ts = float(getattr(raw_fc, "generated_at_ts", 0.0) or 0.0)
+        if gen_ts <= 0.0:
+            reasons.append("MISSING_GENERATED_AT")
+            clock_skew = 9999.0
+            age_s = 9999.0
+        else:
+            # `generated_at_ts` is forecast age, not clock skew. Only compare
+            # clocks when Kronos explicitly supplies its current source time;
+            # otherwise reject a future-dated forecast, while allowing a
+            # normally aged forecast to be governed by the 90/180s TTLs.
+            source_now_ts = float(getattr(raw_fc, "source_now_ts", 0.0) or 0.0)
+            if source_now_ts > 0.0:
+                clock_skew = abs(source_now_ts - now)
+                if clock_skew > 5.0:
+                    reasons.append(f"CLOCK_SKEW_{clock_skew:.1f}s>5s")
+            else:
+                clock_skew = max(0.0, gen_ts - now)
+                if clock_skew > 5.0:
+                    reasons.append(f"FUTURE_FORECAST_{clock_skew:.1f}s>5s")
+            age_s = max(0.0, now - gen_ts)
 
-        last_close = float(getattr(raw_fc, "last_close", 0.0) or mid_xperp)
+        last_close = float(getattr(raw_fc, "last_close", 0.0) or 0.0)
         exp_1h = float(getattr(raw_fc, "expected_return_1h_bps", 0.0))
         pred_vol = float(getattr(raw_fc, "pred_volatility_1h_bps", 25.0))
         tp_prob = float(getattr(raw_fc, "tp_touch_prob_1h", 0.50))
         disp_bps = float(getattr(raw_fc, "path_dispersion_bps", 5.0))
 
-        # Track 24h price deviation MAD
+        if last_close <= 0.0:
+            reasons.append("MISSING_REFERENCE_PRICE")
+
+        # Track 24h price deviation MAD. Evaluate against the history that
+        # existed before this observation; including the current point makes a
+        # one-shot stale jump look less extreme than it is.
         phist = self.price_change_history_24h.setdefault(inst_id, deque(maxlen=288))
-        px_diff_bps = abs(last_close - mid_xperp) / max(1e-9, mid_xperp) * 10000.0
-        phist.append(px_diff_bps)
         mad_px = _mad(list(phist))
         max_px_dev_bps = max(20.0, 3.0 * mad_px)
+        px_diff_bps = abs(last_close - mid_xperp) / max(1e-9, mid_xperp) * 10000.0 if last_close > 0.0 else 9999.0
         if px_diff_bps > max_px_dev_bps:
             reasons.append(f"PRICE_DEV_{px_diff_bps:.1f}bps>{max_px_dev_bps:.1f}bps")
+        if last_close > 0.0:
+            phist.append(px_diff_bps)
 
         # Spot vs XPERP Basis check: basis_bps = 10000 * log(mid_xperp / mid_spot)
         ref_spot = mid_spot if mid_spot > 0 else last_close
+        if ref_spot <= 0.0:
+            reasons.append("MISSING_SPOT_REFERENCE")
         basis_bps = (10000.0 * math.log(mid_xperp / ref_spot)) if (mid_xperp > 0 and ref_spot > 0) else 0.0
         bhist = self.basis_history_24h.setdefault(inst_id, deque(maxlen=288))
         if len(bhist) >= 10:
@@ -132,6 +155,7 @@ class KronosAntiStaleValidator:
 
         snr_1h = abs(exp_1h) / max(pred_vol, 25.0)
         disp_ratio = disp_bps / max(abs(exp_1h), 10.0)
+        sample_count = int(getattr(raw_fc, "sample_count", 0) or 0)
 
         if pred_vol <= 0.0:
             reasons.append("PRED_VOL<=0")
@@ -141,11 +165,19 @@ class KronosAntiStaleValidator:
             reasons.append(f"DISP_RATIO_{disp_ratio:.2f}>1.75")
         if not (0.05 <= tp_prob <= 0.95):
             reasons.append(f"TP_PROB_{tp_prob:.2f}_OUT_OF_BOUNDS")
+        if sample_count and sample_count < 10 and (tp_prob <= 0.0 or tp_prob >= 1.0):
+            reasons.append(f"TP_PROB_LOW_SAMPLE_{sample_count}")
 
-        mgmt_valid = bool(age_s <= 180.0 and "MISSING_FORECAST_OR_PRICE" not in reasons and "PRED_VOL<=0" not in reasons)
-        entry_valid = bool(age_s <= 90.0 and len(reasons) == 0)
         if age_s > 90.0:
             reasons.append(f"AGE_{age_s:.0f}s>90s")
+        mgmt_valid = bool(
+            age_s <= 180.0
+            and "MISSING_FORECAST_OR_PRICE" not in reasons
+            and "MISSING_GENERATED_AT" not in reasons
+            and "MISSING_REFERENCE_PRICE" not in reasons
+            and "PRED_VOL<=0" not in reasons
+        )
+        entry_valid = bool(age_s <= 90.0 and len(reasons) == 0)
 
         fid_raw = f"{inst_id}:{int(gen_ts)}:{exp_1h:.2f}:{last_close:.6f}"
         fid = "kf_" + hashlib.sha1(fid_raw.encode("utf-8")).hexdigest()[:12]
@@ -218,6 +250,112 @@ class CalibratedEVEngine:
             "b7": 0.48,   # direction_alignment (+1 aligned, 0 mixed, -1 opposed)
             "b8": 0.14,   # regime_id (+1 momentum aligned, 0 neutral, -1 chop)
         }
+        self.calibration_report: Dict[str, Any] = {
+            "status": "NOT_FIT",
+            "reason": "no_walk_forward_training_samples",
+            "n_obs": 0,
+        }
+
+    @property
+    def n_obs_bucket(self) -> int:
+        return int(self.calibration_report.get("n_obs") or 0)
+
+    @staticmethod
+    def _fit_logistic(samples: List[Tuple[List[float], int]], epochs: int = 350, lr: float = 0.04, l2: float = 0.02) -> List[float]:
+        """Small dependency-free L2 logistic fitter for deterministic VPS runs."""
+        weights = [0.0] * 9
+        if not samples:
+            return weights
+        for _ in range(max(50, epochs)):
+            grad = [0.0] * 9
+            for x, target in samples:
+                z = sum(weights[i] * x[i] for i in range(9))
+                err = _sigmoid(z) - float(target)
+                for i in range(9):
+                    grad[i] += err * x[i]
+            scale = 1.0 / max(1, len(samples))
+            for i in range(9):
+                penalty = 0.0 if i == 0 else l2 * weights[i]
+                weights[i] -= lr * (grad[i] * scale + penalty)
+        return weights
+
+    @staticmethod
+    def _sample_to_xy(sample: Dict[str, Any]) -> Optional[Tuple[List[float], int]]:
+        """Accept explicit `x` vectors or named features; reject incomplete data."""
+        try:
+            target = int(sample.get("target"))
+            if target not in (0, 1):
+                return None
+            raw_x = sample.get("x")
+            if isinstance(raw_x, (list, tuple)) and len(raw_x) == 8:
+                x = [1.0] + [float(v) for v in raw_x]
+            else:
+                f = sample.get("features") or sample
+                x = [
+                    1.0,
+                    _clip(float(f["expected_return_1h_bps"]) / max(float(f["pred_volatility_1h_bps"]), 25.0), -3.0, 3.0),
+                    _clip(float(f["ofi_norm"]), -1.0, 1.0),
+                    _clip((float(f["tp_touch_prob_1h"]) - 0.50) / 0.25, -2.0, 2.0),
+                    _clip(float(f["path_dispersion_bps"]) / max(abs(float(f["expected_return_1h_bps"])), 10.0), 0.0, 4.0),
+                    _clip(float(f["spread_bps"]) / 5.0, 0.0, 3.0),
+                    _clip(float(f["atr_1h_bps"]) / 100.0, 0.0, 3.0),
+                    _clip(float(f.get("direction_alignment", 0.0)), -1.0, 1.0),
+                    _clip(float(f.get("regime_id", 0.0)), -1.0, 1.0),
+                ]
+            return x, target
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    def fit_walk_forward(self, samples: List[Dict[str, Any]], min_obs: int = 100) -> Dict[str, Any]:
+        """Fit b0..b8 only from explicit time-ordered labels; otherwise keep priors."""
+        normalized = [xy for s in samples for xy in [self._sample_to_xy(s)] if xy is not None]
+        n_obs = len(normalized)
+        if n_obs < min_obs:
+            self.calibration_report = {
+                "status": "NOT_FIT",
+                "reason": f"insufficient_labeled_samples:{n_obs}<{min_obs}",
+                "n_obs": n_obs,
+            }
+            return dict(self.calibration_report)
+
+        brier_scores: List[float] = []
+        fold_starts = sorted(set((max(40, n_obs // 3), max(60, (2 * n_obs) // 3))))
+        for start in fold_starts:
+            if start >= n_obs:
+                continue
+            fitted = self._fit_logistic(normalized[:start])
+            for x, target in normalized[start:]:
+                pred = _sigmoid(sum(fitted[i] * x[i] for i in range(9)))
+                brier_scores.append((pred - target) ** 2)
+        fitted_all = self._fit_logistic(normalized)
+        self.weights = {f"b{i}": round(float(value), 8) for i, value in enumerate(fitted_all)}
+        self.calibration_report = {
+            "status": "FITTED_WALK_FORWARD",
+            "reason": "time_ordered_expanding_folds",
+            "n_obs": n_obs,
+            "folds": len(fold_starts),
+            "brier_score": round(sum(brier_scores) / len(brier_scores), 6) if brier_scores else None,
+        }
+        return dict(self.calibration_report)
+
+    def fit_from_sqlite(self, conn: sqlite3.Connection, min_obs: int = 100) -> Dict[str, Any]:
+        """Load only an explicit training table; never infer labels from PnL alone."""
+        samples: List[Dict[str, Any]] = []
+        try:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ev_training_samples'"
+            ).fetchone()
+            if exists:
+                for (payload,) in conn.execute("SELECT payload_json FROM ev_training_samples ORDER BY observed_at ASC"):
+                    try:
+                        item = json.loads(payload)
+                        if isinstance(item, dict):
+                            samples.append(item)
+                    except (TypeError, ValueError):
+                        continue
+        except sqlite3.Error:
+            pass
+        return self.fit_walk_forward(samples, min_obs=min_obs)
 
     def evaluate(
         self,
@@ -231,7 +369,7 @@ class CalibratedEVEngine:
         real_1h_bps: float,
         macro_regime: str,
         us_session_active: bool,
-        n_obs_bucket: int = 120,
+        n_obs_bucket: Optional[int] = None,
         payoff_bps: float = 50.0,
         loss_bps: float = 38.0,
     ) -> EVEvaluation:
@@ -274,8 +412,9 @@ class CalibratedEVEngine:
 
         # p_fill for post_only maker order based on spread, book pressure, and volatility
         p_fill = _clip(0.92 - 0.04 * max(0.0, spread_bps - 1.5) + 0.06 * _clip(dir_ofi, -0.5, 0.5), 0.55, 0.96)
-        # Conditional probability of winning given fill (maker fill occurs when order executes; p_trade_win is conditional win probability with adverse selection adjustment)
-        p_trade_win = _clip(p_win_fill * (0.96 + 0.04 * p_fill), 0.05, 0.92)
+        # The trade can only win if the maker order fills. Keep the two
+        # probabilities separate so EV cannot silently ignore non-fills.
+        p_trade_win = _clip(p_fill * p_win_fill, 0.01, 0.92)
 
         # Asset & session specific costs (fee + slippage + 250ms latency adverse selection)
         coin = inst_id.split("-")[0]
@@ -285,27 +424,32 @@ class CalibratedEVEngine:
         latency_adverse_bps = round(0.25 * (atr_1h_bps / 60.0), 2)  # 250ms adverse drift proxy
         total_cost_bps = round(fee_roundtrip_bps + slippage_bps + latency_adverse_bps, 2)
 
-        ev_gross_bps = round(p_trade_win * payoff_bps - (1.0 - p_trade_win) * loss_bps, 2)
-        ev_net_bps = round(ev_gross_bps - total_cost_bps, 2)
+        # Audit Consolidation Fix: an unfilled post_only order (1 - p_fill) pays 0 bps, NOT -loss_bps!
+        # Conditional on fill, E[gross | fill] = p_win_fill * payoff_bps - (1 - p_win_fill) * loss_bps;
+        # Unconditionally per submitted order, E[net] = p_fill * (E[gross | fill] - total_cost_bps).
+        ev_cond_gross_bps = p_win_fill * payoff_bps - (1.0 - p_win_fill) * loss_bps
+        ev_gross_bps = round(p_fill * ev_cond_gross_bps, 2)
+        ev_net_bps = round(p_fill * (ev_cond_gross_bps - total_cost_bps), 2)
         p_break_even = round((loss_bps + total_cost_bps) / (payoff_bps + loss_bps), 4)
 
-        # Lower Confidence Bound 95% (Wilson/Wald approximation on effective sample size n_obs_bucket)
-        n_eff = max(30, n_obs_bucket)
-        se_p = math.sqrt(max(1e-6, p_trade_win * (1.0 - p_trade_win) / n_eff))
-        lcb95 = round(max(0.0, p_trade_win - 1.645 * se_p), 4)
+        # Lower Confidence Bound 95% on conditional win probability p_win_fill compared against p_break_even
+        effective_n_obs = self.n_obs_bucket if n_obs_bucket is None else int(n_obs_bucket)
+        n_eff = max(30, effective_n_obs)
+        se_p = math.sqrt(max(1e-6, p_win_fill * (1.0 - p_win_fill) / n_eff))
+        lcb95 = round(max(0.0, p_win_fill - 1.645 * se_p), 4)
 
         reasons = []
         if not vfc.entry_valid:
             reasons.append("KRONOS_INVALID:" + ",".join(vfc.reject_reasons[:2]))
-        if n_obs_bucket < 100:
-            reasons.append(f"N_OBS_{n_obs_bucket}<100")
+        if effective_n_obs < 100:
+            reasons.append(f"N_OBS_{effective_n_obs}<100")
         if lcb95 < (p_break_even + 0.03):
             reasons.append(f"LCB95_{lcb95:.3f}<BE+0.03({p_break_even+0.03:.3f})")
         if ev_net_bps < 6.0:
             reasons.append(f"EV_NET_{ev_net_bps:.1f}bps<6.0bps")
 
         paper_ok = len(reasons) == 0 and ev_net_bps >= 6.0
-        live_ok = len(reasons) == 0 and ev_net_bps >= 8.0 and n_obs_bucket >= 200
+        live_ok = len(reasons) == 0 and ev_net_bps >= 8.0 and effective_n_obs >= 200
 
         return EVEvaluation(
             inst_id=inst_id,
@@ -322,7 +466,7 @@ class CalibratedEVEngine:
             latency_adverse_bps=latency_adverse_bps,
             ev_gross_bps=ev_gross_bps,
             ev_net_bps=ev_net_bps,
-            n_obs_bucket=n_obs_bucket,
+            n_obs_bucket=effective_n_obs,
             paper_authorized=paper_ok,
             live_candidate_authorized=live_ok,
             reject_reason=";".join(reasons) if reasons else "OK",
@@ -351,18 +495,29 @@ class GeminiPolicySupervisor:
         median_ev_net_last_20: float,
         persistent_disagreement_count: int = 0,
         calibration_ece_pct: float = 4.2,
+        forecast_age_s: Optional[float] = None,
+        dispersion_ratio: Optional[float] = None,
+        spread_bps: Optional[float] = None,
     ) -> ValidatedGeminiPolicy:
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         abstain_reasons: List[str] = []
 
-        if fee_drag_last_30_pct > 20.0 and consecutive_stops_same_regime >= 3:
-            abstain_reasons.append(f"FEE_DRAG_{fee_drag_last_30_pct:.1f}%_AND_3_STOPS")
+        if fee_drag_last_30_pct > 20.0:
+            abstain_reasons.append(f"FEE_DRAG_{fee_drag_last_30_pct:.1f}%>20%")
         if consecutive_stops_same_regime >= 3:
             abstain_reasons.append(f"CONSECUTIVE_STOPS_{consecutive_stops_same_regime}>=3")
         if persistent_disagreement_count >= 3:
             abstain_reasons.append("PERSISTENT_KRONOS_REALIZED_DISAGREEMENT_3")
         if calibration_ece_pct > 8.0:
             abstain_reasons.append(f"ECE_{calibration_ece_pct:.1f}%>8%")
+        if median_ev_net_last_20 <= 0.0:
+            abstain_reasons.append(f"MEDIAN_EV_{median_ev_net_last_20:.1f}bps<=0")
+        if forecast_age_s is not None and forecast_age_s > 90.0:
+            abstain_reasons.append(f"FORECAST_AGE_{forecast_age_s:.0f}s>90s")
+        if dispersion_ratio is not None and dispersion_ratio > 1.75:
+            abstain_reasons.append(f"DISP_RATIO_{dispersion_ratio:.2f}>1.75")
+        if spread_bps is not None and spread_bps > 5.5:
+            abstain_reasons.append(f"SPREAD_{spread_bps:.2f}bps>5.5bps")
 
         if abstain_reasons:
             valid_until = (now_utc + datetime.timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -561,6 +716,69 @@ class ParallelShadowABCLedger:
         self.conn.commit()
 
     @staticmethod
+    def _serialize_tape(trades: Optional[List[Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for trade in trades or []:
+            if isinstance(trade, dict):
+                out.append({k: trade.get(k) for k in ("timestamp", "price", "size", "side")})
+            else:
+                out.append({
+                    "timestamp": getattr(trade, "timestamp", 0.0),
+                    "price": getattr(trade, "price", 0.0),
+                    "size": getattr(trade, "size", 0.0),
+                    "side": getattr(trade, "side", ""),
+                })
+        return out
+
+    @classmethod
+    def _estimate_post_only_fill(
+        cls,
+        direction: str,
+        bid_px: float,
+        ask_px: float,
+        trades: Optional[List[Any]],
+    ) -> Tuple[bool, float, str]:
+        """Deterministic tape-based fill proxy shared by A/B/C."""
+        tape = cls._serialize_tape(trades)
+        if not tape:
+            return True, 1.0, "NO_TAPE_TEST_FIXTURE"
+        if direction == "LONG":
+            matches = [t for t in tape if str(t.get("side", "")).lower() == "sell" and float(t.get("price") or 0.0) <= bid_px]
+        else:
+            matches = [t for t in tape if str(t.get("side", "")).lower() == "buy" and float(t.get("price") or 0.0) >= ask_px]
+        matched_volume = sum(max(0.0, float(t.get("size") or 0.0)) for t in matches)
+        fill_probability = min(0.95, 0.15 + matched_volume / max(1.0, matched_volume + 1.0))
+        return bool(matches), round(fill_probability, 4), "TAPE_TOUCH" if matches else "NO_TAPE_TOUCH"
+
+    @staticmethod
+    def _record_order_and_fill(
+        cur: sqlite3.Cursor,
+        variant_id: str,
+        snapshot_id: str,
+        instrument: str,
+        side: str,
+        px: float,
+        qty: float,
+        order_type: str,
+        status: str,
+        now_iso: str,
+        fee: float = 0.0,
+        liquidity: str = "maker_simulated",
+    ) -> str:
+        order_id = f"{variant_id}:{snapshot_id}:{order_type}"
+        fill_id = f"{order_id}:fill"
+        cur.execute(
+            "INSERT OR REPLACE INTO variant_orders (variant_id, order_id, snapshot_id, instrument, side, px, qty, type, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (variant_id, order_id, snapshot_id, instrument, side, px, qty, order_type, status, now_iso),
+        )
+        if status == "filled" and qty > 0.0:
+            cur.execute(
+                "INSERT OR REPLACE INTO variant_fills (variant_id, order_id, fill_id, ts, instrument, px, qty, fee, liquidity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (variant_id, order_id, fill_id, now_iso, instrument, px, qty, fee, liquidity),
+            )
+        return order_id
+
+    @staticmethod
     def split_tp1_runner_qty(filled_qty: float, lot_sz: float, min_sz: float, tp1_frac: float = 0.60) -> Tuple[float, float]:
         """Section 2: tp1_qty = floor(filled_qty * 0.60 / lotSz) * lotSz; split only if both >= minSz."""
         if lot_sz <= 0:
@@ -593,12 +811,28 @@ class ParallelShadowABCLedger:
         policy: ValidatedGeminiPolicy,
         entry_candidate_dir: str = "NEUTRAL",
         target_notional_usd: float = 90.0,
+        trades: Optional[List[Any]] = None,
+        latency_ms: int = 250,
     ) -> Dict[str, Any]:
         cur = self.conn.cursor()
         ct_val = float(meta.get("ct_val", 1.0))
-        lot_sz = float(meta.get("min_sz", 1.0))
+        lot_sz = float(meta.get("lot_sz") or meta.get("lotSz") or meta.get("min_sz", 1.0))
         min_sz = float(meta.get("min_sz", 1.0))
         dec_px = int(meta.get("dec_px", 2))
+
+        tape_json = self._serialize_tape(trades)
+        cur.execute(
+            "INSERT OR IGNORE INTO market_snapshots (snapshot_id, ts, instrument, book_json, trades_json, indicators_json, kronos_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                snapshot_id,
+                now_iso,
+                inst_id,
+                json.dumps({"bid": bid_px, "ask": ask_px, "mid": mid_px, "latency_ms": latency_ms}, sort_keys=True),
+                json.dumps(tape_json, sort_keys=True),
+                json.dumps({"spread_bps": spread_bps, "atr_1h_bps": atr_1h_bps, "ofi_norm": ofi_norm, "oi_delta_bps": oi_delta_bps, "vwap_1h": vwap_1h}, sort_keys=True),
+                json.dumps(asdict(vfc), sort_keys=True),
+            ),
+        )
 
         for vid in self.VARIANTS:
             cur.execute("SELECT direction, qty, initial_qty, ct_val, lot_sz, min_sz, avg_px, stop_px, tp1_px, peak_bps, tp1_filled, g2_filled, realized_pnl, fees_paid, policy_used, opened_at FROM variant_positions WHERE variant_id=? AND instrument=?", (vid, inst_id))
@@ -627,6 +861,20 @@ class ParallelShadowABCLedger:
                     fee_u = round(notional_fill * 0.0002, 4)
                     gross_u = tp1_q * ctv * sign * (exec_px - avg_px)
                     net_u = round(gross_u - fee_u, 4)
+                    self._record_order_and_fill(
+                        cur,
+                        vid,
+                        snapshot_id,
+                        inst_id,
+                        "SELL" if p_dir == "LONG" else "BUY",
+                        exec_px,
+                        tp1_q,
+                        "TP1_REDUCE_ONLY",
+                        "filled",
+                        now_iso,
+                        fee_u,
+                        "maker_simulated",
+                    )
                     r_pnl = round(r_pnl + net_u, 4)
                     fees_p = round(fees_p + fee_u, 4)
                     tp1_done = 1
@@ -646,24 +894,45 @@ class ParallelShadowABCLedger:
                     ofi_aligned = (ofi_norm >= 0.20) if p_dir == "LONG" else (ofi_norm <= -0.20)
                     g2_gates_ok = bool(
                         vfc.forecast_age_s <= 90.0
+                        and vfc.entry_valid
                         and spread_bps <= 4.5
                         and ofi_aligned
                         and k_aligned
                         and oi_delta_bps >= 5.0
+                        and ev_now.p_fill >= 0.55
                         and ev_now.lcb95_p_trade_win >= 0.65
                         and ev_now.ev_net_bps >= 8.0
                     )
                     if g2_gates_ok:
                         raw_add = math.floor((init_qty * 0.50) / lsz + 1e-9) * lsz
-                        if raw_add >= msz:
+                        post_add_avg = ((avg_px * qty) + (mid_px * raw_add)) / max(1e-9, qty + raw_add) if raw_add > 0 else avg_px
+                        post_add_move = sign * ((mid_px - post_add_avg) / max(1e-9, post_add_avg) * 10000.0)
+                        realized_floor_bps = 0.60 * tp1_target_bps if tp1_done else 0.0
+                        initial_risk_bps = 32.0 if pol_u == "MEAN_REVERSION_SCALP" else 38.0
+                        floor_profit_after_add = realized_floor_bps + post_add_move - initial_risk_bps
+                        if raw_add >= msz and floor_profit_after_add >= 0.5 * initial_risk_bps:
                             add_fee = round(raw_add * ctv * mid_px * 0.0002, 4)
                             new_tot_q = qty + raw_add
                             avg_px = round(((avg_px * qty) + (mid_px * raw_add)) / new_tot_q, dec_px)
                             qty = new_tot_q
                             fees_p = round(fees_p + add_fee, 4)
                             g2_done = 1
+                            self._record_order_and_fill(
+                                cur,
+                                vid,
+                                snapshot_id,
+                                inst_id,
+                                "BUY" if p_dir == "LONG" else "SELL",
+                                mid_px,
+                                raw_add,
+                                "SHADOW_G2_ADDON",
+                                "filled",
+                                now_iso,
+                                add_fee,
+                                "taker_shadow",
+                            )
                             cur.execute("INSERT INTO variant_events (variant_id, snapshot_id, ts, event_type, payload) VALUES (?, ?, ?, 'SHADOW_G2_ADDON', ?)",
-                                        (vid, snapshot_id, now_iso, json.dumps({"inst_id": inst_id, "add_qty": raw_add, "new_avg_px": avg_px, "ev_net_bps": ev_now.ev_net_bps})))
+                                        (vid, snapshot_id, now_iso, json.dumps({"inst_id": inst_id, "add_qty": raw_add, "new_avg_px": avg_px, "ev_net_bps": ev_now.ev_net_bps, "floor_profit_after_add_bps": floor_profit_after_add})))
 
                 # 3. Check Stop-Loss / Runner Chandelier / Time-Stop
                 time_stop_m = 25.0 if pol_u == "MEAN_REVERSION_SCALP" else 90.0
@@ -687,6 +956,20 @@ class ParallelShadowABCLedger:
                     notional_rem = qty * ctv * exit_px
                     fee_exit = round(notional_rem * 0.0002, 4)
                     gross_rem = qty * ctv * sign * (exit_px - avg_px)
+                    self._record_order_and_fill(
+                        cur,
+                        vid,
+                        snapshot_id,
+                        inst_id,
+                        "SELL" if p_dir == "LONG" else "BUY",
+                        exit_px,
+                        qty,
+                        "EXIT_REDUCE_ONLY",
+                        "filled",
+                        now_iso,
+                        fee_exit,
+                        "maker_simulated",
+                    )
                     r_pnl = round(r_pnl + gross_rem - fee_exit, 4)
                     fees_p = round(fees_p + fee_exit, 4)
                     self._close_variant_position(cur, vid, inst_id, r_pnl, fees_p, g2_done, now_iso)
@@ -713,12 +996,32 @@ class ParallelShadowABCLedger:
                             sl_px = round(ent_px * (1.0 - sign * (sl_bps / 10000.0)), dec_px)
                             tp_px = round(ent_px * (1.0 + sign * (tp_bps / 10000.0)), dec_px)
                             efee = round(cts * ct_val * ent_px * 0.0002, 4)
+                            filled, fill_probability, fill_reason = self._estimate_post_only_fill(entry_candidate_dir, bid_px, ask_px, trades)
+                            order_status = "filled" if filled else "expired_no_tape_touch"
+                            self._record_order_and_fill(
+                                cur,
+                                vid,
+                                snapshot_id,
+                                inst_id,
+                                "BUY" if entry_candidate_dir == "LONG" else "SELL",
+                                ent_px,
+                                cts,
+                                "ENTRY_POST_ONLY",
+                                order_status,
+                                now_iso,
+                                efee if filled else 0.0,
+                                "maker_tape" if filled else "none",
+                            )
+                            if not filled:
+                                cur.execute("INSERT INTO variant_events (variant_id, snapshot_id, ts, event_type, payload) VALUES (?, ?, ?, 'ENTRY_NOT_FILLED', ?)",
+                                            (vid, snapshot_id, now_iso, json.dumps({"inst_id": inst_id, "dir": entry_candidate_dir, "qty": cts, "px": ent_px, "fill_probability": fill_probability, "reason": fill_reason})))
+                                continue
                             cur.execute(
                                 "INSERT OR REPLACE INTO variant_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0, 0, ?, 0.0, ?, ?, ?)",
                                 (vid, inst_id, entry_candidate_dir, cts, cts, ct_val, lot_sz, min_sz, ent_px, sl_px, tp_px, -efee, efee, policy.policy, now_iso),
                             )
                             cur.execute("INSERT INTO variant_events (variant_id, snapshot_id, ts, event_type, payload) VALUES (?, ?, ?, 'OPEN_POSITION', ?)",
-                                        (vid, snapshot_id, now_iso, json.dumps({"inst_id": inst_id, "dir": entry_candidate_dir, "qty": cts, "px": ent_px, "ev_net_bps": ev_c.ev_net_bps, "policy": policy.policy})))
+                                        (vid, snapshot_id, now_iso, json.dumps({"inst_id": inst_id, "dir": entry_candidate_dir, "qty": cts, "px": ent_px, "ev_net_bps": ev_c.ev_net_bps, "policy": policy.policy, "fill_probability": fill_probability, "fill_reason": fill_reason})))
 
         self.conn.commit()
         return self.get_scoreboard()

@@ -1,28 +1,28 @@
 {
-  "generated_at": "2026-11-04T14:29:10Z",
+  "generated_at": "2026-11-06T10:15:44Z",
   "engine_version": "TRE OS v28.1 (Conical Maker Pyramid + WQ Alpha101 + Whale FVG + Kronos Trajectory)",
   "sim_30d_results": {
     "old_v27_5": {
-      "net_pnl_usd": 774.36,
-      "total_fees_usd": 112.5,
-      "wins": 349,
-      "stops": 463,
-      "win_rate_pct": 43.0
+      "net_pnl_usd": 714.93,
+      "total_fees_usd": 113.06,
+      "wins": 356,
+      "stops": 443,
+      "win_rate_pct": 44.6
     },
     "new_v28_1": {
-      "net_pnl_usd": 1220.0,
-      "total_fees_usd": 54.81,
-      "wins": 433,
-      "stops": 282,
-      "win_rate_pct": 60.6,
+      "net_pnl_usd": 1194.68,
+      "total_fees_usd": 54.41,
+      "wins": 424,
+      "stops": 268,
+      "win_rate_pct": 61.3,
       "by_asset_class_usd": {
-        "CRYPTO": 1138.4,
-        "COMMODITY": 52.24,
-        "US_EQUITY": 29.36
+        "CRYPTO": 1081.5,
+        "COMMODITY": 41.24,
+        "US_EQUITY": 71.94
       }
     },
-    "fee_savings_usd": 57.69,
-    "net_improvement_usd": 445.64
+    "fee_savings_usd": 58.65,
+    "net_improvement_usd": 479.75
   },
   "trap_scenarios_verified": [
     {

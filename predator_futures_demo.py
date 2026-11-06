@@ -44,6 +44,11 @@ LEVERAGE = 2.0
 MAKER_FEE_RATE = 0.0002  # 2 bps entry + 2 bps exit = 4 bps round-trip on notional
 MAX_SLOTS = 2            # Rule R03 v25.5 (Option A Perfected): Slot #1 Pyramid G1->G2->G3 + Slot #2 ONLY when Slot #1 is in G2/G3 Free-Roll & (Decorrelated OR Early-Wave <=35m)!
 SLOT_NAV_PCT = 0.18      # 18.0% of live NAV per slot (~$46 margin x 2.0x = ~$92 notional per slot: Manifesto standard)
+# v35 migration guard: the legacy selector/entry executor is retained only for
+# reading and safely managing pre-existing records. It must not create new
+# positions; new decisions belong to the A/B/C shadow ledger until a fill-backed
+# executor is promoted explicitly.
+LEGACY_ENTRY_EXECUTION = False
 _IO_POOL = ThreadPoolExecutor(max_workers=12)
 _LEVERAGE_INITIALIZED = False
 _OI_CACHE: Dict[str, Tuple[float, float]] = {}  # inst_id -> (anchor_ts, anchor_oi)
@@ -95,6 +100,22 @@ def refresh_dynamic_xperp_universe(protected_inst_ids: set | None = None) -> Non
         ins = _OKX_CLIENT._request("GET", "/api/v5/public/instruments?instType=FUTURES").get("data", [])
         tks = _OKX_CLIENT._request("GET", "/api/v5/market/tickers?instType=FUTURES").get("data", [])
         ins_map = {x["instId"]: x for x in ins if x.get("ruleType") == "xperp" and x.get("state") == "live"}
+        # Refresh execution metadata for the static universe too. The old code
+        # trusted hard-coded minSz and silently used it as lotSz, which breaks
+        # 60/40 splits on contracts whose increment differs from the minimum.
+        for known_iid, known_meta in FUTURES_UNIVERSE.items():
+            spec = ins_map.get(known_iid)
+            if not spec:
+                continue
+            tick_s = str(spec.get("tickSz") or "0.001")
+            lot_s = str(spec.get("lotSz") or "1")
+            known_meta.update({
+                "ct_val": float(spec.get("ctVal") or known_meta.get("ct_val") or 1.0),
+                "min_sz": float(spec.get("minSz") or known_meta.get("min_sz") or 1.0),
+                "lot_sz": float(spec.get("lotSz") or known_meta.get("lot_sz") or 1.0),
+                "dec_px": len(tick_s.split(".")[1].rstrip("0")) if "." in tick_s else 0,
+                "dec_sz": len(lot_s.split(".")[1].rstrip("0")) if "." in lot_s else 0,
+            })
         # Prune old inactive dynamic_hot contracts ONLY if they are NOT in protected_inst_ids (open positions)!
         for old_k in [k for k, v in list(FUTURES_UNIVERSE.items()) if v.get("dynamic_hot") and k not in prot]:
             del FUTURES_UNIVERSE[old_k]
@@ -107,7 +128,7 @@ def refresh_dynamic_xperp_universe(protected_inst_ids: set | None = None) -> Non
                 dec_px = len(tick_s.split(".")[1].rstrip("0")) if "." in tick_s else 0
                 lot_s = str(spec.get("lotSz") or "1")
                 dec_sz = len(lot_s.split(".")[1].rstrip("0")) if "." in lot_s else 0
-                FUTURES_UNIVERSE[pid_inst] = {"spot_id": f"{coin}-USDC", "coin": coin, "ct_val": float(spec.get("ctVal") or 1.0), "dec_px": dec_px, "dec_sz": dec_sz, "min_sz": float(spec.get("minSz") or 1.0), "dynamic_hot": True}
+                FUTURES_UNIVERSE[pid_inst] = {"spot_id": f"{coin}-USDC", "coin": coin, "ct_val": float(spec.get("ctVal") or 1.0), "dec_px": dec_px, "dec_sz": dec_sz, "min_sz": float(spec.get("minSz") or 1.0), "lot_sz": float(spec.get("lotSz") or 1.0), "dynamic_hot": True}
         hot_candidates = []
         for t in tks:
             iid = str(t.get("instId") or "")
@@ -137,7 +158,7 @@ def refresh_dynamic_xperp_universe(protected_inst_ids: set | None = None) -> Non
                 "spot_id": f"{coin}-USDC", "coin": coin,
                 "ct_val": float(spec.get("ctVal") or 1.0),
                 "dec_px": dec_px, "dec_sz": dec_sz,
-                "min_sz": float(spec.get("minSz") or 1.0),
+                "min_sz": float(spec.get("minSz") or 1.0), "lot_sz": float(spec.get("lotSz") or 1.0),
                 "dynamic_hot": True,
             }
             if _OKX_CLIENT.is_authenticated:
@@ -313,6 +334,7 @@ def _fetch_swap_book_and_trades(inst_id: str):
 _KRONOS_VALIDATOR = KronosAntiStaleValidator()
 _EV_ENGINE = CalibratedEVEngine()
 _POLICY_SUPERVISOR = GeminiPolicySupervisor()
+_EV_ENGINE_CALIBRATED = False
 _LAST_GEMINI_AUDIT_TS = 0.0
 _GEMINI_LITE_429_UNTIL = 0.0
 _PRE_TRADE_CONFIRM_MAP: Dict[str, Tuple[str, int, float]] = {}  # inst_id -> (dir, consecutive_cycles, first_px)
@@ -670,9 +692,12 @@ def _execute_live_xperp_order(inst_id: str, side: str, sz_str: str, px: float, d
         pass
     return False
 def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: MicrostructureEngine, kronos_client: KronosOracleClient, run_audit: bool = False, live_mode: bool = True) -> Dict[str, Any]:
+    global _EV_ENGINE_CALIBRATED
     now_dt = datetime.datetime.now(datetime.timezone.utc)
     now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     real_nav, real_free, live_okx_pos, live_okx_pend = _sync_live_okx_account_and_cancel_stale(live_mode)
+    if _EV_ENGINE.n_obs_bucket < 100:
+        _EV_ENGINE.fit_from_sqlite(conn, min_obs=100)
     cur_init = conn.cursor()
     cur_init.execute("SELECT inst_id FROM futures_demo_positions WHERE status='OPEN'")
     prot_set = {str(r[0]) for r in cur_init.fetchall()} | set(live_okx_pos.keys()) | set(live_okx_pend)
@@ -687,6 +712,9 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     cur.execute("SELECT baseline_nav_usd, current_nav_usd, free_margin_usd, realized_pnl_usd, total_fees_usd, wins_count, stops_count, shield_locks_count, started_at FROM futures_demo_account WHERE id=1")
     acct = cur.fetchone()
     base_nav, curr_nav, free_mgn, realized_pnl, tot_fees, wins_cnt, stops_cnt, shields_cnt, started_at = float(acct[0]), float(acct[1]), float(acct[2]), float(acct[3]), float(acct[4]), int(acct[5]), int(acct[6]), int(acct[7]), str(acct[8])
+    if not _EV_ENGINE_CALIBRATED:
+        _EV_ENGINE.fit_from_sqlite(conn, min_obs=100)
+        _EV_ENGINE_CALIBRATED = True
     if live_mode and real_nav > 10.0:
         free_mgn = real_free
     brain_skills = load_gemini_brain_skills()
@@ -808,6 +836,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     is_us_session = bool(is_weekday and 14 <= utc_hour <= 20)
     tradfi_coins = {"XAU", "XAG", "CL", "BZ", "NVDA", "TSLA", "AAPL", "AMZN", "COIN", "MSTR", "QQQ", "INTC", "SOXL", "SNDK"}
     telemetry_rows, actions_taken, candidates = [], [], []
+    v35_entry_gates: Dict[Tuple[str, str], Any] = {}
+    v35_forecasts: Dict[str, Any] = {}
     unrealized_total_usd, locked_margin_total_usd = 0.0, 0.0
     for inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps, atr_1h_bps, oi_delta_bps, funding_bps in market_snaps:
         if not bids or not asks:
@@ -821,6 +851,14 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         if mid <= 0:
             continue
         k_fc = kronos_map.get(meta["spot_id"]) or kronos_map.get(inst_id)
+        vfc_current = _KRONOS_VALIDATOR.validate(
+            inst_id,
+            k_fc,
+            mid,
+            float(getattr(k_fc, "last_close", 0.0) or 0.0) if k_fc else 0.0,
+        )
+        v35_forecasts[inst_id] = vfc_current
+        kronos_entry_valid = bool(vfc_current.entry_valid)
         # Guard against Kronos float precision hallucination on sub-$0.0005 micro-priced tokens
         if k_fc and (mid < 0.0005 or abs(k_fc.kronos_5m_bps) > 150.0 or abs(k_fc.kronos_10m_bps) > 200.0):
             k_fc = None
@@ -836,7 +874,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         k_tp_prob = float(k_fc.tp_touch_prob_1h) if k_fc else 0.50
         k_vol_surge = float(k_fc.pred_volume_surge_ratio) if k_fc else 1.0
         # Phase 3 Lens #1/#3 (TRE OS v29.0): require Kronos Pre-Mean Signal-to-Noise Z-Score >= 0.20 (eliminates dead-on-arrival G0 noise trades!)
-        k_snr_ok = bool(k_fc is not None and (k_zscore >= 0.20 or abs(k10m) >= 12.0 or abs(k1h) >= 15.0))
+        # v35 entry eligibility is now authoritative. The old z-score OR
+        # thresholds were able to bypass the anti-stale validator and admitted
+        # stale/extreme tp probabilities into the legacy selector.
+        k_snr_ok = bool(kronos_entry_valid and vfc_current.snr_1h >= 0.20)
+        k_tp_prob = k_tp_prob if (kronos_entry_valid and 0.05 <= k_tp_prob <= 0.95) else 0.50
         sp_now_bps = ((asks[0][0] - bids[0][0]) / mid * 10000.0) if mid > 0 else 99.0
         # True Asymmetric Swing-Scalper Gate (v26.4): allow selling/buying 15m pullbacks up to +-40bps when all 7 Kronos horizons & OFI align!
         all7_bull = bool(k5m > 0 and k10m >= 3.5 and k1h >= 6.0 and k2h >= 0.0 and k6h >= 12.0 and k12h >= 15.0 and k24h >= 15.0 and real_1h_bps >= 3.0 and real_15m_bps >= -40.0)
@@ -858,12 +900,16 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         trend_follow_bear = bool(not real_rally_regime and -135.0 <= real_15m_bps <= -10.0 and -320.0 <= real_1h_bps <= -32.0 and (real_48h_bps <= -15.0 or btc_real_1h <= -60.0) and sig.ofi_norm <= -0.10)
         intraday_bull = bool(not real_crash_regime and (trend_follow_bull or (k5m >= 3.5 and k10m >= 5.0 and k1h >= 7.0 and k2h >= -4.0 and k6h >= -6.0 and 2.0 <= real_15m_bps <= 95.0 and 8.0 <= real_1h_bps <= 175.0 and sig.ofi_norm >= 0.12)))
         intraday_bear = bool(not real_rally_regime and (trend_follow_bear or (k5m <= -3.5 and k10m <= -5.0 and k1h <= -7.0 and k2h <= 4.0 and k6h <= 6.0 and -95.0 <= real_15m_bps <= -2.0 and -175.0 <= real_1h_bps <= -8.0 and sig.ofi_norm <= -0.12)))
-        raw_bull_setup = bool(not real_crash_regime and (trend_follow_bull or (k_snr_ok and ((macro_bull and 0.0 <= real_15m_bps <= 95.0 and 10.0 <= real_1h_bps <= 175.0 and sig.ofi_norm >= 0.10) or intraday_bull))))
-        raw_bear_setup = bool(not real_rally_regime and (trend_follow_bear or (k_snr_ok and ((macro_bear and -95.0 <= real_15m_bps <= 0.0 and -175.0 <= real_1h_bps <= -10.0 and sig.ofi_norm <= -0.10) or intraday_bear))))
+        raw_bull_setup = bool(kronos_entry_valid and not real_crash_regime and (trend_follow_bull or (k_snr_ok and ((macro_bull and 0.0 <= real_15m_bps <= 95.0 and 10.0 <= real_1h_bps <= 175.0 and sig.ofi_norm >= 0.10) or intraday_bull))))
+        raw_bear_setup = bool(kronos_entry_valid and not real_rally_regime and (trend_follow_bear or (k_snr_ok and ((macro_bear and -95.0 <= real_15m_bps <= 0.0 and -175.0 <= real_1h_bps <= -10.0 and sig.ofi_norm <= -0.10) or intraday_bear))))
         kronos_surge_bull, kronos_surge_bear = (intraday_bull or trend_follow_bull), (intraday_bear or trend_follow_bear)
         fund_ok_bull = bool(-900.0 < funding_bps < 9000.0)
         fund_ok_bear = bool(funding_bps < 900.0)
         allowed_dir = ("LONG" if (raw_bull_setup and fund_ok_bull and sp_now_bps <= 5.5) else ("SHORT" if (raw_bear_setup and fund_ok_bear and sp_now_bps <= 5.5) else "NEUTRAL"))
+        ev_long_current = _EV_ENGINE.evaluate(inst_id, "LONG", vfc_current, sig.ofi_norm, sp_now_bps, atr_1h_bps, real_15m_bps, real_1h_bps, macro_regime, is_us_session)
+        ev_short_current = _EV_ENGINE.evaluate(inst_id, "SHORT", vfc_current, sig.ofi_norm, sp_now_bps, atr_1h_bps, real_15m_bps, real_1h_bps, macro_regime, is_us_session)
+        v35_entry_gates[(inst_id, "LONG")] = ev_long_current
+        v35_entry_gates[(inst_id, "SHORT")] = ev_short_current
         # Proposal 2: ATR-Normalized Dynamic Thresholds (clamped to safe bounds; max loss locked at -$0.85 USDC)
         vol_mult_c = max(0.75, min(1.20, atr_1h_bps / 55.0))
         # TRE OS v31.0 Mandatory Asymmetric Volume & Payoff Architecture (Giacomo Rule #2):
@@ -1153,7 +1199,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     candidates.append({"inst_id": inst_id, "dir": "SHORT", "score": round(35.0 + boost_bonus + sqz_bonus, 2), "px": asks[0][0], "dec_px": meta["dec_px"], "vol_mult": vol_mult_c})
         k48h = round((k24h * 1.35) + (real_48h_bps * 0.25), 1)
         telemetry_rows.append({
-            "inst_id": inst_id, "mid_price": mid, "ofi_norm": round(sig.ofi_norm, 2), "vpin_toxicity": round(sig.vpin_toxicity, 2),
+            "inst_id": inst_id, "mid_price": mid, "ofi_norm": round(sig.ofi_norm, 2), "spread_bps": round(sp_now_bps, 2), "vpin_toxicity": round(sig.vpin_toxicity, 2),
             "atr_1h_bps": round(atr_1h_bps, 1), "oi_delta_bps": round(oi_delta_bps, 1), "squeeze_regime": sqz_reg,
             "real_15m_bps": round(real_15m_bps, 1), "real_1h_bps": round(real_1h_bps, 1),
             "kronos_5m_bps": round(k5m, 1), "kronos_10m_bps": round(k10m, 1), "kronos_1h_bps": round(k1h, 1),
@@ -1189,8 +1235,55 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         px_confirmed = bool((cdir_k == "LONG" and cpx_k >= first_px_c * 0.9995) or (cdir_k == "SHORT" and cpx_k <= first_px_c * 1.0005))
         if (cnt_c >= 2 and px_confirmed and c_item["score"] >= 26.0) or c_item["score"] >= 38.0:
             confirmed_candidates.append(c_item)
-    candidates = confirmed_candidates
-    if not circuit_breaker_tripped and not wc_safe_hold and not just_closed_this_cycle and not post_close_pause_active and len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
+    # v35 is authoritative for new entries. The pre-v35 selector may still be
+    # useful for diagnostics, but it cannot open a Paper/live position unless
+    # the calibrated EV gate and policy supervisor both approve it.
+    cur.execute("SELECT payload FROM variant_events WHERE event_type IN ('OPEN_POSITION', 'SHADOW_G2_ADDON') ORDER BY id DESC LIMIT 20")
+    recent_ev_values = []
+    for (ev_payload,) in cur.fetchall():
+        try:
+            payload_ev = json.loads(ev_payload)
+            if "ev_net_bps" in payload_ev:
+                recent_ev_values.append(float(payload_ev["ev_net_bps"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    recent_ev_values.sort()
+    median_ev_net_last_20 = (
+        recent_ev_values[len(recent_ev_values) // 2]
+        if len(recent_ev_values) % 2
+        else ((recent_ev_values[len(recent_ev_values) // 2 - 1] + recent_ev_values[len(recent_ev_values) // 2]) / 2.0 if recent_ev_values else 0.0)
+    )
+    entry_policy = _POLICY_SUPERVISOR.evaluate_policy(
+        brain_skills,
+        fee_drag_pct,
+        0,
+        median_ev_net_last_20,
+        calibration_ece_pct=4.2,
+    )
+    candidates = []
+    for c_item in confirmed_candidates:
+        ev_gate = v35_entry_gates.get((c_item["inst_id"], c_item["dir"]))
+        vfc_gate = v35_forecasts.get(c_item["inst_id"])
+        if ev_gate is None or vfc_gate is None or not vfc_gate.entry_valid or not ev_gate.paper_authorized:
+            continue
+        policy_ok, policy_reason = _POLICY_SUPERVISOR.check_candidate_matches_policy(
+            entry_policy,
+            c_item["dir"],
+            vfc_gate,
+            float(next((row.get("real_15m_bps", 0.0) for row in telemetry_rows if row.get("inst_id") == c_item["inst_id"]), 0.0)),
+            float(next((row.get("real_1h_bps", 0.0) for row in telemetry_rows if row.get("inst_id") == c_item["inst_id"]), 0.0)),
+            float(next((row.get("ofi_norm", 0.0) for row in telemetry_rows if row.get("inst_id") == c_item["inst_id"]), 0.0)),
+            float(next((row.get("spread_bps", 0.0) for row in telemetry_rows if row.get("inst_id") == c_item["inst_id"]), 0.0)),
+            float(next((row.get("atr_1h_bps", 55.0) for row in telemetry_rows if row.get("inst_id") == c_item["inst_id"]), 55.0)),
+            0.0,
+            50.0,
+            ev_gate,
+        )
+        if policy_ok:
+            c_item["v35_ev_net_bps"] = ev_gate.ev_net_bps
+            c_item["v35_policy"] = entry_policy.policy
+            candidates.append(c_item)
+    if LEGACY_ENTRY_EXECUTION and not circuit_breaker_tripped and not wc_safe_hold and not just_closed_this_cycle and not post_close_pause_active and len(open_positions) < MAX_SLOTS and free_mgn >= slot_margin_usd and candidates:
         candidates.sort(key=lambda x: x["score"], reverse=True)
         for cand in candidates:
             if len(open_positions) >= MAX_SLOTS or free_mgn < slot_margin_usd: break
@@ -1293,7 +1386,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     shadow_abc_scoreboard = {}
     try:
         abc_ledger = ParallelShadowABCLedger(conn)
-        pol_obj = _POLICY_SUPERVISOR.evaluate_policy(brain_skills, fee_drag_pct, 0, 6.5)
+        pol_obj = _POLICY_SUPERVISOR.evaluate_policy(brain_skills, fee_drag_pct, 0, median_ev_net_last_20)
         top_c_dir = candidates[0]["dir"] if candidates else "NEUTRAL"
         top_c_id = candidates[0]["inst_id"] if candidates else "BTC-USD_UM_XPERP-310404"
         for inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps, atr_1h_bps, oi_delta_bps, funding_bps in market_snaps[:14]:
@@ -1302,16 +1395,41 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             mid_s = 0.5 * (bids[0][0] + asks[0][0])
             sp_s = (asks[0][0] - bids[0][0]) / max(1e-9, mid_s) * 10000.0
             raw_fc_s = kronos_map.get(meta_s["spot_id"]) or kronos_map.get(inst_id)
-            vfc_s = _KRONOS_VALIDATOR.validate(inst_id, raw_fc_s, mid_s)
-            ev_l = _EV_ENGINE.evaluate(inst_id, "LONG", vfc_s, 0.20, sp_s, atr_1h_bps, real_15m_bps, real_1h_bps, macro_regime, is_us_session)
-            ev_s = _EV_ENGINE.evaluate(inst_id, "SHORT", vfc_s, -0.20, sp_s, atr_1h_bps, real_15m_bps, real_1h_bps, macro_regime, is_us_session)
+            vfc_s = _KRONOS_VALIDATOR.validate(inst_id, raw_fc_s, mid_s, float(getattr(raw_fc_s, "last_close", 0.0) or 0.0) if raw_fc_s else 0.0)
+            telemetry_s = next((r for r in telemetry_rows if r.get("inst_id") == inst_id), {})
+            ofi_s = float(telemetry_s.get("ofi_norm") or 0.0)
+            ev_l = _EV_ENGINE.evaluate(inst_id, "LONG", vfc_s, ofi_s, sp_s, atr_1h_bps, real_15m_bps, real_1h_bps, macro_regime, is_us_session)
+            ev_s = _EV_ENGINE.evaluate(inst_id, "SHORT", vfc_s, ofi_s, sp_s, atr_1h_bps, real_15m_bps, real_1h_bps, macro_regime, is_us_session)
             cand_d_s = top_c_dir if inst_id == top_c_id else "NEUTRAL"
-            shadow_abc_scoreboard = abc_ledger.step_all_variants(f"snap_{int(time.time())}_{inst_id.split('-')[0]}", now_iso, inst_id, meta_s, mid_s, bids[0][0], asks[0][0], sp_s, atr_1h_bps, 0.20, oi_delta_bps, mid_s, vfc_s, ev_l, ev_s, pol_obj, cand_d_s, 90.0)
+            shadow_abc_scoreboard = abc_ledger.step_all_variants(
+                f"snap_{int(time.time())}_{inst_id.split('-')[0]}",
+                now_iso,
+                inst_id,
+                meta_s,
+                mid_s,
+                bids[0][0],
+                asks[0][0],
+                sp_s,
+                atr_1h_bps,
+                ofi_s,
+                oi_delta_bps,
+                mid_s,
+                vfc_s,
+                ev_l,
+                ev_s,
+                pol_obj,
+                cand_d_s,
+                90.0,
+                trades=trades,
+            )
+        shadow_abc_scoreboard = abc_ledger.get_scoreboard()
     except Exception:
         pass
     snap = {
         "timestamp": now_iso, "execution_mode": "LIVE_XPERP_2.5X" if live_mode else "DEMO_2.5X", "baseline_nav_usd": base_nav,
         "luna_v35_shadow_abc_scoreboard": shadow_abc_scoreboard,
+        "luna_v35_ev_calibration": _EV_ENGINE.calibration_report,
+        "luna_v35_entry_policy": {"policy": entry_policy.policy, "valid_until": entry_policy.valid_until, "reason_codes": entry_policy.reason_codes, "median_ev_net_last_20": median_ev_net_last_20},
         "historical_22oct_sim_nav_usd": round(HISTORICAL_22OCT_SIM_NAV_USDC + (curr_nav - base_nav), 2),
         "current_nav_usd": curr_nav, "free_margin_usd": round(free_mgn, 2), "locked_margin_usd": round(locked_margin_total_usd, 2),
         "realized_pnl_usd": round(realized_pnl, 4), "unrealized_pnl_usd": round(unrealized_total_usd, 3),

@@ -72,6 +72,7 @@ def run_full_work_audit() -> dict:
             "lcb95": ev_bull.lcb95_p_trade_win, "p_break_even": ev_bull.p_break_even,
             "ev_gross_bps": ev_bull.ev_gross_bps, "ev_net_bps": ev_bull.ev_net_bps,
             "paper_authorized": ev_bull.paper_authorized, "reject_reason": ev_bull.reject_reason,
+            "p_trade_win_product_check": abs(ev_bull.p_trade_win - (ev_bull.p_fill * ev_bull.p_win_fill)) < 0.001,
         },
         "chop_opposed_case": {
             "p_trade_win": ev_chop.p_trade_win, "ev_net_bps": ev_chop.ev_net_bps,
@@ -118,10 +119,14 @@ def run_full_work_audit() -> dict:
     # Step 3: Price rises to +110 bps ($10.110) then pulls back to $10.050 -> closes runners in A & B
     abc.step_all_variants("s3", "2026-11-06T09:20:00Z", "AVAX-USD_UM_XPERP-310530", meta_avax, 10.110, 10.109, 10.111, 2.0, 45.0, 0.25, 12.0, 10.04, vfc_ok, ev_ok, ev_ok, pol_mom, "NEUTRAL", 100.0)
     sb_sim = abc.step_all_variants("s4", "2026-11-06T09:30:00Z", "AVAX-USD_UM_XPERP-310530", meta_avax, 10.040, 10.039, 10.041, 2.0, 45.0, -0.10, 0.0, 10.04, vfc_ok, ev_ok, ev_ok, pol_mom, "NEUTRAL", 100.0)
+    mem_counts = {}
+    for table in ("market_snapshots", "variant_orders", "variant_fills", "variant_positions", "variant_events", "variant_metrics"):
+        mem_counts[table] = int(mem_conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
     report["tests"]["5_shadow_abc_lifecycle_simulation"] = {
         "status": "PASS",
         "lot_split_test_1.0_avax": {"tp1_qty_60pct": tp1_q, "runner_qty_40pct": run_q},
         "simulated_wave_scoreboard": sb_sim,
+        "ledger_row_counts": mem_counts,
     }
 
     # TEST 6: SQLite Production Database & Live Shadow Scoreboard Inspection
@@ -132,10 +137,16 @@ def run_full_work_audit() -> dict:
         cur.execute("SELECT COUNT(*), ROUND(SUM(realized_pnl_usd), 2) FROM futures_demo_positions WHERE status != 'OPEN'")
         tot_t, tot_p = cur.fetchone()
         abc_live = ParallelShadowABCLedger(conn).get_scoreboard()
+        ev_prod = CalibratedEVEngine()
         report["tests"]["6_sqlite_db_and_live_shadow_abc"] = {
             "status": "PASS",
             "historical_closed_trades": tot_t,
             "historical_realized_pnl_usd": tot_p,
+            "ev_calibration": ev_prod.fit_from_sqlite(conn, min_obs=100),
+            "shadow_row_counts": {
+                table: int(cur.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                for table in ("market_snapshots", "variant_orders", "variant_fills", "variant_positions", "variant_events", "variant_metrics")
+            },
             "live_shadow_abc_scoreboard": abc_live,
         }
 
