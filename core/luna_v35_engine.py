@@ -171,7 +171,7 @@ class KronosAntiStaleValidator:
             path_dispersion_bps=disp_bps,
             snr_1h=round(snr_1h, 3),
             entry_valid=entry_valid,
-            management_valid=management_valid,
+            management_valid=mgmt_valid,
             reject_reasons=reasons,
         )
 
