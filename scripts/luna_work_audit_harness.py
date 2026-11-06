@@ -150,6 +150,65 @@ def run_full_work_audit() -> dict:
             "live_shadow_abc_scoreboard": abc_live,
         }
 
+
+    # TEST 7: Mandatory 6 Capital Allocation & Reserve Protection Tests (RESERVE_FLOOR_USDC = 125.00)
+    from dataclasses import asdict
+    from core.luna_v35_engine import CapitalAllocationBook, REFERENCE_NAV_USDC, RESERVE_FLOOR_USDC
+    # 7.1: Start from 250.00 USDC -> reserve 125.00, operational 125.00, total 250.00 (and 250.23 -> 125.00 / 125.23)
+    book_250 = CapitalAllocationBook(initial_total_equity_usdc=250.00, reserve_floor_usdc=125.00)
+    book_250_23 = CapitalAllocationBook(initial_total_equity_usdc=250.23, reserve_floor_usdc=125.00)
+    assert book_250.state.reserve_usdc == 125.00 and book_250.state.operational_capital_usdc == 125.00 and book_250.state.total_equity_usdc == 250.00
+    assert book_250_23.state.reserve_usdc == 125.00 and book_250_23.state.operational_capital_usdc == 125.23 and book_250_23.state.total_equity_usdc == 250.23
+
+    # 7.2: Realized net profit +7.00 USDC -> reserve_usdc = 125.00, operational_capital_usdc = 132.00, total_equity_usdc = 257.00
+    st_plus7 = book_250.apply_confirmed_fill_pnl(realized_gross_pnl=7.50, entry_fees=0.20, exit_fees=0.20, slippage=0.10, funding=0.0, confirmed_fill=True)
+    assert st_plus7.reserve_usdc == 125.00 and st_plus7.operational_capital_usdc == 132.00 and st_plus7.total_equity_usdc == 257.00
+
+    # 7.3: Partial net profit +2.00 USDC -> increases operational_capital_usdc ONLY after confirmed_fill=True
+    book_part = CapitalAllocationBook(initial_total_equity_usdc=250.00, reserve_floor_usdc=125.00)
+    book_part.set_unrealized_pnl(15.00)  # Unrealized PnL must NEVER change operational_capital_usdc!
+    assert book_part.state.operational_capital_usdc == 125.00
+    book_part.apply_confirmed_fill_pnl(realized_gross_pnl=2.00, confirmed_fill=False)  # Unconfirmed fill must NOT change operational_capital_usdc!
+    assert book_part.state.operational_capital_usdc == 125.00
+    st_part_conf = book_part.apply_confirmed_fill_pnl(realized_gross_pnl=2.10, entry_fees=0.05, exit_fees=0.05, confirmed_fill=True)
+    assert st_part_conf.reserve_usdc == 125.00 and st_part_conf.operational_capital_usdc == 127.00 and st_part_conf.total_equity_usdc == 252.00
+
+    # 7.4: Realized net loss -5.00 USDC -> reserve unchanged at 125.00, operational_capital_usdc reduced by 5.00 (120.00)
+    book_loss = CapitalAllocationBook(initial_total_equity_usdc=250.00, reserve_floor_usdc=125.00)
+    st_loss5 = book_loss.apply_confirmed_fill_pnl(realized_gross_pnl=-4.80, entry_fees=0.10, exit_fees=0.10, confirmed_fill=True)
+    assert st_loss5.reserve_usdc == 125.00 and st_loss5.operational_capital_usdc == 120.00 and st_loss5.total_equity_usdc == 245.00
+
+    # 7.5: Attempt to use reserve (operational capital depleted to $2.00, attempting to open $8.20 min lot) -> rejected, policy ABSTAIN, event recorded
+    mem_res_conn = sqlite3.connect(":memory:")
+    abc_res = ParallelShadowABCLedger(mem_res_conn, initial_total_equity_usdc=127.00)  # 125 reserve + 2.00 operational
+    abc_res.step_all_variants("s_res", "2026-11-06T10:00:00Z", "AVAX-USD_UM_XPERP-310530", meta_avax, 10.000, 10.000, 10.002, 2.0, 45.0, 0.25, 10.0, 9.98, vfc_ok, ev_ok, ev_ok, pol_mom, "LONG", 50.0)
+    res_ev_rows = mem_res_conn.execute("SELECT event_type, payload FROM variant_events WHERE event_type='RESERVE_PROTECTION_ABSTAIN'").fetchall()
+    res_pos_cnt = mem_res_conn.execute("SELECT COUNT(*) FROM variant_positions").fetchone()[0]
+    assert len(res_ev_rows) == 3 and res_pos_cnt == 0
+
+    # 7.6: Verify no legacy branch in predator_futures_demo.py computes slot_margin_usd on live_nav_est
+    pfd_src = open(os.path.join(BASE_DIR, "predator_futures_demo.py"), encoding="utf-8").read()
+    assert "slot_margin_usd = round(operational_capital_usdc * SLOT_NAV_PCT, 2)" in pfd_src
+    assert "slot_margin_usd = round(live_nav_est * SLOT_NAV_PCT, 2)" not in pfd_src
+
+    report["tests"]["7_capital_allocation_and_125_reserve_invariants"] = {
+        "status": "PASS",
+        "test1_start_250": asdict(book_250.state),
+        "test1b_start_250_23": asdict(book_250_23.state),
+        "test2_profit_plus_7": {
+            "reserve_usdc": st_plus7.reserve_usdc,
+            "operational_capital_usdc": st_plus7.operational_capital_usdc,
+            "total_equity_usdc": st_plus7.total_equity_usdc,
+        },
+        "test3_partial_profit_plus_2_confirmed": asdict(st_part_conf),
+        "test4_loss_minus_5": asdict(st_loss5),
+        "test5_reserve_protection_abstain": {
+            "orders_opened": res_pos_cnt,
+            "abstain_events_recorded": len(res_ev_rows),
+            "sample_event": json.loads(res_ev_rows[0][1]),
+        },
+        "test6_no_legacy_total_nav_sizing": True,
+    }
     return report
 
 

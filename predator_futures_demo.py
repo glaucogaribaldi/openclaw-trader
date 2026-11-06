@@ -13,7 +13,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 from core.kronos_oracle import KronosOracleClient
 from core.word_clock import MasterWordClock
-from core.luna_v35_engine import KronosAntiStaleValidator, CalibratedEVEngine, GeminiPolicySupervisor, ParallelShadowABCLedger
+from core.luna_v35_engine import KronosAntiStaleValidator, CalibratedEVEngine, GeminiPolicySupervisor, ParallelShadowABCLedger, CapitalAllocationBook, CapitalAllocationState, REFERENCE_NAV_USDC, RESERVE_FLOOR_USDC
 from core.microstructure import MicrostructureEngine
 from execution.okx_hybrid_executor import OKXNativeClient
 from predator_daemon import evaluate_run_lifecycle, load_dotenv
@@ -37,8 +37,8 @@ FUTURES_UNIVERSE: Dict[str, Dict[str, Any]] = {
     "CL-USD_UM_XPERP-310509":     {"spot_id": "CL-USDC",     "coin": "CL",     "ct_val": 0.1,    "dec_px": 2, "dec_sz": 0, "min_sz": 1.0},
 }
 
-INITIAL_CAPITAL_USDC = float(os.environ.get("INITIAL_CAPITAL_USDC", "1000.0"))
-STARTING_DEMO_NAV_USDC = 268.95
+INITIAL_CAPITAL_USDC = float(os.environ.get("INITIAL_CAPITAL_USDC", "250.0"))
+STARTING_DEMO_NAV_USDC = 250.00
 HISTORICAL_22OCT_SIM_NAV_USDC = float(os.environ.get("TARGET_ATH_USDC", str(round(INITIAL_CAPITAL_USDC * 1.25, 2))))
 LEVERAGE = 2.0
 MAKER_FEE_RATE = 0.0002  # 2 bps entry + 2 bps exit = 4 bps round-trip on notional
@@ -1206,10 +1206,24 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
             "kronos_2h_bps": round(k2h, 1), "kronos_6h_bps": round(k6h, 1), "kronos_12h_bps": round(k12h, 1), "kronos_24h_bps": round(k24h, 1), "kronos_48h_bps": k48h,
             "allowed_direction": allowed_dir,
         })
-    live_nav_est = round(real_nav if (live_mode and real_nav > 10.0) else (base_nav + realized_pnl + unrealized_total_usd), 2)
-    portfolio_dd_pct = ((live_nav_est - base_nav) / base_nav * 100.0) if base_nav > 0 else 0.0
-    circuit_breaker_tripped = bool(portfolio_dd_pct <= -8.0)
-    slot_margin_usd = round(live_nav_est * SLOT_NAV_PCT, 2)
+    # TRE OS v35 Capital Allocation Rule (Mandatory Split: reserve_usdc = 125.00 untouchable, operational_capital_usdc = realized equity - 125.00):
+    # Rule 1, 2, 3: Never include reserve_usdc (125.00) or unrealized_total_usd in operational_capital_usdc or slot sizing!
+    realized_total_equity_usdc = round((real_nav - unrealized_total_usd) if (live_mode and real_nav >= RESERVE_FLOOR_USDC) else max(RESERVE_FLOOR_USDC, REFERENCE_NAV_USDC + realized_pnl), 4)
+    cap_book = CapitalAllocationBook(initial_total_equity_usdc=realized_total_equity_usdc, reserve_floor_usdc=RESERVE_FLOOR_USDC)
+    cap_book.set_unrealized_pnl(unrealized_total_usd)
+    cap_book.state.fees_usdc = round(tot_fees, 4)
+    cap_book.state.realized_net_pnl_usdc = round(realized_pnl, 4)
+    cap_book.state.assert_invariants()
+    reserve_usdc = cap_book.state.reserve_usdc
+    operational_capital_usdc = cap_book.state.operational_capital_usdc
+    total_equity_usdc = cap_book.state.total_equity_usdc
+    live_nav_est = round(total_equity_usdc, 2)
+    # Rule 2: Available margin is strictly operational_capital_usdc minus locked_margin (reserve 125 USDC is NEVER included in free_mgn)!
+    free_mgn = round(max(0.0, operational_capital_usdc - locked_margin_total_usd), 4)
+    portfolio_dd_pct = ((total_equity_usdc - REFERENCE_NAV_USDC) / REFERENCE_NAV_USDC * 100.0) if REFERENCE_NAV_USDC > 0 else 0.0
+    circuit_breaker_tripped = bool(portfolio_dd_pct <= -8.0 or operational_capital_usdc <= 0.0)
+    # Rule 1: All new positions are sized strictly from operational_capital_usdc (NEVER live_nav_est / total_equity_usdc)!
+    slot_margin_usd = round(operational_capital_usdc * SLOT_NAV_PCT, 2)
     wc_safe_hold = False
     # TRE OS v31.0 Condition #3 (NO AUTOMATIC SLOT-MACHINE RE-ENTRY — MANDATORY PRE/DURING/POST ANALYSIS):
     # 1) Never open a new position in the same cycle a position just closed (len(actions_taken) > 0) -> force Post-Trade Gemini Audit first!
@@ -1238,6 +1252,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
     # v35 is authoritative for new entries. The pre-v35 selector may still be
     # useful for diagnostics, but it cannot open a Paper/live position unless
     # the calibrated EV gate and policy supervisor both approve it.
+    abc_ledger_init = ParallelShadowABCLedger(conn, initial_total_equity_usdc=total_equity_usdc)
     cur.execute("SELECT payload FROM variant_events WHERE event_type IN ('OPEN_POSITION', 'SHADOW_G2_ADDON') ORDER BY id DESC LIMIT 20")
     recent_ev_values = []
     for (ev_payload,) in cur.fetchall():
@@ -1419,7 +1434,7 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                 ev_s,
                 pol_obj,
                 cand_d_s,
-                90.0,
+                round(slot_margin_usd * LEVERAGE, 2),
                 trades=trades,
             )
         shadow_abc_scoreboard = abc_ledger.get_scoreboard()
@@ -1431,6 +1446,11 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         "luna_v35_ev_calibration": _EV_ENGINE.calibration_report,
         "luna_v35_entry_policy": {"policy": entry_policy.policy, "valid_until": entry_policy.valid_until, "reason_codes": entry_policy.reason_codes, "median_ev_net_last_20": median_ev_net_last_20},
         "historical_22oct_sim_nav_usd": round(HISTORICAL_22OCT_SIM_NAV_USDC + (curr_nav - base_nav), 2),
+        "reserve_usdc": reserve_usdc,
+        "operational_capital_usdc": operational_capital_usdc,
+        "total_equity_usdc": total_equity_usdc,
+        "realized_net_pnl_usdc": round(realized_pnl, 4),
+        "fees_usdc": round(tot_fees, 4),
         "current_nav_usd": curr_nav, "free_margin_usd": round(free_mgn, 2), "locked_margin_usd": round(locked_margin_total_usd, 2),
         "realized_pnl_usd": round(realized_pnl, 4), "unrealized_pnl_usd": round(unrealized_total_usd, 3),
         "total_fees_usd": round(tot_fees, 4), "fee_drag_ratio_pct": fee_drag_pct,

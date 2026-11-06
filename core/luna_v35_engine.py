@@ -17,6 +17,133 @@ from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional, Tuple
 
 
+
+
+REFERENCE_NAV_USDC = 250.00
+RESERVE_FLOOR_USDC = 125.00
+
+
+@dataclass
+class CapitalAllocationState:
+    reserve_usdc: float
+    operational_capital_usdc: float
+    total_equity_usdc: float
+    realized_net_pnl_usdc: float
+    unrealized_pnl_usdc: float
+    fees_usdc: float
+
+    def assert_invariants(self) -> None:
+        if round(self.reserve_usdc, 4) < RESERVE_FLOOR_USDC:
+            raise RuntimeError(f"INVARIANT_VIOLATION: reserve_usdc ({self.reserve_usdc}) < {RESERVE_FLOOR_USDC}")
+        if round(self.operational_capital_usdc, 4) < 0.0:
+            raise RuntimeError(f"INVARIANT_VIOLATION: operational_capital_usdc ({self.operational_capital_usdc}) < 0.0")
+        if round(self.total_equity_usdc, 4) != round(self.reserve_usdc + self.operational_capital_usdc, 4):
+            raise RuntimeError(
+                f"INVARIANT_VIOLATION: total_equity_usdc ({self.total_equity_usdc}) != reserve_usdc ({self.reserve_usdc}) + operational_capital_usdc ({self.operational_capital_usdc})"
+            )
+
+
+class CapitalAllocationBook:
+    """
+    Implements the TRE OS v35 Capital Allocation Specification:
+    - Fixed untouchable reserve of 125.00 USDC (RESERVE_FLOOR_USDC).
+    - 100% of realized net profits go to operational_capital_usdc (0% transferred to reserve).
+    - 100% of realized net losses reduce operational_capital_usdc only.
+    - Sizing uses exclusively operational_capital_usdc (never total_equity_usdc, never unrealized_pnl_usdc).
+    - Updates occur only after a confirmed fill.
+    - Any attempt to use the reserve or open with insufficient operational capital rejects the order,
+      switches policy to ABSTAIN, and records RESERVE_PROTECTION_ABSTAIN in the ledger.
+    """
+
+    def __init__(self, initial_total_equity_usdc: float = REFERENCE_NAV_USDC, reserve_floor_usdc: float = RESERVE_FLOOR_USDC) -> None:
+        if round(initial_total_equity_usdc, 4) < round(reserve_floor_usdc, 4):
+            raise RuntimeError(f"Initial total equity ({initial_total_equity_usdc}) cannot be below reserve floor ({reserve_floor_usdc})")
+        self.reserve_floor_usdc = round(float(reserve_floor_usdc), 4)
+        self.initial_operational_capital = round(float(initial_total_equity_usdc) - self.reserve_floor_usdc, 4)
+        self.state = CapitalAllocationState(
+            reserve_usdc=self.reserve_floor_usdc,
+            operational_capital_usdc=self.initial_operational_capital,
+            total_equity_usdc=round(self.reserve_floor_usdc + self.initial_operational_capital, 4),
+            realized_net_pnl_usdc=0.0,
+            unrealized_pnl_usdc=0.0,
+            fees_usdc=0.0,
+        )
+        self.state.assert_invariants()
+
+    @staticmethod
+    def compute_realized_net_profit(
+        realized_gross_pnl: float,
+        entry_fees: float = 0.0,
+        exit_fees: float = 0.0,
+        slippage: float = 0.0,
+        funding: float = 0.0,
+    ) -> float:
+        return round(
+            float(realized_gross_pnl)
+            - abs(float(entry_fees))
+            - abs(float(exit_fees))
+            - abs(float(slippage))
+            - float(funding),
+            4,
+        )
+
+    def apply_confirmed_fill_pnl(
+        self,
+        realized_gross_pnl: float,
+        entry_fees: float = 0.0,
+        exit_fees: float = 0.0,
+        slippage: float = 0.0,
+        funding: float = 0.0,
+        confirmed_fill: bool = True,
+    ) -> CapitalAllocationState:
+        self.state.assert_invariants()
+        if not confirmed_fill:
+            # Rule 4 & 6: Partial/full profit becomes operational ONLY after a confirmed fill!
+            return self.state
+        net_delta = self.compute_realized_net_profit(realized_gross_pnl, entry_fees, exit_fees, slippage, funding)
+        tot_fee_delta = round(abs(float(entry_fees)) + abs(float(exit_fees)), 4)
+        new_op = round(self.state.operational_capital_usdc + net_delta, 4)
+        if new_op < 0.0:
+            new_op = 0.0
+        self.state = CapitalAllocationState(
+            reserve_usdc=self.state.reserve_usdc,  # Fixed at 125.00 USDC; 0% of profits transferred to reserve!
+            operational_capital_usdc=new_op,
+            total_equity_usdc=round(self.state.reserve_usdc + new_op, 4),
+            realized_net_pnl_usdc=round(self.state.realized_net_pnl_usdc + net_delta, 4),
+            unrealized_pnl_usdc=self.state.unrealized_pnl_usdc,
+            fees_usdc=round(self.state.fees_usdc + tot_fee_delta, 4),
+        )
+        self.state.assert_invariants()
+        return self.state
+
+    def set_unrealized_pnl(self, unrealized_pnl_usdc: float) -> CapitalAllocationState:
+        """Rule 3: Unrealized PnL is tracked for reporting but NEVER alters operational_capital_usdc or sizing!"""
+        self.state.assert_invariants()
+        self.state.unrealized_pnl_usdc = round(float(unrealized_pnl_usdc), 4)
+        self.state.assert_invariants()
+        return self.state
+
+    def compute_position_sizing(
+        self,
+        slot_nav_pct: float = 0.18,
+        leverage: float = 2.0,
+        locked_operational_margin_usdc: float = 0.0,
+        min_notional_usdc: float = 10.0,
+    ) -> Tuple[bool, float, float, str]:
+        """
+        Rule 1 & 2: Sizes positions strictly from operational_capital_usdc (never total_equity_usdc, never reserve_usdc, never unrealized_pnl_usdc).
+        Returns (authorized, slot_margin_usdc, target_notional_usdc, reason).
+        """
+        self.state.assert_invariants()
+        avail_op_margin = round(self.state.operational_capital_usdc - max(0.0, float(locked_operational_margin_usdc)), 4)
+        slot_margin = round(self.state.operational_capital_usdc * float(slot_nav_pct), 4)
+        target_notional = round(slot_margin * float(leverage), 4)
+        min_req_margin = round(float(min_notional_usdc) / max(1.0, float(leverage)), 4)
+        if self.state.operational_capital_usdc <= 0.0 or avail_op_margin < max(slot_margin, min_req_margin) or target_notional < min_notional_usdc:
+            return False, 0.0, 0.0, "INSUFFICIENT_OPERATIONAL_CAPITAL_RESERVE_PROTECTED"
+        return True, slot_margin, target_notional, "OK"
+
+
 def _clip(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, float(x)))
 
@@ -624,8 +751,9 @@ class ParallelShadowABCLedger:
 
     VARIANTS = ("A_COND_PYRAMID", "B_PARTIAL_60_40", "C_SNIPER_100")
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: sqlite3.Connection, initial_total_equity_usdc: float = REFERENCE_NAV_USDC) -> None:
         self.conn = conn
+        self.initial_total_equity_usdc = round(float(initial_total_equity_usdc), 4)
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -706,12 +834,28 @@ class ParallelShadowABCLedger:
                 calibration_ece REAL NOT NULL DEFAULT 0.04,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS capital_allocation_ledger (
+                variant_id TEXT PRIMARY KEY,
+                reserve_usdc REAL NOT NULL,
+                operational_capital_usdc REAL NOT NULL,
+                total_equity_usdc REAL NOT NULL,
+                realized_net_pnl_usdc REAL NOT NULL,
+                unrealized_pnl_usdc REAL NOT NULL,
+                fees_usdc REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            );
         """)
         now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        init_op = round(self.initial_total_equity_usdc - RESERVE_FLOOR_USDC, 4)
+        init_tot = round(RESERVE_FLOOR_USDC + init_op, 4)
         for vid in self.VARIANTS:
             self.conn.execute(
                 "INSERT OR IGNORE INTO variant_metrics VALUES (?, 'ALL_TIME', 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.04, ?)",
                 (vid, now_iso),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO capital_allocation_ledger VALUES (?, ?, ?, ?, 0.0, 0.0, 0.0, ?)",
+                (vid, RESERVE_FLOOR_USDC, init_op, init_tot, now_iso),
             )
         self.conn.commit()
 
@@ -875,16 +1019,19 @@ class ParallelShadowABCLedger:
                         fee_u,
                         "maker_simulated",
                     )
+                    # Rule 4: Partial profit updates operational_capital_usdc immediately upon confirmed TP1 fill!
+                    entry_fee_part = round((tp1_q / max(1e-9, init_qty)) * fees_p, 4)
+                    part_net_delta = round(gross_u - entry_fee_part - fee_u, 4)
+                    self._apply_confirmed_fill_to_capital_ledger(cur, vid, part_net_delta, round(entry_fee_part + fee_u, 4), now_iso)
                     r_pnl = round(r_pnl + net_u, 4)
-                    fees_p = round(fees_p + fee_u, 4)
+                    fees_p = round(max(0.0, fees_p - entry_fee_part), 4)
                     tp1_done = 1
                     qty = rem_q
-                    # Move stop to +25 bps floor for runner
                     stop_px = round(avg_px * (1.0 + sign * 0.0025), dec_px)
                     cur.execute("INSERT INTO variant_events (variant_id, snapshot_id, ts, event_type, payload) VALUES (?, ?, ?, 'TP1_FILLED', ?)",
-                                (vid, snapshot_id, now_iso, json.dumps({"inst_id": inst_id, "tp1_qty": tp1_q, "rem_qty": rem_q, "net_pnl": net_u})))
+                                (vid, snapshot_id, now_iso, json.dumps({"inst_id": inst_id, "tp1_qty": tp1_q, "rem_qty": rem_q, "net_pnl": part_net_delta})))
                     if qty <= 0.0:
-                        self._close_variant_position(cur, vid, inst_id, r_pnl, fees_p, g2_done, now_iso)
+                        self._close_variant_position(cur, vid, inst_id, r_pnl, fees_p + entry_fee_part + fee_u, g2_done, now_iso, rem_net_delta=0.0, rem_fee_delta=0.0)
                         continue
 
                 # 2. Check Shadow G2 Conditional Add-On (Variant A ONLY, after TP1 filled!)
@@ -970,13 +1117,15 @@ class ParallelShadowABCLedger:
                         fee_exit,
                         "maker_simulated",
                     )
+                    rem_net_delta = round(gross_rem - fees_p - fee_exit, 4)
+                    rem_fee_delta = round(fees_p + fee_exit, 4)
                     r_pnl = round(r_pnl + gross_rem - fee_exit, 4)
-                    fees_p = round(fees_p + fee_exit, 4)
-                    self._close_variant_position(cur, vid, inst_id, r_pnl, fees_p, g2_done, now_iso)
+                    self._close_variant_position(cur, vid, inst_id, r_pnl, rem_fee_delta, g2_done, now_iso, rem_net_delta=rem_net_delta, rem_fee_delta=rem_fee_delta)
                 else:
                     unr = round(qty * ctv * sign * (mid_px - avg_px), 4)
                     cur.execute("UPDATE variant_positions SET qty=?, avg_px=?, stop_px=?, peak_bps=?, tp1_filled=?, g2_filled=?, realized_pnl=?, unrealized_pnl=?, fees_paid=? WHERE variant_id=? AND instrument=?",
                                 (qty, avg_px, stop_px, round(new_pk, 2), tp1_done, g2_done, r_pnl, unr, fees_p, vid, inst_id))
+                    cur.execute("UPDATE capital_allocation_ledger SET unrealized_pnl_usdc=?, updated_at=? WHERE variant_id=?", (unr, now_iso, vid))
 
             else:
                 # Consider opening a new position in this variant if no position is currently open in this variant
@@ -985,7 +1134,18 @@ class ParallelShadowABCLedger:
                 if open_cnt_v == 0 and entry_candidate_dir in ("LONG", "SHORT") and policy.policy != "ABSTAIN":
                     ev_c = ev_long if entry_candidate_dir == "LONG" else ev_short
                     if ev_c.paper_authorized and vfc.entry_valid:
-                        raw_cts = target_notional_usd / max(1e-9, mid_px * ct_val)
+                        # Rule 1, 2, 3, 6: Size strictly from operational_capital_usdc (NEVER total_equity_usdc, NEVER reserve_usdc, NEVER unrealized_pnl_usdc)!
+                        cap_row = self.get_capital_state(vid)
+                        op_cap = cap_row.operational_capital_usdc
+                        min_lot_notional = min_sz * ct_val * mid_px
+                        min_lot_margin = round(min_lot_notional / 2.0, 4)
+                        eff_notional = round(op_cap * 0.36 * 2.0, 4) if target_notional_usd <= 0 else round(min(target_notional_usd, op_cap * 2.0), 4)
+                        req_margin = round(eff_notional / 2.0, 4)
+                        if op_cap <= 0.0 or op_cap < min_lot_margin or req_margin > op_cap or eff_notional < min_lot_notional:
+                            cur.execute("INSERT INTO variant_events (variant_id, snapshot_id, ts, event_type, payload) VALUES (?, ?, ?, 'RESERVE_PROTECTION_ABSTAIN', ?)",
+                                        (vid, snapshot_id, now_iso, json.dumps({"inst_id": inst_id, "policy": "ABSTAIN", "reason": "INSUFFICIENT_OPERATIONAL_CAPITAL_RESERVE_PROTECTED", "reserve_usdc": cap_row.reserve_usdc, "operational_capital_usdc": op_cap, "required_margin_usdc": max(req_margin, min_lot_margin)})))
+                            continue
+                        raw_cts = eff_notional / max(1e-9, mid_px * ct_val)
                         dec_s = len(str(lot_sz).split(".")[1].rstrip("0")) if "." in str(lot_sz) else 0
                         cts = round(math.floor(raw_cts / lot_sz) * lot_sz, dec_s) if dec_s > 0 else float(int(math.floor(raw_cts / lot_sz) * lot_sz))
                         if cts >= min_sz:
@@ -1026,7 +1186,33 @@ class ParallelShadowABCLedger:
         self.conn.commit()
         return self.get_scoreboard()
 
-    def _close_variant_position(self, cur: sqlite3.Cursor, vid: str, inst_id: str, r_pnl: float, fees_p: float, g2_done: int, now_iso: str) -> None:
+    def _apply_confirmed_fill_to_capital_ledger(self, cur: sqlite3.Cursor, vid: str, net_pnl_delta: float, fee_delta: float, now_iso: str) -> CapitalAllocationState:
+        cur.execute("SELECT reserve_usdc, operational_capital_usdc, total_equity_usdc, realized_net_pnl_usdc, unrealized_pnl_usdc, fees_usdc FROM capital_allocation_ledger WHERE variant_id=?", (vid,))
+        row = cur.fetchone() or (RESERVE_FLOOR_USDC, round(self.initial_total_equity_usdc - RESERVE_FLOOR_USDC, 4), self.initial_total_equity_usdc, 0.0, 0.0, 0.0)
+        res_u = round(float(row[0]), 4)
+        op_u = round(max(0.0, float(row[1]) + float(net_pnl_delta)), 4)
+        tot_u = round(res_u + op_u, 4)
+        real_u = round(float(row[3]) + float(net_pnl_delta), 4)
+        fees_u = round(float(row[5]) + abs(float(fee_delta)), 4)
+        st = CapitalAllocationState(res_u, op_u, tot_u, real_u, 0.0, fees_u)
+        st.assert_invariants()
+        cur.execute("UPDATE capital_allocation_ledger SET reserve_usdc=?, operational_capital_usdc=?, total_equity_usdc=?, realized_net_pnl_usdc=?, unrealized_pnl_usdc=0.0, fees_usdc=?, updated_at=? WHERE variant_id=?",
+                    (st.reserve_usdc, st.operational_capital_usdc, st.total_equity_usdc, st.realized_net_pnl_usdc, st.fees_usdc, now_iso, vid))
+        return st
+
+    def get_capital_state(self, vid: str = "B_PARTIAL_60_40") -> CapitalAllocationState:
+        cur = self.conn.cursor()
+        cur.execute("SELECT reserve_usdc, operational_capital_usdc, total_equity_usdc, realized_net_pnl_usdc, unrealized_pnl_usdc, fees_usdc FROM capital_allocation_ledger WHERE variant_id=?", (vid,))
+        row = cur.fetchone() or (RESERVE_FLOOR_USDC, round(self.initial_total_equity_usdc - RESERVE_FLOOR_USDC, 4), self.initial_total_equity_usdc, 0.0, 0.0, 0.0)
+        st = CapitalAllocationState(round(float(row[0]), 4), round(float(row[1]), 4), round(float(row[2]), 4), round(float(row[3]), 4), round(float(row[4]), 4), round(float(row[5]), 4))
+        st.assert_invariants()
+        return st
+
+    def _close_variant_position(self, cur: sqlite3.Cursor, vid: str, inst_id: str, r_pnl: float, fees_p: float, g2_done: int, now_iso: str, rem_net_delta: Optional[float] = None, rem_fee_delta: Optional[float] = None) -> None:
+        if rem_net_delta is not None:
+            self._apply_confirmed_fill_to_capital_ledger(cur, vid, rem_net_delta, rem_fee_delta or 0.0, now_iso)
+        else:
+            self._apply_confirmed_fill_to_capital_ledger(cur, vid, r_pnl, fees_p, now_iso)
         cur.execute("DELETE FROM variant_positions WHERE variant_id=? AND instrument=?", (vid, inst_id))
         cur.execute("SELECT trades_count, wins_count, g2_events_count, pnl, fees FROM variant_metrics WHERE variant_id=?", (vid,))
         m = cur.fetchone() or (0, 0, 0, 0.0, 0.0)
@@ -1046,9 +1232,15 @@ class ParallelShadowABCLedger:
         cur.execute("SELECT variant_id, trades_count, wins_count, g2_events_count, pnl, fees, hit_rate, updated_at FROM variant_metrics")
         out = {}
         for r in cur.fetchall():
+            cap = self.get_capital_state(r[0])
             out[r[0]] = {
                 "trades": r[1], "wins": r[2], "g2_events": r[3],
                 "net_pnl_usd": round(float(r[4]), 2), "fees_usd": round(float(r[5]), 2),
                 "hit_rate_pct": r[6], "updated_at": r[7],
+                "reserve_usdc": cap.reserve_usdc,
+                "operational_capital_usdc": cap.operational_capital_usdc,
+                "total_equity_usdc": cap.total_equity_usdc,
+                "realized_net_pnl_usdc": cap.realized_net_pnl_usdc,
+                "unrealized_pnl_usdc": cap.unrealized_pnl_usdc,
             }
         return out
