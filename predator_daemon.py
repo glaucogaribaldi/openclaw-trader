@@ -4,7 +4,7 @@ TRE OS v6.0 (Predator Edition) — Main Autonomous Orchestrator (`predator_daemo
 Combines:
 1. Real-Time OKX v5 Market Microstructure Scanner (Cont-Stoikov OFI, VPIN Toxicity Shield, Hawkes Process, Stoikov Micro-Price)
 2. Online Streaming RLS + Kalman Velocity Predictor (updates weights live every tick)
-3. NeoQuasar/Kronos Foundation Model Oracle (`Kronos-mini` 4.1M / `Kronos-small` 24.7M on `127.0.0.1:8090` or `localhost:8090`)
+3. NeoQuasar/Kronos Foundation Model Oracle (`Kronos-mini` 4.1M / `Kronos-small` 24.7M on `100.125.189.103:8090` or `localhost:8090`)
 4. Multi-Agent Adversarial LLM Debate Council (Bull vs Bear vs Judge on OpenRouter Free)
 5. 100% Post-Only Maker Execution Engine with Zero-Loss Audit Safeguards:
    - Cost-Basis Floor Protection (`max(openAvgPx, accAvgPx) * 1.0022` minimum SELL price — zero loss sells)
@@ -29,7 +29,10 @@ from typing import Any, Dict, List, Tuple
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from agents.llm_council import AdversarialLLMCouncil
+try:
+    from agents.llm_council import AdversarialLLMCouncil
+except ImportError:
+    AdversarialLLMCouncil = None
 from core.gemini_self_improver import GeminiSelfImprover
 from core.kronos_oracle import KronosOracleClient
 from core.microstructure import MicrostructureEngine

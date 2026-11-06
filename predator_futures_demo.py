@@ -13,6 +13,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 from core.kronos_oracle import KronosOracleClient
 from core.word_clock import MasterWordClock
+from core.luna_v35_engine import KronosAntiStaleValidator, CalibratedEVEngine, GeminiPolicySupervisor, ParallelShadowABCLedger
 from core.microstructure import MicrostructureEngine
 from execution.okx_hybrid_executor import OKXNativeClient
 from predator_daemon import evaluate_run_lifecycle, load_dotenv
@@ -36,6 +37,7 @@ FUTURES_UNIVERSE: Dict[str, Dict[str, Any]] = {
     "CL-USD_UM_XPERP-310509":     {"spot_id": "CL-USDC",     "coin": "CL",     "ct_val": 0.1,    "dec_px": 2, "dec_sz": 0, "min_sz": 1.0},
 }
 
+INITIAL_CAPITAL_USDC = float(os.environ.get("INITIAL_CAPITAL_USDC", "1000.0"))
 STARTING_DEMO_NAV_USDC = 268.95
 HISTORICAL_22OCT_SIM_NAV_USDC = float(os.environ.get("TARGET_ATH_USDC", str(round(INITIAL_CAPITAL_USDC * 1.25, 2))))
 LEVERAGE = 2.0
@@ -308,6 +310,9 @@ def _fetch_swap_book_and_trades(inst_id: str):
     except Exception:
         pass
     return inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps, atr_1h_bps, oi_delta_bps, funding_bps
+_KRONOS_VALIDATOR = KronosAntiStaleValidator()
+_EV_ENGINE = CalibratedEVEngine()
+_POLICY_SUPERVISOR = GeminiPolicySupervisor()
 _LAST_GEMINI_AUDIT_TS = 0.0
 _GEMINI_LITE_429_UNTIL = 0.0
 _PRE_TRADE_CONFIRM_MAP: Dict[str, Tuple[str, int, float]] = {}  # inst_id -> (dir, consecutive_cycles, first_px)
@@ -1015,8 +1020,8 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
                     _amend_okx_hardware_sl_to_breakeven(inst_id, p_dir, p_entry, round(locked_move_bps, 1), meta["dec_px"])
                 if move_bps <= locked_move_bps:
                     exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
-            elif new_shield == 1 and move_bps <= (15.0 if new_peak >= 55.0 else -10.0):
-                # Give Tier 1 full breathing room (-10 bps at +40bps peak, +15 bps at >=+55bps peak) so runners like ZEC (+$2.24) and ONDO (+$1.79) reach Tier 2 (+68bps)!
+            elif new_shield == 1 and move_bps <= (25.0 if new_peak >= 50.0 else -10.0):
+                # Luna Spec Variant B Baseline: once Peak >= +50 bps (60% TP1 zone), lock at least +25 bps on the position so +50..+64 bps waves ALWAYS bank real net profit!
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
             elif emergency_situation and move_bps >= 24.0:
                 exit_reason, exit_exec_px, urgent_stop = "CLOSED_SHIELD", (asks[0][0] if p_dir == "LONG" else bids[0][0]), False
@@ -1284,8 +1289,29 @@ def run_futures_demo_cycle(conn: sqlite3.Connection, micro_engine: Microstructur
         aud_model, aud_verdict, fee_drag_pct = aud_res["model_used"], aud_res["verdict"], aud_res["fee_drag_ratio_pct"]
     cur.execute("SELECT pos_id, inst_id, direction, margin_usd, notional_usd, entry_px, current_px, tp_px, sl_px, peak_move_bps, shield_armed, opened_at FROM futures_demo_positions WHERE status='OPEN'")
     active_pos_list = [{"pos_id": r[0], "inst_id": r[1], "direction": r[2], "margin_usd": r[3], "notional_usd": r[4], "entry_px": r[5], "current_px": r[6], "tp_px": r[7], "sl_px": r[8], "peak_move_bps": round(float(r[9]), 1), "shield_armed": bool(r[10]), "opened_at": r[11]} for r in cur.fetchall()]
+    # Luna Spec Step 5-8: Step Parallel Shadow A/B/C Ledger on the exact same market cycle & compute EV/Policy telemetry!
+    shadow_abc_scoreboard = {}
+    try:
+        abc_ledger = ParallelShadowABCLedger(conn)
+        pol_obj = _POLICY_SUPERVISOR.evaluate_policy(brain_skills, fee_drag_pct, 0, 6.5)
+        top_c_dir = candidates[0]["dir"] if candidates else "NEUTRAL"
+        top_c_id = candidates[0]["inst_id"] if candidates else "BTC-USD_UM_XPERP-310404"
+        for inst_id, bids, asks, trades, real_15m_bps, real_1h_bps, real_48h_bps, atr_1h_bps, oi_delta_bps, funding_bps in market_snaps[:14]:
+            if not bids or not asks: continue
+            meta_s = FUTURES_UNIVERSE[inst_id]
+            mid_s = 0.5 * (bids[0][0] + asks[0][0])
+            sp_s = (asks[0][0] - bids[0][0]) / max(1e-9, mid_s) * 10000.0
+            raw_fc_s = kronos_map.get(meta_s["spot_id"]) or kronos_map.get(inst_id)
+            vfc_s = _KRONOS_VALIDATOR.validate(inst_id, raw_fc_s, mid_s)
+            ev_l = _EV_ENGINE.evaluate(inst_id, "LONG", vfc_s, 0.20, sp_s, atr_1h_bps, real_15m_bps, real_1h_bps, macro_regime, is_us_session)
+            ev_s = _EV_ENGINE.evaluate(inst_id, "SHORT", vfc_s, -0.20, sp_s, atr_1h_bps, real_15m_bps, real_1h_bps, macro_regime, is_us_session)
+            cand_d_s = top_c_dir if inst_id == top_c_id else "NEUTRAL"
+            shadow_abc_scoreboard = abc_ledger.step_all_variants(f"snap_{int(time.time())}_{inst_id.split('-')[0]}", now_iso, inst_id, meta_s, mid_s, bids[0][0], asks[0][0], sp_s, atr_1h_bps, 0.20, oi_delta_bps, mid_s, vfc_s, ev_l, ev_s, pol_obj, cand_d_s, 90.0)
+    except Exception:
+        pass
     snap = {
         "timestamp": now_iso, "execution_mode": "LIVE_XPERP_2.5X" if live_mode else "DEMO_2.5X", "baseline_nav_usd": base_nav,
+        "luna_v35_shadow_abc_scoreboard": shadow_abc_scoreboard,
         "historical_22oct_sim_nav_usd": round(HISTORICAL_22OCT_SIM_NAV_USDC + (curr_nav - base_nav), 2),
         "current_nav_usd": curr_nav, "free_margin_usd": round(free_mgn, 2), "locked_margin_usd": round(locked_margin_total_usd, 2),
         "realized_pnl_usd": round(realized_pnl, 4), "unrealized_pnl_usd": round(unrealized_total_usd, 3),
